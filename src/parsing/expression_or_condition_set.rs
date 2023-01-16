@@ -78,19 +78,47 @@ mod tests {
         assert_eq!(
             discerned_expression().parse("1"),
             Ok(Expression {
-                base: Value::Number("1".to_string())
+                base: Value::Number("1".to_string()),
+                compositions: vec![],
             })
         );
         assert_eq!(
             discerned_expression().parse("@true"),
-            Ok(Expression { base: Value::True })
+            Ok(Expression {
+                base: Value::True,
+                compositions: vec![]
+            })
         );
         assert_eq!(
             discerned_expression().parse("foo"),
             Ok(Expression {
                 base: Value::Path(Path {
                     parts: vec![PathPart::LocalColumn("foo".to_string())]
-                })
+                }),
+                compositions: vec![],
+            })
+        );
+        assert_eq!(
+            discerned_expression().parse("foo|bar(2)|%baz"),
+            Ok(Expression {
+                base: Value::Path(Path {
+                    parts: vec![PathPart::LocalColumn("foo".to_string())]
+                }),
+                compositions: vec![
+                    Composition {
+                        function: "bar".to_string(),
+                        argument: Some(Expression {
+                            base: Value::Number("2".to_string()),
+                            compositions: vec![]
+                        }),
+                        is_aggregate: false,
+                    },
+                    Composition {
+                        function: "baz".to_string(),
+                        argument: None,
+                        is_aggregate: true,
+                    }
+                ],
             })
         );
         assert_eq!(
@@ -101,7 +129,8 @@ mod tests {
                         PathPart::LocalColumn("foo".to_string()),
                         PathPart::LinkToOne("bar".to_string())
                     ]
-                })
+                }),
+                compositions: vec![],
             })
         );
         assert_eq!(
@@ -113,7 +142,8 @@ mod tests {
                         column: Some("bar".to_string()),
                         condition_set: ConditionSet::default(),
                     })]
-                })
+                }),
+                compositions: vec![],
             })
         );
         assert_eq!(
@@ -130,15 +160,18 @@ mod tests {
                                     base: Value::Path(Path {
                                         parts: vec![PathPart::LocalColumn("a".to_string())]
                                     }),
+                                    compositions: vec![],
                                 },
                                 operator: Operator::Eq,
                                 right: Expression {
-                                    base: Value::Number("1".to_string())
+                                    base: Value::Number("1".to_string()),
+                                    compositions: vec![],
                                 },
                             })],
                         },
                     })]
-                })
+                }),
+                compositions: vec![],
             })
         );
 
@@ -156,10 +189,12 @@ mod tests {
                         base: Value::Path(Path {
                             parts: vec![PathPart::LocalColumn("a".to_string())]
                         }),
+                        compositions: vec![],
                     },
                     operator: Operator::Eq,
                     right: Expression {
-                        base: Value::Number("1".to_string())
+                        base: Value::Number("1".to_string()),
+                        compositions: vec![],
                     },
                 })],
             })

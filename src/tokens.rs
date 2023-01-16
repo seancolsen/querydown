@@ -1,3 +1,4 @@
+pub(crate) const AGGREGATE_FUNCTION_FLAG: char = '%';
 pub(crate) const ALIAS_DELIMITER: char = ':';
 pub(crate) const AND_CONDITION_L_BRACE: char = '{';
 pub(crate) const AND_CONDITION_R_BRACE: char = '}';
@@ -8,6 +9,9 @@ pub(crate) const COLUMN_CONTROL_FLAG_HIDE: char = 'h';
 pub(crate) const COLUMN_CONTROL_FLAG_PARTITION: char = 'p';
 pub(crate) const COLUMN_CONTROL_FLAG_SORT: char = 's';
 pub(crate) const COLUMN_SPEC_PREFIX: char = '-';
+pub(crate) const COMPOSITION_ARGUMENT_BRACE_L: char = '(';
+pub(crate) const COMPOSITION_ARGUMENT_BRACE_R: char = ')';
+pub(crate) const COMPOSITION_PREFIX: char = '|';
 pub(crate) const DB_IDENTIFIER_QUOTE: char = '`';
 pub(crate) const ESCAPE_PREFIX: char = '\\';
 pub(crate) const LINK_TO_MANY_COLUMN_L_BRACE: char = '(';

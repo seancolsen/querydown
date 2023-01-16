@@ -32,11 +32,13 @@ mod tests {
                         left: Expression {
                             base: Value::Path(Path {
                                 parts: vec![PathPart::LocalColumn("a".to_string())]
-                            })
+                            }),
+                            compositions: vec![],
                         },
                         operator: Operator::Eq,
                         right: Expression {
-                            base: Value::Number("8".to_string())
+                            base: Value::Number("8".to_string()),
+                            compositions: vec![],
                         }
                     })]
                 },
@@ -46,7 +48,8 @@ mod tests {
                         expression: Expression {
                             base: Value::Path(Path {
                                 parts: vec![PathPart::LocalColumn("foo".to_string())]
-                            })
+                            }),
+                            compositions: vec![],
                         },
                         alias: None,
                     }]

@@ -142,7 +142,8 @@ mod tests {
             Ok(ColumnSpec {
                 column_control: ColumnControl::default(),
                 expression: Expression {
-                    base: Value::Number("8".to_string())
+                    base: Value::Number("8".to_string()),
+                    compositions: vec![],
                 },
                 alias: None,
             })
@@ -163,7 +164,8 @@ mod tests {
                 expression: Expression {
                     base: Value::Path(Path {
                         parts: vec![PathPart::LocalColumn("foo".to_string()),]
-                    })
+                    }),
+                    compositions: vec![],
                 },
                 alias: Some("bar".to_string()),
             })
@@ -181,7 +183,8 @@ mod tests {
                         expression: Expression {
                             base: Value::Path(Path {
                                 parts: vec![PathPart::LocalColumn("foo".to_string()),]
-                            })
+                            }),
+                            compositions: vec![],
                         },
                         alias: None,
                     },
@@ -195,7 +198,8 @@ mod tests {
                         expression: Expression {
                             base: Value::Path(Path {
                                 parts: vec![PathPart::LocalColumn("bar".to_string()),]
-                            })
+                            }),
+                            compositions: vec![],
                         },
                         alias: Some("B".to_string()),
                     },

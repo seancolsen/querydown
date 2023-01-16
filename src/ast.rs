@@ -107,6 +107,7 @@ pub enum SortDirection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expression {
     pub base: Value,
+    pub compositions: Vec<Composition>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,4 +139,11 @@ pub struct LinkToMany {
     pub table: String,
     pub condition_set: ConditionSet,
     pub column: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Composition {
+    pub function: String,
+    pub argument: Option<Expression>,
+    pub is_aggregate: bool,
 }
