@@ -29,6 +29,7 @@ where
     })
 }
 
+/// A condition set without braces. (Uses AND as the conjunction.)
 pub fn implicit_condition_set<C, E>(
     condition_set: C,
     expression: E,

@@ -17,12 +17,6 @@ pub fn transformation() -> impl Parser<char, Transformation, Error = Simple<char
         })
 }
 
-fn top_level_condition_set() -> impl Parser<char, ConditionSet, Error = Simple<char>> {
-    // TODO Re-enable implicit "AND" condition sets at the top level
-    // choice((condition_set(), implicit_condition_set(condition_set())))
-    discerned_condition_set()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

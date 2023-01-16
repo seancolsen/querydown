@@ -2,7 +2,17 @@ use chumsky::prelude::*;
 
 use crate::ast::*;
 
-use super::{conditions::condition_set, expressions::expression};
+use super::{
+    conditions::{condition_set, implicit_condition_set},
+    expressions::expression,
+};
+
+pub fn top_level_condition_set() -> impl Parser<char, ConditionSet, Error = Simple<char>> {
+    choice((
+        discerned_condition_set(),
+        implicit_condition_set(discerned_condition_set(), discerned_expression()),
+    ))
+}
 
 pub fn discerned_expression() -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
     make_discerned_expression(expression_or_condition_set())

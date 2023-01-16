@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn test_query() {
         assert_eq!(
-            query().parse("foo {a=8} -bar"),
+            query().parse("foo a=8 -bar"),
             Ok(Query {
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
