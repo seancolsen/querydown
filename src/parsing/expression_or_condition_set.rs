@@ -106,6 +106,31 @@ mod tests {
                 })
             })
         );
+        assert_eq!(
+            discerned_expression().parse("*foo(bar){a=1}"),
+            Ok(Expression {
+                base: Value::Path(Path {
+                    parts: vec![PathPart::LinkToMany(LinkToMany {
+                        table: "foo".to_string(),
+                        column: Some("bar".to_string()),
+                        condition_set: ConditionSet {
+                            conjunction: Conjunction::And,
+                            entries: vec![ConditionSetEntry::Condition(Condition {
+                                left: Expression {
+                                    base: Value::Path(Path {
+                                        parts: vec![PathPart::LocalColumn("a".to_string())]
+                                    }),
+                                },
+                                operator: Operator::Eq,
+                                right: Expression {
+                                    base: Value::Number("1".to_string())
+                                },
+                            })],
+                        },
+                    })]
+                })
+            })
+        );
 
         assert!(discerned_expression().parse("{a=1}").is_err());
     }

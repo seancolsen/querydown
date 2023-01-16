@@ -36,10 +36,10 @@ where
         .ignore_then(db_identifier())
         .then_ignore(whitespace())
         .then(column.or_not())
-        .map(|(table, column)| LinkToMany {
+        .then(condition_set.or_not())
+        .map(|((table, column), cs)| LinkToMany {
             table,
-            // TODO add parsing for this
-            condition_set: ConditionSet::default(),
+            condition_set: cs.unwrap_or_default(),
             column,
         })
 }
@@ -56,8 +56,10 @@ mod tests {
 
     use super::*;
 
-    /// A mock condition set parser that will never succeed to parse any of the input found in our
-    /// tests.
+    /// A mock condition set parser that will never succeed to parse any input. This okay because
+    /// we don't test cases like this here. Testing for paths which contain condition sets is done
+    /// at a higher level (see `test_discerned_expression`) because it requires parsing for
+    /// expressions and condition_sets.
     fn incapable_condition_set_parser(
     ) -> impl Parser<char, ConditionSet, Error = Simple<char>> + Clone {
         exactly("NOPE").map(|_| ConditionSet::default())
