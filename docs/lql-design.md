@@ -17,8 +17,8 @@
 
 - patron_tag
   - id
-  - patron
-  - tag
+  - patron -> patron.id
+  - tag -> tag.id
 
 - tag
   - id
