@@ -400,20 +400,34 @@ If you want to reference a table name or column name which contains characters o
 - The comparator can be altered per-value by using `?`
 
     ```
-    publication year ? {>=2000 <=2010}
+    publication year ? {# >= 2000 # <= 2010}
     ```
+
+    Within the braces, `#` refers to the value from the outer scope (i.e. `year` in this case)
 
     - ```sql
       SELECT * FROM "publication"
       WHERE "year" >= 2000 AND "year" <= 2010;
       ```
 
-    This is similar to the SQL `BETWEEN`, but somewhat more explicit.
+    The above code can be made slightly more readable by reversing the first inner condition so that it reads more like math notation
+
+    ```
+    publication year ? {2000 <= # # <= 2010}
+    ```
+
+    This is similar to the SQL `BETWEEN`, but with more explicit control over the comparison operators 
 
 - When using the `?` comparison, the per-value operators must be placed on the right-hand-side of the `?`. The following won't work:
 
     ```
-    publication {>=2000 <=2010} ? year // INVALID!
+    publication {2000 <= # # <=2010} ? year // INVALID!
+    ```
+
+- When using the `?` comparison, the per-value operators must be placed on the right-hand-side of the `?`. The following won't work:
+
+    ```
+    publication {2000 <= # # <=2010} ? year // INVALID!
     ```
 
 - If both sides of the comparison are enclosed in brackets, then the brackets on left side are used for the outer precedence
@@ -430,7 +444,7 @@ If you want to reference a table name or column name which contains characters o
       ```
 
     ```
-    author [birth_date death_date] ? {>=1900-01-01 <2000-01-01}
+    author [birth_date death_date] ? {1900-01-01 <= # # < 2000-01-01}
     ```
 
     - ```sql
@@ -601,7 +615,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Publications from living authors (excluding unknown authors).
 
     ```
-    publication author!=@null author.death_date=@null
+    publication author != @null author.death_date = @null
     ```
 
     - ```sql
@@ -617,13 +631,13 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Conditions on directly related records
 
     ```
-    publication author.{birth_date>2000-01-01 death_date!=@null}
+    publication author ? {birth_date > 2000-01-01 death_date != @null}
     ```
 
-    This is just syntactic sugar for
+    This expands to
     
     ```
-    publication author.birth_date>2000-01-01 author.death_date!=@null
+    publication author.birth_date > 2000-01-01 author.death_date != @null
     ```
 
     - ```sql
@@ -785,7 +799,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
     ```
     patron
     *checkout{
-      item.publication.{
+      item.publication ? {
         author.name = "Foo"
         *publication_genre{genre.name = "Biography"}%count = 0
       }
@@ -1009,7 +1023,7 @@ p      "partition" (in a column control in a window)
 '      string
 `      db entity
 ^      interpolated string
-#   
+#      value from scope outside comparison expansion
 $      user-defined variable
 %      aggregate function
 @      literal
