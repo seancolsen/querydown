@@ -723,7 +723,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Authors of audio books that have been checked out at least 100 times
 
     ```
-    author *publication{format="Audio"}*item*checkout|%count >= 100
+    author *publication{format="Audio" *item*checkout|%count>=100}|%count > 0
     ```
 
 - Publications from authors with only one publication
@@ -736,7 +736,10 @@ You can bring in data from related tables -- but joins don't work quite like in 
 
     ```
     publication
-    *item*checkout{out_date>@now|minus(1M)}.patron*patron_tag.tag.name = "Employee"
+    *item*checkout{
+      out_date > @now|minus(1M)
+      patron*patron_tag{tag.name = "Employee"}|%count > 0
+    }|%count > 0
     -id -title -[s]author.name
     ```
 
@@ -768,6 +771,26 @@ You can bring in data from related tables -- but joins don't work quite like in 
     LEFT JOIN "author" ON
       "author"."id" = "publication"."author"
     ORDER BY "author"."name" NULLS LAST;
+    ```
+
+- Checkouts of Biography books
+
+    ```
+    checkout
+    item.publication*publication_genre{genre.name="Biography"}%count > 0
+    ```
+
+- Patrons who, in the past week, have checked out publications authored by "Foo" which are _not_ categorized as "Biography"
+
+    ```
+    patron
+    *checkout{
+      item.publication.{
+        author.name="Foo"
+        *publication_genre{genre.name="Biography"}|%count=0
+      }
+      out_date>@now|minus(@P1W)
+    }|%count>0
     ```
 
 - If a table links to another table multiple times, then parentheses must be used to specify which foreign key column to use.
