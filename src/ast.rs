@@ -143,7 +143,18 @@ pub struct LinkToMany {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Composition {
-    pub function: String,
+    pub function: Function,
     pub argument: Option<Expression>,
-    pub is_aggregate: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Function {
+    pub name: String,
+    pub dimension: FunctionDimension,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionDimension {
+    Scalar,
+    Aggregate,
 }

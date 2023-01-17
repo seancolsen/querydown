@@ -99,24 +99,28 @@ mod tests {
             })
         );
         assert_eq!(
-            discerned_expression().parse("foo|bar(2)|%baz"),
+            discerned_expression().parse("foo|bar(2)%baz"),
             Ok(Expression {
                 base: Value::Path(Path {
                     parts: vec![PathPart::LocalColumn("foo".to_string())]
                 }),
                 compositions: vec![
                     Composition {
-                        function: "bar".to_string(),
+                        function: Function {
+                            name: "bar".to_string(),
+                            dimension: FunctionDimension::Scalar
+                        },
                         argument: Some(Expression {
                             base: Value::Number("2".to_string()),
                             compositions: vec![]
                         }),
-                        is_aggregate: false,
                     },
                     Composition {
-                        function: "baz".to_string(),
+                        function: Function {
+                            name: "baz".to_string(),
+                            dimension: FunctionDimension::Aggregate
+                        },
                         argument: None,
-                        is_aggregate: true,
                     }
                 ],
             })

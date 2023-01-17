@@ -643,7 +643,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Authors and how many publications they have
 
     ```
-    author -name -*publication|%count
+    author -name -*publication%count
     ```
 
     - ```sql    
@@ -668,7 +668,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Authors and the year of their first publication
 
     ```
-    author -name -*publication.year|%min
+    author -name -*publication.year%min
     ```
 
     - ```sql
@@ -689,7 +689,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Authors who have no publications
 
     ```
-    author *publication|%count = 0
+    author *publication%count = 0
     ```
 
     While we could use a CTE for this, a more performant heuristic would be to use an exclusion join like below. I'm not sure how feasible it will be to implement heuristics like this across the board, but it would be neat to try!
@@ -707,7 +707,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Authors who have published books with "Penguin" since year 2000.
 
     ```
-    author *publication{year>2000 publisher.name="Penguin"}|%count > 0
+    author *publication{year>2000 publisher.name="Penguin"}%count > 0
     ```
 
     - ```sql
@@ -723,13 +723,13 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Authors of audio books that have been checked out at least 100 times
 
     ```
-    author *publication{format="Audio" *item*checkout|%count>=100}|%count > 0
+    author *publication{format="Audio" *item*checkout%count >= 100}%count > 0
     ```
 
 - Publications from authors with only one publication
 
     ```
-    publication author*publication|%count = 1 
+    publication author*publication%count = 1 
     ```
 
 - Publications checked out in the past month by employees
@@ -738,8 +738,8 @@ You can bring in data from related tables -- but joins don't work quite like in 
     publication
     *item*checkout{
       out_date > @now|minus(1M)
-      patron*patron_tag{tag.name = "Employee"}|%count > 0
-    }|%count > 0
+      patron*patron_tag{tag.name = "Employee"}%count > 0
+    }%count > 0
     -id -title -[s]author.name
     ```
 
@@ -777,7 +777,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
 
     ```
     checkout
-    item.publication*publication_genre{genre.name="Biography"}%count > 0
+    item.publication*publication_genre{genre.name = "Biography"}%count > 0
     ```
 
 - Patrons who, in the past week, have checked out publications authored by "Foo" which are _not_ categorized as "Biography"
@@ -786,11 +786,11 @@ You can bring in data from related tables -- but joins don't work quite like in 
     patron
     *checkout{
       item.publication.{
-        author.name="Foo"
-        *publication_genre{genre.name="Biography"}|%count=0
+        author.name = "Foo"
+        *publication_genre{genre.name = "Biography"}%count = 0
       }
-      out_date>@now|minus(@P1W)
-    }|%count>0
+      out_date > @now|minus(@P1W)
+    }%count > 0
     ```
 
 - If a table links to another table multiple times, then parentheses must be used to specify which foreign key column to use.
@@ -800,8 +800,8 @@ You can bring in data from related tables -- but joins don't work quite like in 
     ```
     location
     - id
-    - *shipment(destination)|%count: count_shipments_to_here
-    - *shipment(origin)|%count: count_shipments_from_here
+    - *shipment(destination)%count: count_shipments_to_here
+    - *shipment(origin)%count: count_shipments_from_here
     ```
 
 - All aggregate functions
@@ -846,7 +846,7 @@ TODO
 - Origin locations, with the destination of their most recent shipment
 
     ```
-    shipment %%([s(d)]departure_datetime[p]origin)|%row_number = 1
+    shipment %%([s(d)]departure_datetime[p]origin)%row_number = 1
     - origin
     - origin.addressee
     - destination
@@ -856,7 +856,7 @@ TODO
 - How many days into each month did it take us to reach 1000 checkouts?
 
     ```
-    checkout %%([s]out_date[p]out_date|year_month)|%row_number = 1000
+    checkout %%([s]out_date[p]out_date|year_month)%row_number = 1000
     - out_date|day_of_month
     ```
 
@@ -897,8 +897,8 @@ TODO
     ~~~
     { checkout_count > 5 }
     - [g] publication
-    - patron|%count: patron_count
-    - checkout_count|%max: max_checkouts
+    - patron%count: patron_count
+    - checkout_count%max: max_checkouts
     ~~~
     - publication.id
     - publication.title
@@ -970,8 +970,8 @@ author id = &id
     ```
     checkout.$days_overdue := in_date|when(@null:@now|minus(due_date)|days *:@null)
     checkout.$late_fee := $days_overdue|when_null(0)|times(2) // $2.00 per day
-    patron.$late_fee := *checkout.$late_fee|%sum
-    patron -[s(d)]$late_fee -*email.email|%list
+    patron.$late_fee := *checkout.$late_fee%sum
+    patron -[s(d)]$late_fee -*email.email%list
     ```
 
 - Patrons with at least 1 year of checkout history who have never gone more than 14 days without a checkout.
