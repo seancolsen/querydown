@@ -651,8 +651,43 @@ You can bring in data from related tables -- but joins don't work quite like in 
         "author"."death_date" IS NOT NULL;
       ```
 
+- Checkouts by deceased authors
+
+    ```
+    checkout ..author.death_date != @null
+    ```
+
+    Here, `author` refers to the `author` _table_ (not column). Note that the `checkout` table does not have an `author` column, but each `checkout` record _is_ directly related to one `author` record (via the `item` and `publication` tables). So the above code is shorthand for:
+
+    ```
+    checkout item.publication.author.death_date != @null}
+    ```
+
+    This shorthand only works if there is one unambiguous path from the base table to the linked table. The longer form is required if there is more than one way to join the two tables.
 
 ### One to many
+
+- Authors that have at least one publication
+
+    ```
+    author ++publication
+    ```
+
+- Authors that have no publications
+
+    ```
+    author --publication
+    ```
+
+    - ```sql
+      SELECT
+        "author".*,
+      FROM "author"
+      LEFT JOIN "publication" ON
+        "publication"."author" = "author"."id"
+      WHERE
+        "publication"."id" IS NULL;
+      ```
 
 - Authors and how many publications they have
 
@@ -700,61 +735,41 @@ You can bring in data from related tables -- but joins don't work quite like in 
       JOIN cte_0 ON cte_0.f0 = "author"."id";
       ```
 
-- Authors who have no publications
-
-    ```
-    author *publication%count = 0
-    ```
-
-    While we could use a CTE for this, a more performant heuristic would be to use an exclusion join like below. I'm not sure how feasible it will be to implement heuristics like this across the board, but it would be neat to try!
-
-    - ```sql
-      SELECT
-        "author".*,
-      FROM "author"
-      LEFT JOIN "publication" ON
-        "publication"."author" = "author"."id"
-      WHERE
-        "publication"."id" IS NULL;
-      ```
-
 - Authors who have published books with "Penguin" since year 2000.
 
     ```
-    author *publication{year>2000 publisher.name="Penguin"}%count > 0
+    author ++publication{year > 2000 publisher.name = "Penguin"}
     ```
 
-    - ```sql
-      SELECT
-        "author".*,
-      FROM "author"
-      LEFT JOIN "publication" ON
-        "publication"."author" = "author"."id"
-      WHERE
-        "publication"."id" IS NULL;
-      ```
-
-- Authors of audio books that have been checked out at least 100 times
+- Authors of publications which have been checked out in the past week
 
     ```
-    author *publication{format="Audio" *item*checkout%count >= 100}%count > 0
+    author ++checkout{out_date > @now|minus(@1D)}
     ```
 
-- Publications from authors with only one publication
+    The `checkout` table is not directly related to the `author` table, but that's okay. The above code is shorthand for the following more explicit code:
 
     ```
-    publication author*publication%count = 1 
+    author ++publication*item*checkout{out_date > @now|minus(@1D)}
+    ```
+    
+    We can use the shorthand in this case because there is only one path through which `author` can be joined to `checkout`. If tables can be joined through multiple paths, then a path will need to be specified which is not ambiguous.
+
+- If one table directly links to another table multiple times, then parentheses must be used to specify which foreign key column to use.
+
+    A location with counts of its shipments.
+
+    ```
+    location
+    - id
+    - *shipment(destination)%count: count_shipments_to_here
+    - *shipment(origin)%count: count_shipments_from_here
     ```
 
 - Publications checked out in the past month by employees
 
     ```
-    publication
-    *item*checkout{
-      out_date > @now|minus(1M)
-      patron*patron_tag{tag.name = "Employee"}%count > 0
-    }%count > 0
-    -id -title -[s]author.name
+    publication ++checkout{out_date > @now|minus(@1M) ++tag{name = "Employee"}}
     ```
 
     ```sql
@@ -776,46 +791,33 @@ You can bring in data from related tables -- but joins don't work quite like in 
       WHERE
         "tag"."name" = 'Employee'
     )
-    SELECT
-      "publication"."id",
-      "publication"."title",
-      "author"."name"
+    SELECT "publication".*,
     FROM "publication"
     JOIN cte_0 on cte_0.pk = "publication"."id"
     LEFT JOIN "author" ON
       "author"."id" = "publication"."author"
-    ORDER BY "author"."name" NULLS LAST;
     ```
 
 - Checkouts of Biography books
 
     ```
-    checkout
-    item.publication*publication_genre{genre.name = "Biography"}%count > 0
+    checkout ++genre{name = "Biography"}
     ```
 
-- Patrons who, in the past week, have checked out publications authored by "Foo" which are _not_ categorized as "Biography"
+- Checkouts by patrons with no emails
+
+    ```
+    checkout patron ? {--email}
+    ```
+    
+- Patrons who, in the past week, have checked out at least one publication which is authored by "Foo" and _not_ categorized as "Biography"
 
     ```
     patron
-    *checkout{
-      item.publication ? {
-        author.name = "Foo"
-        *publication_genre{genre.name = "Biography"}%count = 0
-      }
+    ++checkout{
       out_date > @now|minus(@P1W)
-    }%count > 0
-    ```
-
-- If a table links to another table multiple times, then parentheses must be used to specify which foreign key column to use.
-
-    A location with counts of its shipments.
-
-    ```
-    location
-    - id
-    - *shipment(destination)%count: count_shipments_to_here
-    - *shipment(origin)%count: count_shipments_from_here
+      ..publication ? {author.name = "Foo" --genre{name = "Biography"}}
+    }
     ```
 
 - All aggregate functions
@@ -1030,7 +1032,7 @@ $      user-defined variable
 ~      regex comparison
 &      (MAYBE) parameterization
 |      pipe
-/   
+/
 \      escape sequence within string
 *      one-to-many join
 +   
@@ -1045,6 +1047,9 @@ _      NULL literal
 ,   
 :      alias, associative function arguments
 ;
+
+++     has at least one
+--     has none
 
 ( )    function call
 [ ]    OR conditions, column spec details
