@@ -1,6 +1,6 @@
 # Lower Query Language design
 
-## Example schemas
+## Example schemas used throughout this doc
 
 ### Library
 
@@ -76,6 +76,101 @@
   - arrival_datetime
 ```
 
+## Syntax cheat sheet
+
+### Literals
+
+| Code     | Usage |
+| --       | -- |
+| `"`      | string quote |
+| `'`      | string quote (alternate) |
+| `` ` ``  | db entity quote |
+| `^`      | interpolated string quote |
+| `{ }`    | expression within an interpolated string |
+| `\`      | escape sequence within string |
+| `@`      | prefix for date/time values (e.g. `@2000-01-01`) |
+| `@P`     | prefix for duration values |
+| `@now`   | `now()` |
+| `@inf`   | `Infinity` |
+| `@true`  | `TRUE` |
+| `@false` | `FALSE` |
+| `@null`  | `NULL` |
+| `//`     | single line comment |
+| `/* */`  | multi-line comment |
+
+### Conditionals
+
+| Code   | Usage |
+| --     | -- |
+| `[ ]` | OR conditions |
+| `{ }` | AND conditions |
+| `=`   | equals |
+| `!=`  | not equal |
+| `<`   | less than |
+| `<=`  | less or equal |
+| `>`   | greater than |
+| `>=`  | greater or equal |
+| `~`   | regex |
+| `!~`  | not RLIKE |
+| `~~`  | LIKE |
+| `!~~` | not LIKE |
+| `?`   | comparison expansion |
+| `#`   | value from scope outside comparison expansion |
+
+### Joins
+
+| Code   | Usage |
+| --     | -- |
+| `.`   | related column |
+| `..`  | transitively related table |
+| `*`   | one-to-many join |
+| `++`  | has at least one |
+| `--`  | has none |
+
+### Column control
+
+| Code   | Usage |
+| --     | -- |
+| `-`    | column spec prefix |
+| `-( )` | relative column spec |
+| `[ ]`  | column control |
+| `s`    | "sort" flag |
+| `h`    | "hide" flag |
+| `g`    | "group" flag |
+| `d`    | "descending" flag (in a sort spec) |
+| `n`    | "nulls first" flag (in a sort spec) |
+| `p`    | "partition" flag (in a window definition) |
+| `:`    |  alias |
+
+### Functions
+
+| Code    | Usage |
+| --      | -- |
+| `%`     | aggregate function |
+| `∣`     | scalar function |
+| `( )`   | function arguments (if any) |
+| `,`     | function argument delimiter |
+| `:`     |  associative function arguments |
+| `%%( )` | window definition |
+
+### Transformations
+
+| Code   | Usage |
+| --     | -- |
+| `-->` | LIMIT and OFFSET |
+| `~~~` | pipeline |
+| `+++` | union |
+
+### Not (yet) used
+
+```
+$   may be used for user-defined variable
+&   may be used for parameterization
+/
++
+_
+;
+```
 
 ## Basics
 
@@ -128,13 +223,6 @@ White space doesn't matter. The following two queries are identical.
   - id: Identifier
   - title: Name
   ```
-
-
-## Comments
-
-- Comments are enclosed by `/* */`
-- Single line comments begin with `//`
-
 
 ## Quoting identifiers
 
@@ -250,29 +338,6 @@ If you want to reference a table name or column name which contains characters o
     --> offset(100)
     ```
 
-## Literal values
-
-- String literals can be quoted either with single or with double quotes.
-
-    TODO raw strings to make regex strings easier
-
-- Numeric literals are written as-is
-
-- Date literals are written in ISO form
-
-    TODO how to specify a date with time
-
-- TODO raw durations
-
-| LQL | SQL |
-| -- | -- |
-| `@now` | `now()` |
-| `@inf` | `Infinity` |
-| `@true` | `TRUE` |
-| `@false` | `FALSE` |
-| `@null` | `NULL` |
-
-
 ## Conditions
 
 ### AND vs OR
@@ -363,8 +428,10 @@ If you want to reference a table name or column name which contains characters o
 
     - ```sql
       SELECT * FROM "publication"
-      WHERE "year" IN (2000, 2010);
+      WHERE "year" = 2000 OR "year" = 2010;
       ```
+    
+    (This is like the SQL `IN` operator.)
 
     ```
     patron {first_name last_name} = @null
@@ -424,12 +491,6 @@ If you want to reference a table name or column name which contains characters o
     publication {2000 <= # # <=2010} ? year // INVALID!
     ```
 
-- When using the `?` comparison, the per-value operators must be placed on the right-hand-side of the `?`. The following won't work:
-
-    ```
-    publication {2000 <= # # <=2010} ? year // INVALID!
-    ```
-
 - If both sides of the comparison are enclosed in brackets, then the brackets on left side are used for the outer precedence
 
     ```
@@ -466,7 +527,7 @@ If you want to reference a table name or column name which contains characters o
 
     Note:
 
-    - All functions are applied via the pipe syntax.
+    - All scalar functions are applied via the pipe syntax.
     - There are no operators like `+ - * /`. Named functions are used instead, providing for clear, linear chaining of operations.
 
 - Functions
@@ -510,17 +571,7 @@ If you want to reference a table name or column name which contains characters o
 
 ## Incremental column specification
 
-- Use `-()` to specify all columns
-
-    ```
-    patron -()
-    ```
-
-    - ```sql
-      SELECT * FROM patron;
-      ```
-
-- Add a column after all columns
+-  Use `-()` to specify all columns, giving you control to add a column after all columns
 
     ```
     patron -() -^{first_name} {last_name}^: full_name
@@ -857,7 +908,7 @@ TODO
     - Grouping by multiple columns is done via `[g(1)]` and `[g(2)]`, similar to sorting.
 
 
-## WINDOW
+## Window functions
 
 - Origin locations, with the destination of their most recent shipment
 
@@ -1008,69 +1059,5 @@ author id = &id
     - CRM total amount raised, by fiscal year, including certain contribution types
 
 
-
----
-
-## Symbols and their meanings
-
-```
-s      "sort" (in a column control)
-d      "descending" (in a sort spec in a column control)
-v      "values first" (aka "nulls last") (in a sort spec in a column control)
-h      "hide" (in a column control)
-g      "group" (in a column control)
-p      "partition" (in a column control in a window)
-
-"      string
-'      string
-`      db entity
-^      interpolated string
-#      value from scope outside comparison expansion
-$      user-defined variable
-%      aggregate function
-@      literal
-~      regex comparison
-&      (MAYBE) parameterization
-|      pipe
-/
-\      escape sequence within string
-*      one-to-many join
-+   
--      column spec
-_      NULL literal
-=      equality comparison
-<      less than comparison
->      greater than comparison
-!      negate a comparison
-?      comparison expansion
-.      related value
-,   
-:      alias, associative function arguments
-;
-
-++     has at least one
---     has none
-
-( )    function call
-[ ]    OR conditions, column spec details
-{ }    AND conditions
-
-!~     not RLIKE comparison
-~~     not LIKE comparison
-~~     LIKE comparison
-!=     not equal comparison
->=     greater or equal comparison
-<=     less or equal comparison
-
-//     single line comment
-/* */  multi-line comment
-
--( )   relative column spec
--->    LIMIT and OFFSET
-%%( )  window
-
-~~~    pipeline
-+++    union
-```
 
 
