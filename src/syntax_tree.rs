@@ -48,6 +48,7 @@ pub enum Operator {
     NLike,
     RLike,
     NRLike,
+    ScopedConditional,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -120,6 +121,7 @@ pub enum Value {
     False,
     Now,
     Infinity,
+    Slot,
 }
 
 #[derive(Debug, Clone, PartialEq)]

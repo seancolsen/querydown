@@ -113,5 +113,6 @@ fn operator() -> impl Parser<char, Operator, Error = Simple<char>> {
         exactly(OPERATOR_NOT_LIKE).to(Operator::NLike),
         exactly(OPERATOR_R_LIKE).to(Operator::RLike),
         exactly(OPERATOR_NOT_R_LIKE).to(Operator::NRLike),
+        just(OPERATOR_SCOPED_CONDITIONAL).to(Operator::ScopedConditional),
     ))
 }

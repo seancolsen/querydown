@@ -16,6 +16,7 @@ where
         exactly(LITERAL_TRUE).to(Value::True),
         exactly(LITERAL_FALSE).to(Value::False),
         exactly(LITERAL_NULL).to(Value::Null),
+        just(SLOT).to(Value::Slot),
         number().map(Value::Number),
         choice((quoted(STRING_QUOTE_SINGLE), quoted(STRING_QUOTE_DOUBLE))).map(Value::String),
         path(condition_set).map(Value::Path),

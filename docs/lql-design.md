@@ -464,13 +464,28 @@ If you want to reference a table name or column name which contains characters o
 
     Here the `id` column doesn't support the `~` comparison, so it's not used.
 
-- The comparator can be altered per-value by using `?`
+- If both sides of the comparison are enclosed in brackets, then the brackets on left side are used for the outer precedence
+
+    ```
+    patron {first_name last_name} ~ ["foo" "bar"]
+    ```
+
+    - ```sql
+      SELECT * FROM "patron"
+      WHERE
+        ("first_name" ~ 'foo' OR "first_name" ~ 'bar') AND
+        ("last_name" ~ 'foo' OR "last_name" ~ 'bar');
+      ```
+
+### Scoped conditionals
+
+- The comparator can be altered per-value by using `?`, the **scoped conditional operator**
 
     ```
     publication year ? {# >= 2000 # <= 2010}
     ```
 
-    Within the braces, `#` refers to the value from the outer scope (i.e. `year` in this case)
+    Within the braces, `#` is called a **slot** and refers to the value from the outer scope (i.e. `year` in this case)
 
     - ```sql
       SELECT * FROM "publication"
@@ -485,24 +500,15 @@ If you want to reference a table name or column name which contains characters o
 
     This is similar to the SQL `BETWEEN`, but with more explicit control over the comparison operators 
 
-- When using the `?` comparison, the per-value operators must be placed on the right-hand-side of the `?`. The following won't work:
+- Slots can only be used with the scoped conditional operator, and they must be placed _after_ the operator.
 
     ```
     publication {2000 <= # # <=2010} ? year // INVALID!
     ```
 
-- If both sides of the comparison are enclosed in brackets, then the brackets on left side are used for the outer precedence
+- Scoped conditionals can be mixed with comparison expansion as follows.
 
-    ```
-    patron {first_name last_name} ~ ["foo" "bar"]
-    ```
-
-    - ```sql
-      SELECT * FROM "patron"
-      WHERE
-        ("first_name" ~ 'foo' OR "first_name" ~ 'bar') AND
-        ("last_name" ~ 'foo' OR "last_name" ~ 'bar');
-      ```
+    Authors who were either born or who died during the 20th century:
 
     ```
     author [birth_date death_date] ? {1900-01-01 <= # # < 2000-01-01}
@@ -679,7 +685,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
         "author"."death_date" IS NULL;
       ```
 
-- Conditions on directly related records
+- When the **scoped conditional operator** (`?`) is used on a foreign key column, the scope of the related table is used inside the braces.
 
     ```
     publication author ? {birth_date > 2000-01-01 death_date != @null}
