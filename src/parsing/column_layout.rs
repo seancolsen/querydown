@@ -1,6 +1,6 @@
 use chumsky::{prelude::*, text::*};
 
-use crate::ast::*;
+use crate::syntax_tree::*;
 use crate::tokens::*;
 
 use super::expression_or_condition_set::discerned_expression;

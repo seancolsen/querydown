@@ -1,8 +1,8 @@
-pub mod ast;
 mod compiler;
 mod context;
 mod error;
 mod parsing;
+pub mod syntax_tree;
 mod tests;
 mod tokens;
 

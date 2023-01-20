@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use crate::ast::*;
+use crate::syntax_tree::*;
 
 use super::{
     conditions::{condition_set, implicit_condition_set},

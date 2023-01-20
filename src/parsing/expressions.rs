@@ -1,6 +1,6 @@
 use chumsky::{prelude::*, text::*};
 
-use crate::{ast::*, tokens::*};
+use crate::{syntax_tree::*, tokens::*};
 
 use super::values::value;
 

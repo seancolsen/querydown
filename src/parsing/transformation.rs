@@ -1,7 +1,7 @@
 use chumsky::prelude::*;
 use chumsky::text::whitespace;
 
-use crate::ast::*;
+use crate::syntax_tree::*;
 
 use super::column_layout::column_layout;
 use super::expression_or_condition_set::*;
