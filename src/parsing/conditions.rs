@@ -3,105 +3,74 @@ use chumsky::{prelude::*, text::*};
 use crate::syntax_tree::*;
 use crate::tokens::*;
 
+use super::paths::*;
 use super::utils::*;
+use crate::syntax_tree::Conjunction::*;
 
-pub fn condition_set<E>(expression: E) -> impl Parser<char, ConditionSet, Error = Simple<char>>
-where
-    E: Parser<char, Expression, Error = Simple<char>> + Clone + 'static,
-{
+/// An explicit condition set, with {} braces for AND or [] braces for OR.
+pub fn condition_set(expression: impl LqlParser<Expression>) -> impl LqlParser<ConditionSet> {
     recursive(|condition_set| {
-        choice((
-            generic_condition_set(
-                Conjunction::And,
-                AND_CONDITION_L_BRACE,
-                condition_set.clone(),
-                expression.clone(),
-                AND_CONDITION_R_BRACE,
-            ),
-            generic_condition_set(
-                Conjunction::Or,
-                OR_CONDITION_L_BRACE,
-                condition_set,
-                expression,
-                OR_CONDITION_R_BRACE,
-            ),
-        ))
+        let specific_condition_set = |conjunction: Conjunction| {
+            let (l_brace, r_brace) = get_braces(conjunction);
+            condition_set_entry(condition_set.clone(), expression.clone())
+                .padded()
+                .repeated()
+                .delimited_by(just(l_brace), just(r_brace))
+                .map(move |entries| ConditionSet {
+                    conjunction,
+                    entries,
+                })
+        };
+        choice((specific_condition_set(And), specific_condition_set(Or)))
     })
 }
 
 /// A condition set without braces. (Uses AND as the conjunction.)
-pub fn implicit_condition_set<C, E>(
-    condition_set: C,
-    expression: E,
-) -> impl Parser<char, ConditionSet, Error = Simple<char>>
-where
-    C: Parser<char, ConditionSet, Error = Simple<char>>,
-    E: Parser<char, Expression, Error = Simple<char>> + Clone,
-{
+pub fn implicit_condition_set(
+    condition_set: impl LqlParser<ConditionSet>,
+    expression: impl LqlParser<Expression>,
+) -> impl LqlParser<ConditionSet> {
     condition_set_entry(condition_set, expression)
         .then_ignore(whitespace())
         .repeated()
         .map(move |entries| ConditionSet {
-            conjunction: Conjunction::And,
+            conjunction: And,
             entries,
         })
 }
 
-fn generic_condition_set<C, E>(
-    conjunction: Conjunction,
-    l_brace: char,
-    condition_set: C,
-    expression: E,
-    r_brace: char,
-) -> impl Parser<char, ConditionSet, Error = Simple<char>>
-where
-    C: Parser<char, ConditionSet, Error = Simple<char>>,
-    E: Parser<char, Expression, Error = Simple<char>> + Clone,
-{
-    just(l_brace).then(whitespace()).ignore_then(
-        condition_set_entry(condition_set, expression)
-            .then_ignore(whitespace())
-            .repeated()
-            .then_ignore(just(r_brace))
-            .map(move |entries| ConditionSet {
-                conjunction,
-                entries,
-            }),
-    )
-}
-
-fn condition_set_entry<C, E>(
-    condition_set: C,
-    expression: E,
-) -> impl Parser<char, ConditionSetEntry, Error = Simple<char>>
-where
-    C: Parser<char, ConditionSet, Error = Simple<char>>,
-    E: Parser<char, Expression, Error = Simple<char>> + Clone,
-{
+fn condition_set_entry(
+    condition_set: impl LqlParser<ConditionSet>,
+    expression: impl LqlParser<Expression>,
+) -> impl LqlParser<ConditionSetEntry> {
     choice((
-        condition(expression).map(ConditionSetEntry::Condition),
-        condition_set.map(ConditionSetEntry::ConditionSet),
+        condition_set.clone().map(ConditionSetEntry::ConditionSet),
+        has(condition_set).map(ConditionSetEntry::Has),
+        comparison(expression).map(ConditionSetEntry::Comparison),
     ))
 }
 
-fn condition<E>(expression: E) -> impl Parser<char, Condition, Error = Simple<char>>
-where
-    E: Parser<char, Expression, Error = Simple<char>> + Clone,
-{
-    expression
-        .clone()
+fn comparison(expression: impl LqlParser<Expression>) -> impl LqlParser<Comparison> {
+    comparison_part(expression.clone())
         .then_ignore(whitespace())
         .then(operator())
         .then_ignore(whitespace())
-        .then(expression)
-        .map(|((lhs, operator), rhs)| Condition {
+        .then(comparison_part(expression))
+        .map(|((lhs, operator), rhs)| Comparison {
             left: lhs,
             operator,
             right: rhs,
         })
 }
 
-fn operator() -> impl Parser<char, Operator, Error = Simple<char>> {
+fn comparison_part(expression: impl LqlParser<Expression>) -> impl LqlParser<ComparisonPart> {
+    choice((
+        expression.clone().map(ComparisonPart::Expression),
+        expression_set(expression).map(ComparisonPart::ExpressionSet),
+    ))
+}
+
+fn operator() -> impl LqlParser<Operator> {
     choice((
         exactly(OPERATOR_EQ).to(Operator::Eq),
         exactly(OPERATOR_GT).to(Operator::Gt),
@@ -115,4 +84,45 @@ fn operator() -> impl Parser<char, Operator, Error = Simple<char>> {
         exactly(OPERATOR_NOT_R_LIKE).to(Operator::NRLike),
         just(OPERATOR_SCOPED_CONDITIONAL).to(Operator::ScopedConditional),
     ))
+}
+
+pub fn has(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Has> {
+    choice((
+        exactly(HAS_QUANTITY_AT_LEAST_ONE).to(HasQuantity::AtLeastOne),
+        exactly(HAS_QUANTITY_ZERO).to(HasQuantity::Zero),
+    ))
+    .then_ignore(whitespace())
+    .then(
+        link_to_many(condition_set.clone())
+            .then_ignore(whitespace())
+            .chain(
+                prefixed_link_to_many(condition_set)
+                    .then_ignore(whitespace())
+                    .repeated(),
+            ),
+    )
+    .map(|(quantity, path)| Has { quantity, path })
+}
+
+pub fn expression_set(expression: impl LqlParser<Expression>) -> impl LqlParser<ExpressionSet> {
+    let specific_expression_set = |conjunction: Conjunction| {
+        let (l_brace, r_brace) = get_braces(conjunction);
+        expression
+            .clone()
+            .padded()
+            .repeated()
+            .delimited_by(just(l_brace), just(r_brace))
+            .map(move |entries| ExpressionSet {
+                conjunction,
+                entries,
+            })
+    };
+    choice((specific_expression_set(And), specific_expression_set(Or)))
+}
+
+fn get_braces(conjunction: Conjunction) -> (char, char) {
+    match conjunction {
+        And => (AND_CONDITION_L_BRACE, AND_CONDITION_R_BRACE),
+        Or => (OR_CONDITION_L_BRACE, OR_CONDITION_R_BRACE),
+    }
 }

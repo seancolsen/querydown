@@ -3,37 +3,38 @@ use chumsky::{prelude::*, text::*};
 use crate::syntax_tree::*;
 use crate::tokens::*;
 
+use super::utils::LqlParser;
 use super::values::db_identifier;
 
-pub fn path<C>(condition_set: C) -> impl Parser<char, Path, Error = Simple<char>>
-where
-    C: Parser<char, ConditionSet, Error = Simple<char>> + Clone,
-{
+pub fn path(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Path> {
     let initial_path_part = choice((
         db_identifier().map(PathPart::LocalColumn),
-        link_to_many(condition_set.clone()).map(PathPart::LinkToMany),
+        prefixed_link_to_many(condition_set.clone()).map(PathPart::LinkToMany),
     ));
     let subsequent_path_part = choice((
         db_identifier().map(PathPart::LocalColumn),
-        link_to_one().map(PathPart::LinkToOne),
-        link_to_many(condition_set).map(PathPart::LinkToMany),
+        link_to_one().map(PathPart::LinkToOneViaColumn),
+        prefixed_link_to_many(condition_set).map(PathPart::LinkToMany),
     ));
     initial_path_part
         .chain(whitespace().ignore_then(subsequent_path_part).repeated())
         .map(|parts| Path { parts })
 }
 
-fn link_to_many<C>(condition_set: C) -> impl Parser<char, LinkToMany, Error = Simple<char>>
-where
-    C: Parser<char, ConditionSet, Error = Simple<char>> + Clone,
-{
+pub fn prefixed_link_to_many(
+    condition_set: impl LqlParser<ConditionSet>,
+) -> impl LqlParser<LinkToMany> {
+    just(LINK_TO_MANY_PREFIX)
+        .then(whitespace())
+        .ignore_then(link_to_many(condition_set))
+}
+
+pub fn link_to_many(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<LinkToMany> {
     let column = db_identifier().delimited_by(
         just(LINK_TO_MANY_COLUMN_L_BRACE).then(whitespace()),
         whitespace().then(just(LINK_TO_MANY_COLUMN_R_BRACE)),
     );
-    just(LINK_TO_MANY_PREFIX)
-        .then(whitespace())
-        .ignore_then(db_identifier())
+    db_identifier()
         .then_ignore(whitespace())
         .then(column.or_not())
         .then(condition_set.or_not())
@@ -44,7 +45,7 @@ where
         })
 }
 
-fn link_to_one() -> impl Parser<char, String, Error = Simple<char>> {
+fn link_to_one() -> impl LqlParser<String> {
     just(LINK_TO_ONE_PREFIX)
         .then(whitespace())
         .ignore_then(db_identifier())
@@ -60,12 +61,11 @@ mod tests {
     /// we don't test cases like this here. Testing for paths which contain condition sets is done
     /// at a higher level (see `test_discerned_expression`) because it requires parsing for
     /// expressions and condition_sets.
-    fn incapable_condition_set_parser(
-    ) -> impl Parser<char, ConditionSet, Error = Simple<char>> + Clone {
+    fn incapable_condition_set_parser() -> impl LqlParser<ConditionSet> {
         exactly("NOPE").map(|_| ConditionSet::default())
     }
 
-    fn simple_path() -> impl Parser<char, Path, Error = Simple<char>> {
+    fn simple_path() -> impl LqlParser<Path> {
         path(incapable_condition_set_parser()).then_ignore(end())
     }
 
@@ -82,7 +82,7 @@ mod tests {
             Ok(Path {
                 parts: vec![
                     PathPart::LocalColumn("foo".to_string()),
-                    PathPart::LinkToOne("bar".to_string()),
+                    PathPart::LinkToOneViaColumn("bar".to_string()),
                 ]
             })
         );
@@ -111,7 +111,7 @@ mod tests {
             Ok(Path {
                 parts: vec![
                     PathPart::LocalColumn("foo".to_string()),
-                    PathPart::LinkToOne("bar".to_string()),
+                    PathPart::LinkToOneViaColumn("bar".to_string()),
                     PathPart::LinkToMany(LinkToMany {
                         table: "baz".to_string(),
                         column: Some("a".to_string()),
@@ -122,7 +122,7 @@ mod tests {
                         column: None,
                         condition_set: ConditionSet::default(),
                     }),
-                    PathPart::LinkToOne("spam".to_string()),
+                    PathPart::LinkToOneViaColumn("spam".to_string()),
                 ]
             })
         );

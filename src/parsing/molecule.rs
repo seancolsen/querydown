@@ -5,67 +5,58 @@ use crate::syntax_tree::*;
 use super::{
     conditions::{condition_set, implicit_condition_set},
     expressions::expression,
+    utils::LqlParser,
 };
 
-pub fn top_level_condition_set() -> impl Parser<char, ConditionSet, Error = Simple<char>> {
+pub fn top_level_condition_set() -> impl LqlParser<ConditionSet> {
     choice((
         discerned_condition_set(),
         implicit_condition_set(discerned_condition_set(), discerned_expression()),
     ))
 }
 
-pub fn discerned_expression() -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
-    make_discerned_expression(expression_or_condition_set())
+pub fn discerned_expression() -> impl LqlParser<Expression> {
+    make_discerned_expression(molecule())
 }
 
-pub fn discerned_condition_set() -> impl Parser<char, ConditionSet, Error = Simple<char>> + Clone {
-    make_discerned_condition_set(expression_or_condition_set())
+pub fn discerned_condition_set() -> impl LqlParser<ConditionSet> {
+    make_discerned_condition_set(molecule())
 }
 
-fn make_discerned_expression<P>(
-    expression_or_condition_set: P,
-) -> impl Parser<char, Expression, Error = Simple<char>> + Clone
-where
-    P: Parser<char, ExpressionOrConditionSet, Error = Simple<char>> + Clone,
-{
-    expression_or_condition_set.try_map(|v, span| match v {
-        ExpressionOrConditionSet::Expression(e) => Ok(e),
-        ExpressionOrConditionSet::ConditionSet(_) => Err(Simple::custom(
+#[derive(Debug, Clone)]
+pub enum Molecule {
+    Expression(Expression),
+    ConditionSet(ConditionSet),
+}
+
+fn molecule() -> impl LqlParser<Molecule> {
+    recursive(|molecule| {
+        choice((
+            condition_set(make_discerned_expression(molecule.clone())).map(Molecule::ConditionSet),
+            expression(make_discerned_condition_set(molecule)).map(Molecule::Expression),
+        ))
+    })
+}
+
+fn make_discerned_expression(molecule: impl LqlParser<Molecule>) -> impl LqlParser<Expression> {
+    molecule.try_map(|v, span| match v {
+        Molecule::Expression(e) => Ok(e),
+        Molecule::ConditionSet(_) => Err(Simple::custom(
             span,
             "Expected expression, got condition set",
         )),
     })
 }
 
-fn make_discerned_condition_set<P>(
-    expression_or_condition_set: P,
-) -> impl Parser<char, ConditionSet, Error = Simple<char>> + Clone
-where
-    P: Parser<char, ExpressionOrConditionSet, Error = Simple<char>> + Clone,
-{
-    expression_or_condition_set.try_map(|v, span| match v {
-        ExpressionOrConditionSet::ConditionSet(e) => Ok(e),
-        ExpressionOrConditionSet::Expression(_) => Err(Simple::custom(
+fn make_discerned_condition_set(
+    molecule: impl LqlParser<Molecule>,
+) -> impl LqlParser<ConditionSet> {
+    molecule.try_map(|v, span| match v {
+        Molecule::ConditionSet(e) => Ok(e),
+        Molecule::Expression(_) => Err(Simple::custom(
             span,
             "Expected condition set, got expression",
         )),
-    })
-}
-
-#[derive(Debug, Clone)]
-pub enum ExpressionOrConditionSet {
-    Expression(Expression),
-    ConditionSet(ConditionSet),
-}
-
-fn expression_or_condition_set(
-) -> impl Parser<char, ExpressionOrConditionSet, Error = Simple<char>> + Clone {
-    recursive(|v| {
-        choice((
-            condition_set(make_discerned_expression(v.clone()))
-                .map(ExpressionOrConditionSet::ConditionSet),
-            expression(make_discerned_condition_set(v)).map(ExpressionOrConditionSet::Expression),
-        ))
     })
 }
 
@@ -131,7 +122,7 @@ mod tests {
                 base: Value::Path(Path {
                     parts: vec![
                         PathPart::LocalColumn("foo".to_string()),
-                        PathPart::LinkToOne("bar".to_string())
+                        PathPart::LinkToOneViaColumn("bar".to_string())
                     ]
                 }),
                 compositions: vec![],
@@ -159,18 +150,18 @@ mod tests {
                         column: Some("bar".to_string()),
                         condition_set: ConditionSet {
                             conjunction: Conjunction::And,
-                            entries: vec![ConditionSetEntry::Condition(Condition {
-                                left: Expression {
+                            entries: vec![ConditionSetEntry::Comparison(Comparison {
+                                left: ComparisonPart::Expression(Expression {
                                     base: Value::Path(Path {
                                         parts: vec![PathPart::LocalColumn("a".to_string())]
                                     }),
                                     compositions: vec![],
-                                },
+                                }),
                                 operator: Operator::Eq,
-                                right: Expression {
+                                right: ComparisonPart::Expression(Expression {
                                     base: Value::Number("1".to_string()),
                                     compositions: vec![],
-                                },
+                                }),
                             })],
                         },
                     })]
@@ -188,18 +179,18 @@ mod tests {
             discerned_condition_set().parse("{a=1}"),
             Ok(ConditionSet {
                 conjunction: Conjunction::And,
-                entries: vec![ConditionSetEntry::Condition(Condition {
-                    left: Expression {
+                entries: vec![ConditionSetEntry::Comparison(Comparison {
+                    left: ComparisonPart::Expression(Expression {
                         base: Value::Path(Path {
                             parts: vec![PathPart::LocalColumn("a".to_string())]
                         }),
                         compositions: vec![],
-                    },
+                    }),
                     operator: Operator::Eq,
-                    right: Expression {
+                    right: ComparisonPart::Expression(Expression {
                         base: Value::Number("1".to_string()),
                         compositions: vec![],
-                    },
+                    }),
                 })],
             })
         );

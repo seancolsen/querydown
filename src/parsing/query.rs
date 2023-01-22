@@ -7,7 +7,7 @@ use super::transformation::transformation;
 use super::utils::*;
 use super::values::*;
 
-pub fn query() -> impl Parser<char, Query, Error = Simple<char>> {
+pub fn query() -> impl LqlParser<Query> {
     let base_table = db_identifier().then_ignore(whitespace());
     let transformations = transformation().separated_by(
         whitespace()
@@ -36,18 +36,18 @@ mod tests {
                 transformations: vec![Transformation {
                     condition_set: ConditionSet {
                         conjunction: Conjunction::And,
-                        entries: vec![ConditionSetEntry::Condition(Condition {
-                            left: Expression {
+                        entries: vec![ConditionSetEntry::Comparison(Comparison {
+                            left: ComparisonPart::Expression(Expression {
                                 base: Value::Path(Path {
                                     parts: vec![PathPart::LocalColumn("a".to_string())]
                                 }),
                                 compositions: vec![],
-                            },
+                            }),
                             operator: Operator::Eq,
-                            right: Expression {
+                            right: ComparisonPart::Expression(Expression {
                                 base: Value::Number("8".to_string()),
                                 compositions: vec![],
-                            }
+                            })
                         })]
                     },
                     column_layout: ColumnLayout {

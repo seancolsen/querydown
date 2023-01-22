@@ -4,9 +4,10 @@ use chumsky::text::whitespace;
 use crate::syntax_tree::*;
 
 use super::column_layout::column_layout;
-use super::expression_or_condition_set::*;
+use super::molecule::*;
+use super::utils::LqlParser;
 
-pub fn transformation() -> impl Parser<char, Transformation, Error = Simple<char>> {
+pub fn transformation() -> impl LqlParser<Transformation> {
     top_level_condition_set()
         .or_not()
         .then_ignore(whitespace())
@@ -28,18 +29,18 @@ mod tests {
             Ok(Transformation {
                 condition_set: ConditionSet {
                     conjunction: Conjunction::And,
-                    entries: vec![ConditionSetEntry::Condition(Condition {
-                        left: Expression {
+                    entries: vec![ConditionSetEntry::Comparison(Comparison {
+                        left: ComparisonPart::Expression(Expression {
                             base: Value::Path(Path {
                                 parts: vec![PathPart::LocalColumn("a".to_string())]
                             }),
                             compositions: vec![],
-                        },
+                        }),
                         operator: Operator::Eq,
-                        right: Expression {
+                        right: ComparisonPart::Expression(Expression {
                             base: Value::Number("8".to_string()),
                             compositions: vec![],
-                        }
+                        })
                     })]
                 },
                 column_layout: ColumnLayout {

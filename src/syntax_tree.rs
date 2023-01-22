@@ -16,6 +16,12 @@ pub struct ConditionSet {
     pub entries: Vec<ConditionSetEntry>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ExpressionSet {
+    pub conjunction: Conjunction,
+    pub entries: Vec<Expression>,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum Conjunction {
     #[default]
@@ -25,15 +31,34 @@ pub enum Conjunction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConditionSetEntry {
-    Condition(Condition),
+    Comparison(Comparison),
+    Has(Has),
     ConditionSet(ConditionSet),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Condition {
-    pub left: Expression,
+pub struct Has {
+    pub quantity: HasQuantity,
+    pub path: Vec<LinkToMany>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum HasQuantity {
+    AtLeastOne,
+    Zero,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Comparison {
+    pub left: ComparisonPart,
     pub operator: Operator,
-    pub right: Expression,
+    pub right: ComparisonPart,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComparisonPart {
+    Expression(Expression),
+    ExpressionSet(ExpressionSet),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -132,7 +157,8 @@ pub struct Path {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathPart {
     LocalColumn(String),
-    LinkToOne(String),
+    LinkToOneViaColumn(String),
+    LinkToOneViaTable(String),
     LinkToMany(LinkToMany),
 }
 

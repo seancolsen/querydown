@@ -3,17 +3,18 @@ use chumsky::{prelude::*, text::*};
 use crate::syntax_tree::*;
 use crate::tokens::*;
 
-use super::expression_or_condition_set::discerned_expression;
+use super::molecule::discerned_expression;
+use super::utils::LqlParser;
 use super::values::db_identifier;
 
-pub fn column_layout() -> impl Parser<char, ColumnLayout, Error = Simple<char>> {
+pub fn column_layout() -> impl LqlParser<ColumnLayout> {
     column_spec()
         .then_ignore(whitespace())
         .repeated()
         .map(|column_specs| ColumnLayout { column_specs })
 }
 
-fn column_spec() -> impl Parser<char, ColumnSpec, Error = Simple<char>> {
+fn column_spec() -> impl LqlParser<ColumnSpec> {
     just(COLUMN_SPEC_PREFIX)
         .then(whitespace())
         .ignore_then(
@@ -37,7 +38,7 @@ fn column_spec() -> impl Parser<char, ColumnSpec, Error = Simple<char>> {
         })
 }
 
-fn column_control() -> impl Parser<char, ColumnControl, Error = Simple<char>> {
+fn column_control() -> impl LqlParser<ColumnControl> {
     #[derive(Debug, Clone)]
     enum Flag {
         Sort(SortSpec),
@@ -76,7 +77,7 @@ fn column_control() -> impl Parser<char, ColumnControl, Error = Simple<char>> {
         })
 }
 
-pub fn sort_spec() -> impl Parser<char, SortSpec, Error = Simple<char>> {
+pub fn sort_spec() -> impl LqlParser<SortSpec> {
     #[derive(Debug, Clone)]
     enum Flag {
         Desc,

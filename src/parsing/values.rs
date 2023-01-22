@@ -6,10 +6,7 @@ use crate::tokens::*;
 use super::paths::path;
 use super::utils::*;
 
-pub fn value<C>(condition_set: C) -> impl Parser<char, Value, Error = Simple<char>>
-where
-    C: Parser<char, ConditionSet, Error = Simple<char>> + Clone,
-{
+pub fn value(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Value> {
     choice::<_, Simple<char>>((
         exactly(LITERAL_NOW).to(Value::Now),
         exactly(LITERAL_INFINITY).to(Value::Infinity),
@@ -23,7 +20,7 @@ where
     ))
 }
 
-pub fn db_identifier() -> impl Parser<char, String, Error = Simple<char>> {
+pub fn db_identifier() -> impl LqlParser<String> {
     ident().or(quoted(DB_IDENTIFIER_QUOTE))
 }
 
@@ -36,7 +33,7 @@ fn test_db_identifier() {
     );
 }
 
-fn escape(quote: char) -> impl Parser<char, char, Error = Simple<char>> {
+fn escape(quote: char) -> impl LqlParser<char> {
     just(ESCAPE_PREFIX).ignore_then(
         just(ESCAPE_PREFIX)
             .or(just('/'))
@@ -63,7 +60,7 @@ fn escape(quote: char) -> impl Parser<char, char, Error = Simple<char>> {
     )
 }
 
-fn quoted(quote: char) -> impl Parser<char, String, Error = Simple<char>> {
+fn quoted(quote: char) -> impl LqlParser<String> {
     just(quote)
         .ignore_then(
             filter(move |c| *c != ESCAPE_PREFIX && *c != quote)
@@ -74,7 +71,7 @@ fn quoted(quote: char) -> impl Parser<char, String, Error = Simple<char>> {
         .collect::<String>()
 }
 
-fn number() -> impl Parser<char, String, Error = Simple<char>> {
+fn number() -> impl LqlParser<String> {
     just('-')
         .or_not()
         .chain::<char, _, _>(int(10))

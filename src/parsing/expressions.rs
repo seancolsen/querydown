@@ -2,14 +2,9 @@ use chumsky::{prelude::*, text::*};
 
 use crate::{syntax_tree::*, tokens::*};
 
-use super::values::value;
+use super::{values::value, utils::LqlParser};
 
-pub fn expression<C>(
-    condition_set: C,
-) -> impl Parser<char, Expression, Error = Simple<char>> + Clone
-where
-    C: Parser<char, ConditionSet, Error = Simple<char>> + Clone + 'static,
-{
+pub fn expression(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Expression> {
     recursive(|e| {
         value(condition_set)
             .then(whitespace().ignore_then(composition(e)).repeated())
@@ -17,10 +12,7 @@ where
     })
 }
 
-fn composition<E>(expression: E) -> impl Parser<char, Composition, Error = Simple<char>> + Clone
-where
-    E: Parser<char, Expression, Error = Simple<char>> + Clone + 'static,
-{
+fn composition(expression: impl LqlParser<Expression>) -> impl LqlParser<Composition> {
     let prefix = choice((
         just(COMPOSITION_PREFIX_SCALAR).to(FunctionDimension::Scalar),
         just(COMPOSITION_PREFIX_AGGREGATE).to(FunctionDimension::Aggregate),
