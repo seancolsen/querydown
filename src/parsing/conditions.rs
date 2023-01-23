@@ -43,15 +43,18 @@ fn condition_set_entry(
     condition_set: impl LqlParser<ConditionSet>,
     expression: impl LqlParser<Expression>,
 ) -> impl LqlParser<ConditionSetEntry> {
+    use ConditionSetEntry::*;
     choice((
-        condition_set.clone().map(ConditionSetEntry::ConditionSet),
-        has(condition_set).map(ConditionSetEntry::Has),
-        comparison(expression).map(ConditionSetEntry::Comparison),
+        condition_set.clone().map(ConditionSet),
+        has(condition_set.clone()).map(Has),
+        scoped_conditional(condition_set, expression.clone()).map(ScopedConditional),
+        comparison(expression).map(Comparison),
     ))
 }
 
 fn comparison(expression: impl LqlParser<Expression>) -> impl LqlParser<Comparison> {
     comparison_part(expression.clone())
+        .clone()
         .then_ignore(whitespace())
         .then(operator())
         .then_ignore(whitespace())
@@ -63,6 +66,21 @@ fn comparison(expression: impl LqlParser<Expression>) -> impl LqlParser<Comparis
         })
 }
 
+fn scoped_conditional(
+    condition_set: impl LqlParser<ConditionSet>,
+    expression: impl LqlParser<Expression>,
+) -> impl LqlParser<ScopedConditional> {
+    comparison_part(expression)
+        .clone()
+        .then_ignore(
+            whitespace()
+                .then(just(SCOPED_CONDITIONAL))
+                .then(whitespace()),
+        )
+        .then(condition_set)
+        .map(|(left, right)| ScopedConditional { left, right })
+}
+
 fn comparison_part(expression: impl LqlParser<Expression>) -> impl LqlParser<ComparisonPart> {
     choice((
         expression.clone().map(ComparisonPart::Expression),
@@ -72,17 +90,19 @@ fn comparison_part(expression: impl LqlParser<Expression>) -> impl LqlParser<Com
 
 fn operator() -> impl LqlParser<Operator> {
     choice((
-        exactly(OPERATOR_EQ).to(Operator::Eq),
-        exactly(OPERATOR_GT).to(Operator::Gt),
+        // Three character
+        exactly(OPERATOR_NOT_LIKE).to(Operator::NLike),
+        // Two character
         exactly(OPERATOR_GTE).to(Operator::Gte),
-        exactly(OPERATOR_LT).to(Operator::Lt),
         exactly(OPERATOR_LTE).to(Operator::Lte),
         exactly(OPERATOR_LIKE).to(Operator::Like),
         exactly(OPERATOR_NEQ).to(Operator::Neq),
-        exactly(OPERATOR_NOT_LIKE).to(Operator::NLike),
         exactly(OPERATOR_R_LIKE).to(Operator::RLike),
         exactly(OPERATOR_NOT_R_LIKE).to(Operator::NRLike),
-        just(OPERATOR_SCOPED_CONDITIONAL).to(Operator::ScopedConditional),
+        // One character
+        exactly(OPERATOR_EQ).to(Operator::Eq),
+        exactly(OPERATOR_GT).to(Operator::Gt),
+        exactly(OPERATOR_LT).to(Operator::Lt),
     ))
 }
 

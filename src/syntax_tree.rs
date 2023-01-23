@@ -32,6 +32,7 @@ pub enum Conjunction {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConditionSetEntry {
     Comparison(Comparison),
+    ScopedConditional(ScopedConditional),
     Has(Has),
     ConditionSet(ConditionSet),
 }
@@ -56,6 +57,12 @@ pub struct Comparison {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ScopedConditional {
+    pub left: ComparisonPart,
+    pub right: ConditionSet,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum ComparisonPart {
     Expression(Expression),
     ExpressionSet(ExpressionSet),
@@ -73,7 +80,6 @@ pub enum Operator {
     NLike,
     RLike,
     NRLike,
-    ScopedConditional,
 }
 
 #[derive(Debug, Default, PartialEq)]
