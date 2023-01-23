@@ -3,13 +3,17 @@ use chumsky::{prelude::*, text::*};
 use crate::syntax_tree::*;
 use crate::tokens::*;
 
-use super::utils::LqlParser;
+use super::utils::*;
 use super::values::db_identifier;
 
 pub fn path(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Path> {
     let initial_path_part = choice((
         db_identifier().map(PathPart::LocalColumn),
         prefixed_link_to_many(condition_set.clone()).map(PathPart::LinkToMany),
+        exactly(LINK_TO_ONE_VIA_TABLE_PREFIX)
+            .then(whitespace())
+            .ignore_then(db_identifier())
+            .map(PathPart::LinkToOneViaTable),
     ));
     let subsequent_path_part = choice((
         db_identifier().map(PathPart::LocalColumn),
@@ -46,7 +50,7 @@ pub fn link_to_many(condition_set: impl LqlParser<ConditionSet>) -> impl LqlPars
 }
 
 fn link_to_one() -> impl LqlParser<String> {
-    just(LINK_TO_ONE_PREFIX)
+    just(LINK_TO_ONE_VIA_COLUMN_PREFIX)
         .then(whitespace())
         .ignore_then(db_identifier())
 }
