@@ -2,6 +2,8 @@ mod compiler;
 mod context;
 mod error;
 mod parsing;
+mod schema;
+mod sql_tree;
 pub mod syntax_tree;
 mod tests;
 mod tokens;
