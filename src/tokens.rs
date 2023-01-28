@@ -21,6 +21,7 @@ pub(crate) const LINK_TO_MANY_COLUMN_R_BRACE: char = ')';
 pub(crate) const LINK_TO_MANY_PREFIX: char = '*';
 pub(crate) const LINK_TO_ONE_VIA_COLUMN_PREFIX: char = '.';
 pub(crate) const LINK_TO_ONE_VIA_TABLE_PREFIX: &str = "..";
+pub(crate) const LITERAL_PREFIX: char = '@';
 pub(crate) const LITERAL_FALSE: &str = "@false";
 pub(crate) const LITERAL_INFINITY: &str = "@inf";
 pub(crate) const LITERAL_NOW: &str = "@now";

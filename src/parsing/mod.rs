@@ -1,5 +1,6 @@
 mod column_layout;
 mod conditions;
+mod duration;
 mod expressions;
 pub mod molecule;
 mod paths;

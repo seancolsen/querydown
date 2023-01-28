@@ -3,6 +3,7 @@ use chumsky::{prelude::*, text::*};
 use crate::syntax_tree::*;
 use crate::tokens::*;
 
+use super::duration::duration;
 use super::paths::path;
 use super::utils::*;
 
@@ -14,7 +15,9 @@ pub fn value(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Valu
         exactly(LITERAL_FALSE).to(Value::False),
         exactly(LITERAL_NULL).to(Value::Null),
         just(SLOT).to(Value::Slot),
+        date().map(Value::Date),
         number().map(Value::Number),
+        duration().map(Value::Duration),
         choice((quoted(STRING_QUOTE_SINGLE), quoted(STRING_QUOTE_DOUBLE))).map(Value::String),
         path(condition_set).map(Value::Path),
     ))
@@ -83,4 +86,14 @@ fn number() -> impl LqlParser<String> {
         )
         .collect::<String>()
         .labelled("number")
+}
+
+fn date() -> impl LqlParser<Date> {
+    usize_with_digit_count(4)
+        .then_ignore(just('-'))
+        .then(usize_with_digit_count(2))
+        .then_ignore(just('-'))
+        .then(usize_with_digit_count(2))
+        .map(|((year, month), day)| Date { year, month, day })
+        .labelled("date")
 }

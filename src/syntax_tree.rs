@@ -147,6 +147,8 @@ pub enum Value {
     Path(Path),
     String(String),
     Number(String),
+    Date(Date),
+    Duration(Duration),
     Null,
     True,
     False,
@@ -173,6 +175,24 @@ pub struct LinkToMany {
     pub table: String,
     pub condition_set: ConditionSet,
     pub column: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Date {
+    pub year: u32,
+    pub month: u32,
+    pub day: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Duration {
+    pub years: f64,
+    pub months: f64,
+    pub weeks: f64,
+    pub days: f64,
+    pub hours: f64,
+    pub minutes: f64,
+    pub seconds: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
