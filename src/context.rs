@@ -1,12 +1,12 @@
-use crate::schema::Schema;
+use crate::schema::schema::Schema;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct Context {
     pub engine: Engine,
     pub schema: Schema,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum Engine {
     Sqlite,
     Postgres,
