@@ -11,6 +11,9 @@
                 },
                 {
                     "name": "email"
+                },
+                {
+                    "name": "team"
                 }
             ]
         },
@@ -79,6 +82,9 @@
                 },
                 {
                     "name": "title"
+                },
+                {
+                    "name": "product"
                 }
             ]
         },
@@ -124,6 +130,28 @@
                 },
                 {
                     "name": "created_at"
+                }
+            ]
+        },
+        {
+            "name": "teams",
+            "columns": [
+                {
+                    "name": "id"
+                },
+                {
+                    "name": "name"
+                }
+            ]
+        },
+        {
+            "name": "products",
+            "columns": [
+                {
+                    "name": "id"
+                },
+                {
+                    "name": "name"
                 }
             ]
         }
@@ -246,6 +274,28 @@
             },
             "to": {
                 "table": "users",
+                "column": "id"
+            },
+            "unique": false
+        },
+        {
+            "from": {
+                "table": "users",
+                "column": "team"
+            },
+            "to": {
+                "table": "teams",
+                "column": "id"
+            },
+            "unique": false
+        },
+        {
+            "from": {
+                "table": "projects",
+                "column": "product"
+            },
+            "to": {
+                "table": "products",
                 "column": "id"
             },
             "unique": false
