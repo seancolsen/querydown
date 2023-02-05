@@ -1,11 +1,11 @@
 use clap::Parser;
-use engines::postgres::Postgres;
+use dialects::postgres::Postgres;
 
 use crate::compiler::Compiler;
 use std::io::{self, Read};
 
 mod compiler;
-mod engines;
+mod dialects;
 mod error;
 mod parsing;
 mod schema;

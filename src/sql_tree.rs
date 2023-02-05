@@ -1,36 +1,54 @@
-use crate::engines::engine::Engine;
+use crate::{
+    dialects::dialect::Dialect,
+    syntax_tree::{NullsSort, SortDirection},
+};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct Select {
     pub base_table: String,
-    pub columns: Vec<String>,
+    pub columns: Vec<Column>,
     pub ctes: Vec<Cte>,
     pub condition_set: ConditionSet,
+    pub sorting: Vec<SortEntry>,
+    pub grouping: Vec<Expression>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
+pub struct Column {
+    pub expression: Expression,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug)]
 pub struct Cte {
     pub name: String,
     pub select: Select,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Default)]
 pub struct ConditionSet {
     pub conjunction: Conjunction,
     pub entries: Vec<ConditionSetEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum ConditionSetEntry {
     Expression(Expression),
     ConditionSet(ConditionSet),
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Default)]
 pub enum Conjunction {
     #[default]
     And,
     Or,
+}
+
+#[derive(Debug)]
+pub struct SortEntry {
+    pub expression: Expression,
+    pub direction: SortDirection,
+    pub nulls_sort: NullsSort,
 }
 
 type Expression = String;
@@ -42,16 +60,18 @@ impl From<String> for Select {
             columns: vec![],
             ctes: vec![],
             condition_set: ConditionSet::default(),
+            sorting: vec![],
+            grouping: vec![],
         }
     }
 }
 
 impl Select {
-    pub fn render<E: Engine>(&self, engine: &E) -> String {
+    pub fn render<D: Dialect>(&self, dialect: &D) -> String {
         let mut rendered = String::new();
         rendered.push_str("SELECT *");
         rendered.push_str(" FROM ");
-        rendered.push_str(engine.quote_identifier(&self.base_table).as_str());
+        rendered.push_str(dialect.quote_identifier(&self.base_table).as_str());
         rendered.push_str(";");
         rendered
     }

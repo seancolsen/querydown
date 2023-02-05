@@ -1,4 +1,4 @@
-pub trait Engine {
+pub trait Dialect {
     /// Quote a table or column for use in SQL.
     fn quote_identifier(&self, ident: &str) -> String;
 
