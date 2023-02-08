@@ -3,8 +3,9 @@ use chumsky::Parser;
 use crate::{
     dialects::dialect::Dialect,
     parsing::query::query,
+    rendering::{Render, RenderingContext},
     schema::{primitive_schema::PrimitiveSchema, schema::Schema},
-    sql_tree::Select,
+    sql_tree::{Column, Select},
 };
 
 pub struct Compiler<D: Dialect> {
@@ -29,7 +30,23 @@ impl<D: Dialect> Compiler<D> {
         if !self.schema.has_table(&base_table) {
             return Err(format!("Base table `{}` does not exist.", base_table));
         }
-        let select = Select::from(base_table);
-        Ok(select.render(&self.dialect))
+        let mut select = Select::from(base_table);
+        let mut transformations_iter = query.transformations.into_iter();
+        let first_transformation = transformations_iter.next().unwrap_or_default();
+        let second_transformation = transformations_iter.next();
+        if second_transformation.is_some() {
+            return Err("Pipelines not yet supported".to_string());
+        }
+        let mut rendering_context = RenderingContext {
+            dialect: &self.dialect,
+        };
+        for column_spec in first_transformation.column_layout.column_specs {
+            let expression = column_spec.expression.render(&mut rendering_context);
+            let alias = column_spec.alias;
+            select.columns.push(Column { expression, alias });
+        }
+        let mut result = select.render(&mut rendering_context);
+        result.push(';');
+        Ok(result)
     }
 }

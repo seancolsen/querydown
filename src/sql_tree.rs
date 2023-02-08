@@ -1,5 +1,6 @@
 use crate::{
     dialects::dialect::Dialect,
+    rendering::{Render, RenderingContext},
     syntax_tree::{NullsSort, SortDirection},
 };
 
@@ -8,6 +9,7 @@ pub struct Select {
     pub base_table: String,
     pub columns: Vec<Column>,
     pub ctes: Vec<Cte>,
+    pub joins: Vec<Join>,
     pub condition_set: ConditionSet,
     pub sorting: Vec<SortEntry>,
     pub grouping: Vec<Expression>,
@@ -23,6 +25,28 @@ pub struct Column {
 pub struct Cte {
     pub name: String,
     pub select: Select,
+    pub purpose: CtePurpose,
+}
+
+#[derive(Debug)]
+pub enum CtePurpose {
+    /// A CTE that is used to filter the base table on the presence of related records. It will be
+    /// joined via an inner join to accomplish the filtering.
+    Inclusion,
+    /// A CTE that is used to filter the base table on the absence of related records. Will be
+    /// joined via a left outer join, and a WHERE clause will be added to filter out rows that
+    /// have a related record.
+    Exclusion,
+    /// A CTE that is used to supply a value used by the query. Will be joined via a left outer
+    /// join.
+    AggregateValue,
+}
+
+#[derive(Debug)]
+pub struct Join {
+    pub table: String,
+    pub alias: String,
+    pub condition_set: ConditionSet,
 }
 
 #[derive(Debug, Default)]
@@ -59,6 +83,7 @@ impl From<String> for Select {
             base_table,
             columns: vec![],
             ctes: vec![],
+            joins: vec![],
             condition_set: ConditionSet::default(),
             sorting: vec![],
             grouping: vec![],
@@ -66,13 +91,41 @@ impl From<String> for Select {
     }
 }
 
-impl Select {
-    pub fn render<D: Dialect>(&self, dialect: &D) -> String {
+impl Render for Select {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
         let mut rendered = String::new();
-        rendered.push_str("SELECT *");
+        rendered.push_str("SELECT ");
+        rendered.push_str(&self.columns.render(cx));
         rendered.push_str(" FROM ");
-        rendered.push_str(dialect.quote_identifier(&self.base_table).as_str());
-        rendered.push_str(";");
+        rendered.push_str(cx.dialect.quote_identifier(&self.base_table).as_str());
+        rendered
+    }
+}
+
+impl Render for Vec<Column> {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        if self.len() == 0 {
+            return "*".to_string();
+        }
+        let mut rendered = String::new();
+        for (i, column) in self.iter().enumerate() {
+            if i > 0 {
+                rendered.push_str(", ");
+            }
+            rendered.push_str(&column.render(cx));
+        }
+        rendered
+    }
+}
+
+impl Render for Column {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let mut rendered = String::new();
+        rendered.push_str(&self.expression);
+        if let Some(alias) = &self.alias {
+            rendered.push_str(" AS ");
+            rendered.push_str(cx.dialect.quote_identifier(alias).as_str());
+        }
         rendered
     }
 }

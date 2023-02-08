@@ -4,7 +4,7 @@ pub struct Query {
     pub transformations: Vec<Transformation>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Transformation {
     pub condition_set: ConditionSet,
     pub column_layout: ColumnLayout,
@@ -184,6 +184,12 @@ pub struct Date {
     pub day: u32,
 }
 
+impl Date {
+    pub fn to_iso(&self) -> String {
+        format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Duration {
     pub years: f64,
@@ -193,6 +199,41 @@ pub struct Duration {
     pub hours: f64,
     pub minutes: f64,
     pub seconds: f64,
+}
+
+impl Duration {
+    pub fn to_iso(&self) -> String {
+        let mut result = String::new();
+        if self.years != 0.0 {
+            result.push_str(&format!("{}Y", self.years));
+        }
+        if self.months != 0.0 {
+            result.push_str(&format!("{}M", self.months));
+        }
+        if self.weeks != 0.0 {
+            result.push_str(&format!("{}W", self.weeks));
+        }
+        if self.days != 0.0 {
+            result.push_str(&format!("{}D", self.days));
+        }
+        if self.hours != 0.0 || self.minutes != 0.0 || self.seconds != 0.0 {
+            result.push('T');
+            if self.hours != 0.0 {
+                result.push_str(&format!("{}H", self.hours));
+            }
+            if self.minutes != 0.0 {
+                result.push_str(&format!("{}M", self.minutes));
+            }
+            if self.seconds != 0.0 {
+                result.push_str(&format!("{}S", self.seconds));
+            }
+        }
+        if result.is_empty() {
+            "PT0S".to_string()
+        } else {
+            result
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

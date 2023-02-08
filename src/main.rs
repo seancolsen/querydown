@@ -8,6 +8,7 @@ mod compiler;
 mod dialects;
 mod error;
 mod parsing;
+mod rendering;
 mod schema;
 mod sql_tree;
 pub mod syntax_tree;
