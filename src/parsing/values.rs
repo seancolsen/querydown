@@ -7,7 +7,7 @@ use super::duration::duration;
 use super::paths::path;
 use super::utils::*;
 
-pub fn value(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Value> {
+pub fn value(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Value> {
     choice::<_, Simple<char>>((
         exactly(LITERAL_NOW).to(Value::Now),
         exactly(LITERAL_INFINITY).to(Value::Infinity),
@@ -23,7 +23,7 @@ pub fn value(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Valu
     ))
 }
 
-pub fn db_identifier() -> impl LqlParser<String> {
+pub fn db_identifier() -> impl QdParser<String> {
     ident().or(quoted(DB_IDENTIFIER_QUOTE))
 }
 
@@ -36,7 +36,7 @@ fn test_db_identifier() {
     );
 }
 
-fn escape(quote: char) -> impl LqlParser<char> {
+fn escape(quote: char) -> impl QdParser<char> {
     just(ESCAPE_PREFIX).ignore_then(
         just(ESCAPE_PREFIX)
             .or(just('/'))
@@ -63,7 +63,7 @@ fn escape(quote: char) -> impl LqlParser<char> {
     )
 }
 
-fn quoted(quote: char) -> impl LqlParser<String> {
+fn quoted(quote: char) -> impl QdParser<String> {
     just(quote)
         .ignore_then(
             filter(move |c| *c != ESCAPE_PREFIX && *c != quote)
@@ -74,7 +74,7 @@ fn quoted(quote: char) -> impl LqlParser<String> {
         .collect::<String>()
 }
 
-fn number() -> impl LqlParser<String> {
+fn number() -> impl QdParser<String> {
     just('-')
         .or_not()
         .chain::<char, _, _>(int(10))
@@ -88,7 +88,7 @@ fn number() -> impl LqlParser<String> {
         .labelled("number")
 }
 
-fn date() -> impl LqlParser<Date> {
+fn date() -> impl QdParser<Date> {
     usize_with_digit_count(4)
         .then_ignore(just('-'))
         .then(usize_with_digit_count(2))

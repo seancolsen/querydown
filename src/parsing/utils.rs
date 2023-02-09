@@ -4,20 +4,20 @@ use chumsky::{prelude::*, text::*};
 /// follows:
 ///
 /// ```rs
-/// pub type LqlParser<T> = Parser<char, T, Error = Simple<char>> + Clone + 'static;
+/// pub type QdParser<T> = Parser<char, T, Error = Simple<char>> + Clone + 'static;
 /// ```
 ///
 /// However, we can't do that without [trait aliases][1].
 ///
 /// [1]: https://github.com/rust-lang/rust/issues/41517
-pub trait LqlParser<T>: Parser<char, T, Error = Simple<char>> + Clone + 'static {}
-impl<S, T> LqlParser<T> for S where S: Parser<char, T, Error = Simple<char>> + Clone + 'static {}
+pub trait QdParser<T>: Parser<char, T, Error = Simple<char>> + Clone + 'static {}
+impl<S, T> QdParser<T> for S where S: Parser<char, T, Error = Simple<char>> + Clone + 'static {}
 
-pub fn exactly(s: &str) -> impl LqlParser<String> {
+pub fn exactly(s: &str) -> impl QdParser<String> {
     just(s.chars().collect::<Vec<char>>()).collect::<String>()
 }
 
-pub fn usize_with_digit_count(digit_count: usize) -> impl LqlParser<u32> {
+pub fn usize_with_digit_count(digit_count: usize) -> impl QdParser<u32> {
     filter(char::is_ascii_digit)
         .repeated()
         .exactly(digit_count)
@@ -26,7 +26,7 @@ pub fn usize_with_digit_count(digit_count: usize) -> impl LqlParser<u32> {
         .unwrapped()
 }
 
-pub fn positive_float() -> impl LqlParser<f64> {
+pub fn positive_float() -> impl QdParser<f64> {
     use std::str::FromStr;
     int(10)
         .chain::<char, _, _>(just('.').chain(digits(10)).or_not().flatten())

@@ -1,8 +1,11 @@
-# Lower Query Language
+# Querydown
 
-Lower Query Language, or LQL, is a simple language designed to allow less-technical end-users to query a relational database.
+Querydown is a modern [domain-specific programing language](https://en.wikipedia.org/wiki/Domain-specific_language) designed for expressively writing relational databases queries that [transpile](https://en.wikipedia.org/wiki/Source-to-source_compiler) to [SQL](https://en.wikipedia.org/wiki/SQL). The code is succinct and safe for end-users to write, making it like **"markdown for SQL"**.
 
-It's like "markdown for SQL". 
+## Status
+
+⚠️ Querydown is currently in **concept phase**. ⚠️
+
 
 ## Design goals
 
@@ -14,18 +17,15 @@ It's like "markdown for SQL".
 
 ## Language design and examples
 
-**[See examples of LQL code](./docs/lql-design.md)**
+**[See examples of querydown code](./docs/design.md)**
 
-## Status
-
-LQL is currently in **concept phase**.
 
 ## How it works
 
-An LQL processor does the following
+The querydown processor does the following
 
 1. Takes input
-    - LQL code
+    - Querydown code
     - Database schema (so that it knows about foreign keys)
     - *(optionally) Additional schema hints (like pseudo foreign keys)*
     - *(optionally) Other global settings*

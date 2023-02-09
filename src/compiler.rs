@@ -25,7 +25,7 @@ impl<D: Dialect> Compiler<D> {
         let mut query = query()
             .parse(input)
             // TODO improve error handling
-            .map_err(|_| "Invalid LQL".to_string())?;
+            .map_err(|_| "Invalid querydown code".to_string())?;
         let base_table = std::mem::take(&mut query.base_table);
         if !self.schema.has_table(&base_table) {
             return Err(format!("Base table `{}` does not exist.", base_table));

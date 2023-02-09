@@ -8,7 +8,7 @@ use super::utils::*;
 use crate::syntax_tree::Conjunction::*;
 
 /// An explicit condition set, with {} braces for AND or [] braces for OR.
-pub fn condition_set(expression: impl LqlParser<Expression>) -> impl LqlParser<ConditionSet> {
+pub fn condition_set(expression: impl QdParser<Expression>) -> impl QdParser<ConditionSet> {
     recursive(|condition_set| {
         let specific_condition_set = |conjunction: Conjunction| {
             let (l_brace, r_brace) = get_braces(conjunction);
@@ -27,9 +27,9 @@ pub fn condition_set(expression: impl LqlParser<Expression>) -> impl LqlParser<C
 
 /// A condition set without braces. (Uses AND as the conjunction.)
 pub fn implicit_condition_set(
-    condition_set: impl LqlParser<ConditionSet>,
-    expression: impl LqlParser<Expression>,
-) -> impl LqlParser<ConditionSet> {
+    condition_set: impl QdParser<ConditionSet>,
+    expression: impl QdParser<Expression>,
+) -> impl QdParser<ConditionSet> {
     condition_set_entry(condition_set, expression)
         .then_ignore(whitespace())
         .repeated()
@@ -40,9 +40,9 @@ pub fn implicit_condition_set(
 }
 
 fn condition_set_entry(
-    condition_set: impl LqlParser<ConditionSet>,
-    expression: impl LqlParser<Expression>,
-) -> impl LqlParser<ConditionSetEntry> {
+    condition_set: impl QdParser<ConditionSet>,
+    expression: impl QdParser<Expression>,
+) -> impl QdParser<ConditionSetEntry> {
     use ConditionSetEntry::*;
     choice((
         condition_set.clone().map(ConditionSet),
@@ -52,7 +52,7 @@ fn condition_set_entry(
     ))
 }
 
-fn comparison(expression: impl LqlParser<Expression>) -> impl LqlParser<Comparison> {
+fn comparison(expression: impl QdParser<Expression>) -> impl QdParser<Comparison> {
     comparison_part(expression.clone())
         .clone()
         .then_ignore(whitespace())
@@ -67,9 +67,9 @@ fn comparison(expression: impl LqlParser<Expression>) -> impl LqlParser<Comparis
 }
 
 fn scoped_conditional(
-    condition_set: impl LqlParser<ConditionSet>,
-    expression: impl LqlParser<Expression>,
-) -> impl LqlParser<ScopedConditional> {
+    condition_set: impl QdParser<ConditionSet>,
+    expression: impl QdParser<Expression>,
+) -> impl QdParser<ScopedConditional> {
     comparison_part(expression)
         .clone()
         .then_ignore(
@@ -81,14 +81,14 @@ fn scoped_conditional(
         .map(|(left, right)| ScopedConditional { left, right })
 }
 
-fn comparison_part(expression: impl LqlParser<Expression>) -> impl LqlParser<ComparisonPart> {
+fn comparison_part(expression: impl QdParser<Expression>) -> impl QdParser<ComparisonPart> {
     choice((
         expression.clone().map(ComparisonPart::Expression),
         expression_set(expression).map(ComparisonPart::ExpressionSet),
     ))
 }
 
-fn operator() -> impl LqlParser<Operator> {
+fn operator() -> impl QdParser<Operator> {
     choice((
         // Three character
         exactly(OPERATOR_NOT_LIKE).to(Operator::NLike),
@@ -106,7 +106,7 @@ fn operator() -> impl LqlParser<Operator> {
     ))
 }
 
-pub fn has(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Has> {
+pub fn has(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Has> {
     choice((
         exactly(HAS_QUANTITY_AT_LEAST_ONE).to(HasQuantity::AtLeastOne),
         exactly(HAS_QUANTITY_ZERO).to(HasQuantity::Zero),
@@ -124,7 +124,7 @@ pub fn has(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Has> {
     .map(|(quantity, path)| Has { quantity, path })
 }
 
-pub fn expression_set(expression: impl LqlParser<Expression>) -> impl LqlParser<ExpressionSet> {
+pub fn expression_set(expression: impl QdParser<Expression>) -> impl QdParser<ExpressionSet> {
     let specific_expression_set = |conjunction: Conjunction| {
         let (l_brace, r_brace) = get_braces(conjunction);
         expression

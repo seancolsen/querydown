@@ -4,17 +4,17 @@ use crate::syntax_tree::*;
 use crate::tokens::*;
 
 use super::molecule::discerned_expression;
-use super::utils::LqlParser;
+use super::utils::QdParser;
 use super::values::db_identifier;
 
-pub fn column_layout() -> impl LqlParser<ColumnLayout> {
+pub fn column_layout() -> impl QdParser<ColumnLayout> {
     column_spec()
         .then_ignore(whitespace())
         .repeated()
         .map(|column_specs| ColumnLayout { column_specs })
 }
 
-fn column_spec() -> impl LqlParser<ColumnSpec> {
+fn column_spec() -> impl QdParser<ColumnSpec> {
     just(COLUMN_SPEC_PREFIX)
         .then(whitespace())
         .ignore_then(
@@ -38,7 +38,7 @@ fn column_spec() -> impl LqlParser<ColumnSpec> {
         })
 }
 
-fn column_control() -> impl LqlParser<ColumnControl> {
+fn column_control() -> impl QdParser<ColumnControl> {
     #[derive(Debug, Clone)]
     enum Flag {
         Sort(SortSpec),
@@ -77,7 +77,7 @@ fn column_control() -> impl LqlParser<ColumnControl> {
         })
 }
 
-pub fn sort_spec() -> impl LqlParser<SortSpec> {
+pub fn sort_spec() -> impl QdParser<SortSpec> {
     #[derive(Debug, Clone)]
     enum Flag {
         Desc,

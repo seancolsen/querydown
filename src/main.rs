@@ -17,17 +17,17 @@ mod tokens;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-/// Lower Query Language (LQL) compiler
+/// Querydown transpiler
 struct Args {
     #[arg(short, long)]
     /// Path to the schema JSON file
     schema: String,
-    /// The LQL query to execute. If empty, stdin will be used.
+    /// The querydown query to execute. If empty, stdin will be used.
     query: Option<String>,
 }
 
 /// Get the query from the CLI argument if it exists, otherwise read it from stdin
-fn get_lql_code(args: &mut Args) -> String {
+fn get_querydown_code(args: &mut Args) -> String {
     if let Some(query) = std::mem::take(&mut args.query) {
         query
     } else {
@@ -39,9 +39,9 @@ fn get_lql_code(args: &mut Args) -> String {
 
 fn main() -> () {
     let mut args = Args::parse();
-    let lql_code = get_lql_code(&mut args);
+    let querydown_code = get_querydown_code(&mut args);
     let schema_json = std::fs::read_to_string(args.schema).unwrap();
     let compiler = Compiler::new(&schema_json, Postgres()).unwrap();
-    let sql_code = compiler.compile(lql_code).unwrap();
+    let sql_code = compiler.compile(querydown_code).unwrap();
     println!("{sql_code}");
 }

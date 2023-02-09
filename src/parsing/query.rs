@@ -7,7 +7,7 @@ use super::transformation::transformation;
 use super::utils::*;
 use super::values::*;
 
-pub fn query() -> impl LqlParser<Query> {
+pub fn query() -> impl QdParser<Query> {
     let base_table = db_identifier().then_ignore(whitespace());
     let transformations = transformation().separated_by(
         whitespace()

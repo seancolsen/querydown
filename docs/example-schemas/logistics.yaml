@@ -1,0 +1,16 @@
+- location
+  - id
+  - addressee
+  - street
+  - apt
+  - city
+  - state
+  - zip
+
+- shipment
+  - id
+  - tracking_number
+  - origin -> location
+  - destination -> location
+  - departure_datetime
+  - arrival_datetime

@@ -5,21 +5,21 @@ use crate::syntax_tree::*;
 use super::{
     conditions::{condition_set, implicit_condition_set},
     expressions::expression,
-    utils::LqlParser,
+    utils::QdParser,
 };
 
-pub fn top_level_condition_set() -> impl LqlParser<ConditionSet> {
+pub fn top_level_condition_set() -> impl QdParser<ConditionSet> {
     choice((
         discerned_condition_set(),
         implicit_condition_set(discerned_condition_set(), discerned_expression()),
     ))
 }
 
-pub fn discerned_expression() -> impl LqlParser<Expression> {
+pub fn discerned_expression() -> impl QdParser<Expression> {
     make_discerned_expression(molecule())
 }
 
-pub fn discerned_condition_set() -> impl LqlParser<ConditionSet> {
+pub fn discerned_condition_set() -> impl QdParser<ConditionSet> {
     make_discerned_condition_set(molecule())
 }
 
@@ -29,7 +29,7 @@ pub enum Molecule {
     ConditionSet(ConditionSet),
 }
 
-fn molecule() -> impl LqlParser<Molecule> {
+fn molecule() -> impl QdParser<Molecule> {
     recursive(|molecule| {
         choice((
             condition_set(make_discerned_expression(molecule.clone())).map(Molecule::ConditionSet),
@@ -38,7 +38,7 @@ fn molecule() -> impl LqlParser<Molecule> {
     })
 }
 
-fn make_discerned_expression(molecule: impl LqlParser<Molecule>) -> impl LqlParser<Expression> {
+fn make_discerned_expression(molecule: impl QdParser<Molecule>) -> impl QdParser<Expression> {
     molecule.try_map(|v, span| match v {
         Molecule::Expression(e) => Ok(e),
         Molecule::ConditionSet(_) => Err(Simple::custom(
@@ -48,9 +48,7 @@ fn make_discerned_expression(molecule: impl LqlParser<Molecule>) -> impl LqlPars
     })
 }
 
-fn make_discerned_condition_set(
-    molecule: impl LqlParser<Molecule>,
-) -> impl LqlParser<ConditionSet> {
+fn make_discerned_condition_set(molecule: impl QdParser<Molecule>) -> impl QdParser<ConditionSet> {
     molecule.try_map(|v, span| match v {
         Molecule::ConditionSet(e) => Ok(e),
         Molecule::Expression(_) => Err(Simple::custom(

@@ -188,16 +188,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
 
 [[package]]
-name = "lower-query-language"
-version = "0.1.0"
-dependencies = [
- "chumsky",
- "clap",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -246,6 +236,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ef7d57beacfaf2d8aee5937dab7b7f28de3cb8b1828479bb5de2a7106f2bae2"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "querydown"
+version = "0.1.0"
+dependencies = [
+ "chumsky",
+ "clap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -5,9 +5,9 @@ use crate::syntax_tree::*;
 
 use super::column_layout::column_layout;
 use super::molecule::*;
-use super::utils::LqlParser;
+use super::utils::QdParser;
 
-pub fn transformation() -> impl LqlParser<Transformation> {
+pub fn transformation() -> impl QdParser<Transformation> {
     top_level_condition_set()
         .or_not()
         .then_ignore(whitespace())

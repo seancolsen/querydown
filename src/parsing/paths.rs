@@ -6,7 +6,7 @@ use crate::tokens::*;
 use super::utils::*;
 use super::values::db_identifier;
 
-pub fn path(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Path> {
+pub fn path(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Path> {
     let initial_path_part = choice((
         db_identifier().map(PathPart::LocalColumn),
         prefixed_link_to_many(condition_set.clone()).map(PathPart::LinkToMany),
@@ -26,14 +26,14 @@ pub fn path(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<Path>
 }
 
 pub fn prefixed_link_to_many(
-    condition_set: impl LqlParser<ConditionSet>,
-) -> impl LqlParser<LinkToMany> {
+    condition_set: impl QdParser<ConditionSet>,
+) -> impl QdParser<LinkToMany> {
     just(LINK_TO_MANY_PREFIX)
         .then(whitespace())
         .ignore_then(link_to_many(condition_set))
 }
 
-pub fn link_to_many(condition_set: impl LqlParser<ConditionSet>) -> impl LqlParser<LinkToMany> {
+pub fn link_to_many(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<LinkToMany> {
     let column = db_identifier().delimited_by(
         just(LINK_TO_MANY_COLUMN_L_BRACE).then(whitespace()),
         whitespace().then(just(LINK_TO_MANY_COLUMN_R_BRACE)),
@@ -49,7 +49,7 @@ pub fn link_to_many(condition_set: impl LqlParser<ConditionSet>) -> impl LqlPars
         })
 }
 
-fn link_to_one() -> impl LqlParser<String> {
+fn link_to_one() -> impl QdParser<String> {
     just(LINK_TO_ONE_VIA_COLUMN_PREFIX)
         .then(whitespace())
         .ignore_then(db_identifier())
@@ -65,11 +65,11 @@ mod tests {
     /// we don't test cases like this here. Testing for paths which contain condition sets is done
     /// at a higher level (see `test_discerned_expression`) because it requires parsing for
     /// expressions and condition_sets.
-    fn incapable_condition_set_parser() -> impl LqlParser<ConditionSet> {
+    fn incapable_condition_set_parser() -> impl QdParser<ConditionSet> {
         exactly("NOPE").map(|_| ConditionSet::default())
     }
 
-    fn simple_path() -> impl LqlParser<Path> {
+    fn simple_path() -> impl QdParser<Path> {
         path(incapable_condition_set_parser()).then_ignore(end())
     }
 

@@ -10,7 +10,7 @@ use crate::tokens::*;
 
 use super::utils::*;
 
-pub fn duration() -> impl LqlParser<Duration> {
+pub fn duration() -> impl QdParser<Duration> {
     let part = |sym: char| positive_float().then_ignore(just(sym));
     let large_part = choice((
         part('Y').map(|value| Part { kind: Year, value }),
