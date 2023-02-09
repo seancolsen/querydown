@@ -37,15 +37,13 @@ impl<D: Dialect> Compiler<D> {
         if second_transformation.is_some() {
             return Err("Pipelines not yet supported".to_string());
         }
-        let mut rendering_context = RenderingContext {
-            dialect: &self.dialect,
-        };
+        let mut cx = RenderingContext::new(&self.dialect, &self.schema, &select.base_table);
         for column_spec in first_transformation.column_layout.column_specs {
-            let expression = column_spec.expression.render(&mut rendering_context);
+            let expression = column_spec.expression.render(&mut cx);
             let alias = column_spec.alias;
             select.columns.push(Column { expression, alias });
         }
-        let mut result = select.render(&mut rendering_context);
+        let mut result = select.render(&mut cx);
         result.push(';');
         Ok(result)
     }

@@ -1,6 +1,8 @@
 use crate::{
     dialects::dialect::Dialect,
-    syntax_tree::{Composition, Expression, Value},
+    schema::schema::Schema,
+    sql_tree::{Cte, Join},
+    syntax_tree::{Composition, Expression, Path, Value},
 };
 
 mod functions {
@@ -16,6 +18,26 @@ use functions::*;
 
 pub struct RenderingContext<'a, D: Dialect> {
     pub dialect: &'a D,
+    pub schema: &'a Schema,
+    pub base_table: &'a str,
+    ctes: Vec<Cte>,
+    joins: Vec<Join>,
+}
+
+impl<'a, D: Dialect> RenderingContext<'a, D> {
+    pub fn new(dialect: &'a D, schema: &'a Schema, base_table: &'a str) -> Self {
+        Self {
+            dialect,
+            schema,
+            base_table,
+            ctes: vec![],
+            joins: vec![],
+        }
+    }
+
+    pub fn render_path(&mut self, path: &Path) -> String {
+        "TODO".to_string()
+    }
 }
 
 pub trait Render {
@@ -32,7 +54,7 @@ impl Render for Value {
             Value::Now => "NOW()".to_string(),
             Value::Null => "NULL".to_string(),
             Value::Number(n) => n.clone(),
-            Value::Path(_) => todo!(),
+            Value::Path(p) => cx.render_path(p),
             Value::Slot => todo!(),
             Value::String(s) => cx.dialect.quote_string(s),
             Value::True => "TRUE".to_string(),
