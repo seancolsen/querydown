@@ -1,7 +1,7 @@
 use crate::{
     dialects::dialect::Dialect,
     rendering::{Render, RenderingContext},
-    syntax_tree::{NullsSort, SortDirection},
+    syntax_tree::{ConditionSet, Conjunction, NullsSort, SortDirection},
 };
 
 #[derive(Debug)]
@@ -10,14 +10,14 @@ pub struct Select {
     pub columns: Vec<Column>,
     pub ctes: Vec<Cte>,
     pub joins: Vec<Join>,
-    pub condition_set: ConditionSet,
+    pub condition_set: SqlConditionSet,
     pub sorting: Vec<SortEntry>,
-    pub grouping: Vec<Expression>,
+    pub grouping: Vec<SqlExpression>,
 }
 
 #[derive(Debug)]
 pub struct Column {
-    pub expression: Expression,
+    pub expression: SqlExpression,
     pub alias: Option<String>,
 }
 
@@ -46,36 +46,29 @@ pub enum CtePurpose {
 pub struct Join {
     pub table: String,
     pub alias: String,
-    pub condition_set: ConditionSet,
+    pub condition_set: SqlConditionSet,
 }
 
 #[derive(Debug, Default)]
-pub struct ConditionSet {
+pub struct SqlConditionSet {
     pub conjunction: Conjunction,
-    pub entries: Vec<ConditionSetEntry>,
+    pub entries: Vec<SqlConditionSetEntry>,
 }
 
 #[derive(Debug)]
-pub enum ConditionSetEntry {
-    Expression(Expression),
-    ConditionSet(ConditionSet),
-}
-
-#[derive(Debug, Default)]
-pub enum Conjunction {
-    #[default]
-    And,
-    Or,
+pub enum SqlConditionSetEntry {
+    Expression(SqlExpression),
+    ConditionSet(SqlConditionSet),
 }
 
 #[derive(Debug)]
 pub struct SortEntry {
-    pub expression: Expression,
+    pub expression: SqlExpression,
     pub direction: SortDirection,
     pub nulls_sort: NullsSort,
 }
 
-type Expression = String;
+type SqlExpression = String;
 
 impl From<String> for Select {
     fn from(base_table: String) -> Self {
@@ -84,7 +77,7 @@ impl From<String> for Select {
             columns: vec![],
             ctes: vec![],
             joins: vec![],
-            condition_set: ConditionSet::default(),
+            condition_set: SqlConditionSet::default(),
             sorting: vec![],
             grouping: vec![],
         }
@@ -94,26 +87,39 @@ impl From<String> for Select {
 impl Render for Select {
     fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
         let mut rendered = String::new();
-        rendered.push_str("SELECT ");
+        rendered.push_str("SELECT\n");
+        cx.indent();
         rendered.push_str(&self.columns.render(cx));
-        rendered.push_str(" FROM ");
+        cx.unindent();
+        rendered.push_str("FROM ");
         rendered.push_str(cx.dialect.quote_identifier(&self.base_table).as_str());
+        if self.condition_set.entries.len() > 0 {
+            rendered.push_str("\nWHERE\n");
+            cx.indent();
+            rendered.push_str(&self.condition_set.render(cx));
+            cx.unindent();
+        }
         rendered
     }
 }
 
 impl Render for Vec<Column> {
     fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
-        if self.len() == 0 {
-            return "*".to_string();
-        }
         let mut rendered = String::new();
+        if self.len() == 0 {
+            rendered.push_str(cx.get_indentation().as_str());
+            rendered.push('*');
+            rendered.push('\n');
+            return rendered;
+        }
         for (i, column) in self.iter().enumerate() {
             if i > 0 {
-                rendered.push_str(", ");
+                rendered.push_str(",\n");
             }
+            rendered.push_str(cx.get_indentation().as_str());
             rendered.push_str(&column.render(cx));
         }
+        rendered.push('\n');
         rendered
     }
 }
@@ -125,6 +131,49 @@ impl Render for Column {
         if let Some(alias) = &self.alias {
             rendered.push_str(" AS ");
             rendered.push_str(cx.dialect.quote_identifier(alias).as_str());
+        }
+        rendered
+    }
+}
+
+impl Render for SqlConditionSet {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let mut rendered = String::new();
+        if self.entries.len() == 0 {
+            return rendered;
+        }
+        for (i, entry) in self.entries.iter().enumerate() {
+            if i > 0 {
+                rendered.push(' ');
+                rendered.push_str(self.conjunction.render(cx).as_str());
+                rendered.push('\n');
+            }
+            rendered.push_str(cx.get_indentation().as_str());
+            rendered.push_str(&entry.render(cx));
+        }
+        rendered
+    }
+}
+
+impl Render for SqlConditionSetEntry {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let mut rendered = String::new();
+        match self {
+            SqlConditionSetEntry::Expression(expression) => {
+                rendered.push_str(expression.as_str());
+            }
+            SqlConditionSetEntry::ConditionSet(condition_set) => {
+                if condition_set.entries.len() == 0 {
+                    return rendered;
+                }
+                rendered.push_str("(\n");
+                cx.indent();
+                rendered.push_str(&condition_set.render(cx));
+                cx.unindent();
+                rendered.push('\n');
+                rendered.push_str(cx.get_indentation().as_str());
+                rendered.push_str(")\n");
+            }
         }
         rendered
     }

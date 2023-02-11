@@ -2,8 +2,11 @@ use crate::{
     dialects::dialect::Dialect,
     schema::schema::Schema,
     sql_tree::{Cte, Join},
-    syntax_tree::{Composition, Expression, Path, Value},
+    syntax_tree::{Composition, Conjunction, Expression, Operator, Path, Value},
 };
+
+/// We may eventually make this configurable
+const INDENT_SPACER: &str = "  ";
 
 mod functions {
     pub const AGO: &str = "ago";
@@ -20,6 +23,7 @@ pub struct RenderingContext<'a, D: Dialect> {
     pub dialect: &'a D,
     pub schema: &'a Schema,
     pub base_table: &'a str,
+    pub indentation_level: usize,
     ctes: Vec<Cte>,
     joins: Vec<Join>,
 }
@@ -30,9 +34,22 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
             dialect,
             schema,
             base_table,
+            indentation_level: 0,
             ctes: vec![],
             joins: vec![],
         }
+    }
+
+    pub fn indent(&mut self) {
+        self.indentation_level = self.indentation_level.saturating_add(1);
+    }
+
+    pub fn unindent(&mut self) {
+        self.indentation_level = self.indentation_level.saturating_sub(1);
+    }
+
+    pub fn get_indentation(&self) -> String {
+        INDENT_SPACER.repeat(self.indentation_level)
     }
 
     pub fn render_path(&mut self, path: &Path) -> String {
@@ -126,5 +143,31 @@ fn render_expression<D: Dialect>(
 impl Render for Expression {
     fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
         render_expression(self, cx).rendered
+    }
+}
+
+impl Render for Operator {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        match self {
+            Operator::Eq => "=".to_string(),
+            Operator::Gt => ">".to_string(),
+            Operator::Gte => ">=".to_string(),
+            Operator::Lt => "<".to_string(),
+            Operator::Lte => "<=".to_string(),
+            Operator::Like => "LIKE".to_string(),
+            Operator::Neq => "<>".to_string(),
+            Operator::NLike => "NOT LIKE".to_string(),
+            Operator::RLike => "RLIKE".to_string(),
+            Operator::NRLike => "NOT RLIKE".to_string(),
+        }
+    }
+}
+
+impl Render for Conjunction {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        match self {
+            Conjunction::And => "AND".to_string(),
+            Conjunction::Or => "OR".to_string(),
+        }
     }
 }

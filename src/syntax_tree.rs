@@ -68,6 +68,18 @@ pub enum ComparisonPart {
     ExpressionSet(ExpressionSet),
 }
 
+impl From<ComparisonPart> for ExpressionSet {
+    fn from(part: ComparisonPart) -> Self {
+        match part {
+            ComparisonPart::Expression(expr) => ExpressionSet {
+                entries: vec![expr],
+                ..Default::default()
+            },
+            ComparisonPart::ExpressionSet(expr_set) => expr_set,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Operator {
     Eq,

@@ -5,6 +5,7 @@ use crate::compiler::Compiler;
 use std::io::{self, Read};
 
 mod compiler;
+mod converters;
 mod dialects;
 mod error;
 mod parsing;

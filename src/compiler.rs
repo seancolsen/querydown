@@ -1,6 +1,7 @@
 use chumsky::Parser;
 
 use crate::{
+    converters::convert_condition_set,
     dialects::dialect::Dialect,
     parsing::query::query,
     rendering::{Render, RenderingContext},
@@ -31,18 +32,24 @@ impl<D: Dialect> Compiler<D> {
             return Err(format!("Base table `{}` does not exist.", base_table));
         }
         let mut select = Select::from(base_table);
+
+        let mut cx = RenderingContext::new(&self.dialect, &self.schema, &select.base_table);
+
         let mut transformations_iter = query.transformations.into_iter();
         let first_transformation = transformations_iter.next().unwrap_or_default();
         let second_transformation = transformations_iter.next();
         if second_transformation.is_some() {
             return Err("Pipelines not yet supported".to_string());
         }
-        let mut cx = RenderingContext::new(&self.dialect, &self.schema, &select.base_table);
+
+        select.condition_set = convert_condition_set(&first_transformation.condition_set, &mut cx);
+
         for column_spec in first_transformation.column_layout.column_specs {
             let expression = column_spec.expression.render(&mut cx);
             let alias = column_spec.alias;
             select.columns.push(Column { expression, alias });
         }
+
         let mut result = select.render(&mut cx);
         result.push(';');
         Ok(result)
