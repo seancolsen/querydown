@@ -53,7 +53,19 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
     }
 
     pub fn with_slot_value<T>(&mut self, expr: Expression, f: impl FnOnce(&mut Self) -> T) -> T {
-        let new_slot_value = ExpressionWithCachedRender::new(expr, self);
+        // We render the slot value enclosed in parentheses as a sort of hacky way of dealing with
+        // precedence issues that arise in Querydown code like this:
+        //
+        // ```qd
+        // users "bar"|plus(2) ? {#|times(3) < 4}
+        // ```
+        //
+        // If we don't use parentheses, then we end up with SQL `'bar' + 2 * 3 < 4` which has
+        // incorrect precedence. We might want to fix this in a cleaner way by moving away from
+        // pre-rendering the slot value and instead doing some more complex logic which merges the
+        // slot expression with its surrounding expression.
+        let new_slot_value =
+            ExpressionWithCachedRender::new(format!("({})", expr.render(self)), expr);
         let old_slot_value = std::mem::replace(&mut self.slot_value, Some(new_slot_value));
         let result = f(self);
         self.slot_value = old_slot_value;
@@ -78,8 +90,7 @@ struct ExpressionWithCachedRender {
 }
 
 impl ExpressionWithCachedRender {
-    fn new<D: Dialect>(value: Expression, cx: &mut RenderingContext<D>) -> Self {
-        let rendered = value.render(cx);
+    fn new(rendered: String, value: Expression) -> Self {
         Self { value, rendered }
     }
 
