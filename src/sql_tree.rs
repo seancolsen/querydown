@@ -88,16 +88,12 @@ impl Render for Select {
     fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
         let mut rendered = String::new();
         rendered.push_str("SELECT\n");
-        cx.indent();
-        rendered.push_str(&self.columns.render(cx));
-        cx.unindent();
+        cx.indented(|cx| rendered.push_str(&self.columns.render(cx)));
         rendered.push_str("FROM ");
         rendered.push_str(cx.dialect.quote_identifier(&self.base_table).as_str());
         if self.condition_set.entries.len() > 0 {
             rendered.push_str("\nWHERE\n");
-            cx.indent();
-            rendered.push_str(&self.condition_set.render(cx));
-            cx.unindent();
+            cx.indented(|cx| rendered.push_str(&self.condition_set.render(cx)))
         }
         rendered
     }
@@ -167,9 +163,7 @@ impl Render for SqlConditionSetEntry {
                     return rendered;
                 }
                 rendered.push_str("(\n");
-                cx.indent();
-                rendered.push_str(&condition_set.render(cx));
-                cx.unindent();
+                cx.indented(|cx| rendered.push_str(&condition_set.render(cx)));
                 rendered.push('\n');
                 rendered.push_str(cx.get_indentation().as_str());
                 rendered.push_str(")\n");

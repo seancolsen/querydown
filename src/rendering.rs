@@ -24,6 +24,7 @@ pub struct RenderingContext<'a, D: Dialect> {
     pub schema: &'a Schema,
     pub base_table: &'a str,
     pub indentation_level: usize,
+    slot_value: Option<ExpressionWithCachedRender>,
     ctes: Vec<Cte>,
     joins: Vec<Join>,
 }
@@ -35,17 +36,10 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
             schema,
             base_table,
             indentation_level: 0,
+            slot_value: None,
             ctes: vec![],
             joins: vec![],
         }
-    }
-
-    pub fn indent(&mut self) {
-        self.indentation_level = self.indentation_level.saturating_add(1);
-    }
-
-    pub fn unindent(&mut self) {
-        self.indentation_level = self.indentation_level.saturating_sub(1);
     }
 
     pub fn get_indentation(&self) -> String {
@@ -53,7 +47,44 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
     }
 
     pub fn render_path(&mut self, path: &Path) -> String {
+        // Reminder: need to look at the slot value within the `self` and see if it establishes a
+        // new base table. If so we need to prepend `path` with the path from the slot value.
         "TODO".to_string()
+    }
+
+    pub fn with_slot_value<T>(&mut self, expr: Expression, f: impl FnOnce(&mut Self) -> T) -> T {
+        let new_slot_value = ExpressionWithCachedRender::new(expr, self);
+        let old_slot_value = std::mem::replace(&mut self.slot_value, Some(new_slot_value));
+        let result = f(self);
+        self.slot_value = old_slot_value;
+        result
+    }
+
+    pub fn indented<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.indentation_level = self.indentation_level.saturating_add(1);
+        let result = f(self);
+        self.indentation_level = self.indentation_level.saturating_sub(1);
+        result
+    }
+
+    pub fn render_slot(&self) -> Option<String> {
+        self.slot_value.as_ref().map(|i| i.render())
+    }
+}
+
+struct ExpressionWithCachedRender {
+    value: Expression,
+    rendered: String,
+}
+
+impl ExpressionWithCachedRender {
+    fn new<D: Dialect>(value: Expression, cx: &mut RenderingContext<D>) -> Self {
+        let rendered = value.render(cx);
+        Self { value, rendered }
+    }
+
+    fn render(&self) -> String {
+        self.rendered.clone()
     }
 }
 
@@ -72,7 +103,7 @@ impl Render for Value {
             Value::Null => "NULL".to_string(),
             Value::Number(n) => n.clone(),
             Value::Path(p) => cx.render_path(p),
-            Value::Slot => todo!(),
+            Value::Slot => cx.render_slot().unwrap(), // TODO handle error
             Value::String(s) => cx.dialect.quote_string(s),
             Value::True => "TRUE".to_string(),
         }
@@ -147,7 +178,7 @@ impl Render for Expression {
 }
 
 impl Render for Operator {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
         match self {
             Operator::Eq => "=".to_string(),
             Operator::Gt => ">".to_string(),
@@ -164,7 +195,7 @@ impl Render for Operator {
 }
 
 impl Render for Conjunction {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
         match self {
             Conjunction::And => "AND".to_string(),
             Conjunction::Or => "OR".to_string(),

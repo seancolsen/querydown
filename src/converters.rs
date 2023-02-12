@@ -84,7 +84,8 @@ fn convert_condition_set_entry<D: Dialect>(
         ConditionSetEntry::ConditionSet(condition_set) => {
             SqlConditionSetEntry::ConditionSet(convert_condition_set(condition_set, cx))
         }
-        _ => todo!(),
+        ConditionSetEntry::ScopedConditional(s) => convert_scoped_conditional(s, cx),
+        ConditionSetEntry::Has(h) => todo!(),
     }
 }
 
@@ -160,4 +161,33 @@ fn expand_comparison(comparison: &Comparison) -> SimpleConditionSetEntry {
                 .collect(),
         ),
     }
+}
+
+fn convert_scoped_conditional<D: Dialect>(
+    scoped_conditional: &ScopedConditional,
+    cx: &mut RenderingContext<D>,
+) -> SqlConditionSetEntry {
+    let ScopedConditional { left, right } = scoped_conditional;
+    let mut convert_with_left_expr = |left_expr: &Expression| -> SqlConditionSet {
+        cx.with_slot_value(left_expr.clone(), |cx| SqlConditionSet {
+            conjunction: right.conjunction,
+            entries: right
+                .entries
+                .iter()
+                .map(|entry| convert_condition_set_entry(entry, cx))
+                .collect(),
+        })
+    };
+    let condition_set = match left {
+        ComparisonPart::Expression(expr) => convert_with_left_expr(expr),
+        ComparisonPart::ExpressionSet(expr_set) => SqlConditionSet {
+            conjunction: expr_set.conjunction,
+            entries: expr_set
+                .entries
+                .iter()
+                .map(|expr| SqlConditionSetEntry::ConditionSet(convert_with_left_expr(expr)))
+                .collect(),
+        },
+    };
+    SqlConditionSetEntry::ConditionSet(condition_set)
 }
