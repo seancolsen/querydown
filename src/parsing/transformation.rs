@@ -25,14 +25,14 @@ mod tests {
     #[test]
     fn test_transformation() {
         assert_eq!(
-            transformation().then_ignore(end()).parse("{a=8} -foo"),
+            transformation().then_ignore(end()).parse("{a=8} :foo"),
             Ok(Transformation {
                 condition_set: ConditionSet {
                     conjunction: Conjunction::And,
                     entries: vec![ConditionSetEntry::Comparison(Comparison {
                         left: ComparisonPart::Expression(Expression {
                             base: Value::Path(Path {
-                                parts: vec![PathPart::LocalColumn("a".to_string())]
+                                parts: vec![PathPart::Column("a".to_string())]
                             }),
                             compositions: vec![],
                         }),
@@ -48,7 +48,7 @@ mod tests {
                         column_control: ColumnControl::default(),
                         expression: Expression {
                             base: Value::Path(Path {
-                                parts: vec![PathPart::LocalColumn("foo".to_string())]
+                                parts: vec![PathPart::Column("foo".to_string())]
                             }),
                             compositions: vec![],
                         },

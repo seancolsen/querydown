@@ -2,23 +2,32 @@
 
 ## Literals
 
-| Code     | Usage |
-| --       | -- |
-| `"`      | string quote |
-| `'`      | string quote (alternate) |
-| `` ` ``  | db entity quote |
-| `^`      | interpolated string quote |
-| `{ }`    | expression within an interpolated string |
-| `\`      | escape sequence within string |
-| `@`      | prefix for date/time values (e.g. `@2000-01-01`) |
-| `@P`     | prefix for duration values |
-| `@now`   | `now()` |
-| `@inf`   | `Infinity` |
-| `@true`  | `TRUE` |
-| `@false` | `FALSE` |
-| `@null`  | `NULL` |
-| `//`     | single line comment |
-| `/* */`  | multi-line comment |
+| Code          | Usage |
+| --            | -- |
+| `"`           | string quote |
+| `'`           | string quote (alternate) |
+| `` ` ``       | db entity quote |
+| `^`           | interpolated string quote |
+| `{ }`         | expression within an interpolated string |
+| `\`           | escape sequence within string |
+| `@2000-01-01` | date/time values |
+| `@1y`         | duration values |
+| `@now`        | `now()` |
+| `@inf`        | `Infinity` |
+| `@true`       | `TRUE` |
+| `@false`      | `FALSE` |
+| `@null`       | `NULL` |
+| `//`          | single line comment |
+| `/* */`       | multi-line comment |
+
+## Paths to data (i.e. joins)
+
+| Code   | Usage |
+| --     | -- |
+| `.`                       | path separator |
+| _alphanumeric identifier_ | column |
+| `#`                       | path to table with aggregated records |
+| `>>`                      | path to table with singular records |
 
 ## Conditionals
 
@@ -37,32 +46,25 @@
 | `~~`  | LIKE |
 | `!~~` | not LIKE |
 | `?`   | comparison expansion |
-| `#`   | value from scope outside comparison expansion |
-
-## Joins
-
-| Code   | Usage |
-| --     | -- |
-| `.`   | related column |
-| `..`  | transitively related table |
-| `*`   | one-to-many join |
+| `&`   | slot (value from scope outside comparison expansion) |
 | `++`  | has at least one |
 | `--`  | has none |
 
 ## Column control
 
-| Code   | Usage |
-| --     | -- |
-| `-`    | column spec prefix |
-| `-( )` | relative column spec |
-| `[ ]`  | column control |
-| `s`    | "sort" flag |
-| `h`    | "hide" flag |
-| `g`    | "group" flag |
-| `d`    | "descending" flag (in a sort spec) |
-| `n`    | "nulls first" flag (in a sort spec) |
-| `p`    | "partition" flag (in a window definition) |
-| `:`    |  alias |
+| Code      | Usage |
+| --        | -- |
+| `:`       | column spec prefix |
+| `:[ ]`    | incremental column spec |
+| `->`      |  alias |
+| `\`       | column control flags |
+| `g`       | "group" flag |
+| `s`       | "sort" flag |
+| `1` - `9` | sorting/grouping ordinality |
+| `d`       | "descending" flag |
+| `n`       | "nulls first" flag |
+| `h`       | "hide" flag |
+| `p`       | "partition" flag (in a window definition) |
 
 ## Functions
 
@@ -71,9 +73,7 @@
 | `%`     | aggregate function |
 | `∣`     | scalar function |
 | `( )`   | function arguments (if any) |
-| `,`     | function argument delimiter |
-| `:`     |  associative function arguments |
-| `%%( )` | window definition |
+| `%%[ ]` | window definition |
 
 ## Transformations
 
@@ -86,10 +86,14 @@
 ## Not (yet) used
 
 ```
-$   may be used for user-defined variable
-&   may be used for parameterization
-/
-+
+$   reserved for user-defined variables and functions
+
+*   reserved for algebraic expressions
+/   reserved for algebraic expressions
++   reserved for algebraic expressions
+-   reserved for algebraic expressions
+
 _
 ;
+,
 ```

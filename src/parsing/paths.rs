@@ -7,52 +7,45 @@ use super::utils::*;
 use super::values::db_identifier;
 
 pub fn path(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Path> {
-    let initial_path_part = choice((
-        db_identifier().map(PathPart::LocalColumn),
-        prefixed_link_to_many(condition_set.clone()).map(PathPart::LinkToMany),
-        exactly(LINK_TO_ONE_VIA_TABLE_PREFIX)
-            .then(whitespace())
-            .ignore_then(db_identifier())
-            .map(PathPart::LinkToOneViaTable),
-    ));
-    let subsequent_path_part = choice((
-        db_identifier().map(PathPart::LocalColumn),
-        link_to_one().map(PathPart::LinkToOneViaColumn),
-        prefixed_link_to_many(condition_set).map(PathPart::LinkToMany),
-    ));
-    initial_path_part
-        .chain(whitespace().ignore_then(subsequent_path_part).repeated())
+    path_part(condition_set.clone())
+        .chain(
+            whitespace()
+                .then(just(PATH_SEPARATOR))
+                .ignore_then(path_part(condition_set))
+                .repeated(),
+        )
         .map(|parts| Path { parts })
 }
 
-pub fn prefixed_link_to_many(
-    condition_set: impl QdParser<ConditionSet>,
-) -> impl QdParser<LinkToMany> {
-    just(LINK_TO_MANY_PREFIX)
-        .then(whitespace())
-        .ignore_then(link_to_many(condition_set))
+fn path_part(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<PathPart> {
+    choice((
+        db_identifier().map(PathPart::Column),
+        table_with_many(condition_set).map(PathPart::TableWithMany),
+        table_with_one().map(PathPart::TableWithOne),
+    ))
 }
 
-pub fn link_to_many(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<LinkToMany> {
+fn table_with_one() -> impl QdParser<String> {
+    exactly(PATH_TO_TABLE_WITH_ONE_PREFIX).ignore_then(db_identifier())
+}
+
+fn table_with_many(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<TableWithMany> {
     let column = db_identifier().delimited_by(
-        just(LINK_TO_MANY_COLUMN_L_BRACE).then(whitespace()),
-        whitespace().then(just(LINK_TO_MANY_COLUMN_R_BRACE)),
+        just(TABLE_WITH_MANY_COLUMN_BRACE_L).then(whitespace()),
+        whitespace().then(just(TABLE_WITH_MANY_COLUMN_BRACE_R)),
     );
-    db_identifier()
-        .then_ignore(whitespace())
-        .then(column.or_not())
-        .then(condition_set.or_not())
-        .map(|((table, column), cs)| LinkToMany {
-            table,
-            condition_set: cs.unwrap_or_default(),
-            column,
-        })
-}
-
-fn link_to_one() -> impl QdParser<String> {
-    just(LINK_TO_ONE_VIA_COLUMN_PREFIX)
+    just(PATH_TO_TABLE_WITH_MANY_PREFIX)
         .then(whitespace())
-        .ignore_then(db_identifier())
+        .ignore_then(
+            db_identifier()
+                .then(column.or_not())
+                .then(condition_set.or_not())
+                .map(|((table, column), cs)| TableWithMany {
+                    table,
+                    condition_set: cs.unwrap_or_default(),
+                    column,
+                }),
+        )
 }
 
 #[cfg(test)]
@@ -78,22 +71,22 @@ mod tests {
         assert_eq!(
             simple_path().parse("foo"),
             Ok(Path {
-                parts: vec![PathPart::LocalColumn("foo".to_string()),]
+                parts: vec![PathPart::Column("foo".to_string()),]
             })
         );
         assert_eq!(
             simple_path().parse("foo.bar"),
             Ok(Path {
                 parts: vec![
-                    PathPart::LocalColumn("foo".to_string()),
-                    PathPart::LinkToOneViaColumn("bar".to_string()),
+                    PathPart::Column("foo".to_string()),
+                    PathPart::Column("bar".to_string()),
                 ]
             })
         );
         assert_eq!(
-            simple_path().parse("*foo"),
+            simple_path().parse("#foo"),
             Ok(Path {
-                parts: vec![PathPart::LinkToMany(LinkToMany {
+                parts: vec![PathPart::TableWithMany(TableWithMany {
                     table: "foo".to_string(),
                     column: None,
                     condition_set: ConditionSet::default(),
@@ -101,9 +94,9 @@ mod tests {
             })
         );
         assert_eq!(
-            simple_path().parse("*foo(bar)"),
+            simple_path().parse("#foo(bar)"),
             Ok(Path {
-                parts: vec![PathPart::LinkToMany(LinkToMany {
+                parts: vec![PathPart::TableWithMany(TableWithMany {
                     table: "foo".to_string(),
                     column: Some("bar".to_string()),
                     condition_set: ConditionSet::default(),
@@ -111,27 +104,42 @@ mod tests {
             })
         );
         assert_eq!(
-            simple_path().parse("foo.bar*baz(a)*bat.spam"),
+            simple_path().parse(">>clients.start_date"),
             Ok(Path {
                 parts: vec![
-                    PathPart::LocalColumn("foo".to_string()),
-                    PathPart::LinkToOneViaColumn("bar".to_string()),
-                    PathPart::LinkToMany(LinkToMany {
+                    PathPart::TableWithOne("clients".to_string()),
+                    PathPart::Column("start_date".to_string())
+                ]
+            })
+        );
+        assert_eq!(
+            simple_path().parse("foo.bar.#baz(a).#bat.>>spam.eggs"),
+            Ok(Path {
+                parts: vec![
+                    PathPart::Column("foo".to_string()),
+                    PathPart::Column("bar".to_string()),
+                    PathPart::TableWithMany(TableWithMany {
                         table: "baz".to_string(),
                         column: Some("a".to_string()),
                         condition_set: ConditionSet::default(),
                     }),
-                    PathPart::LinkToMany(LinkToMany {
+                    PathPart::TableWithMany(TableWithMany {
                         table: "bat".to_string(),
                         column: None,
                         condition_set: ConditionSet::default(),
                     }),
-                    PathPart::LinkToOneViaColumn("spam".to_string()),
+                    PathPart::TableWithOne("spam".to_string()),
+                    PathPart::Column("eggs".to_string()),
                 ]
             })
         );
 
         assert!(simple_path().parse(".foo").is_err(),);
+        assert!(simple_path().parse(".foo#bar").is_err(),);
+        assert!(simple_path().parse(".foo>>bar").is_err(),);
+        assert!(simple_path().parse(".foo..bar").is_err(),);
+        assert!(simple_path().parse("foo. bar").is_err(),);
+        assert!(simple_path().parse("foo. #bar").is_err(),);
         assert!(simple_path().parse("foo(bar)").is_err(),);
         assert!(simple_path().parse("foo.bar(baz)").is_err(),);
     }

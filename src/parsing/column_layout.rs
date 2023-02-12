@@ -17,102 +17,109 @@ pub fn column_layout() -> impl QdParser<ColumnLayout> {
 fn column_spec() -> impl QdParser<ColumnSpec> {
     just(COLUMN_SPEC_PREFIX)
         .then(whitespace())
-        .ignore_then(
-            column_control()
-                .or_not()
-                .map(|v| v.unwrap_or(ColumnControl::default())),
-        )
-        .then_ignore(whitespace())
-        .then(discerned_expression())
+        .ignore_then(discerned_expression())
         .then(
             whitespace()
-                .then(just(ALIAS_DELIMITER))
+                .then(just(COLUMN_ALIAS_PREFIX))
                 .then(whitespace())
                 .ignore_then(db_identifier())
                 .or_not(),
         )
-        .map(|((column_control, expression), alias)| ColumnSpec {
-            column_control,
+        .then(
+            whitespace()
+                .ignore_then(
+                    column_control()
+                        .or_not()
+                        .map(|v| v.unwrap_or(ColumnControl::default())),
+                )
+                .or_not(),
+        )
+        .map(|((expression, alias), ctrl)| ColumnSpec {
             expression,
             alias,
+            column_control: ctrl.unwrap_or_default(),
         })
 }
 
 fn column_control() -> impl QdParser<ColumnControl> {
-    #[derive(Debug, Clone)]
+    #[derive(Clone)]
     enum Flag {
-        Sort(SortSpec),
+        Sort,
+        Desc,
+        Ordinal(u32),
         Group,
+        NullsFirst,
         Hide,
         Partition,
     }
-    let parse_flag = choice((
-        just(COLUMN_CONTROL_FLAG_GROUP).to(Flag::Group),
-        just(COLUMN_CONTROL_FLAG_HIDE).to(Flag::Hide),
-        sort_spec().map(Flag::Sort),
-        just(COLUMN_CONTROL_FLAG_PARTITION).to(Flag::Partition),
-    ));
-    parse_flag
-        .repeated()
-        .delimited_by(just(COLUMN_CONTROL_BRACE_L), just(COLUMN_CONTROL_BRACE_R))
-        .map(|flags| {
-            let mut sort = None;
-            let mut is_group_by = false;
-            let mut is_partition_by = false;
-            let mut is_hidden = false;
-            for flag in flags {
-                match flag {
-                    Flag::Sort(s) => sort = Some(s),
-                    Flag::Group => is_group_by = true,
-                    Flag::Hide => is_hidden = true,
-                    Flag::Partition => is_partition_by = true,
-                }
-            }
-            ColumnControl {
-                sort,
-                is_group_by,
-                is_partition_by,
-                is_hidden,
-            }
-        })
-}
-
-pub fn sort_spec() -> impl QdParser<SortSpec> {
-    #[derive(Debug, Clone)]
-    enum Flag {
-        Desc,
-        NullsFirst,
-        Ordinal(u32),
+    enum Context {
+        Sorting,
+        Grouping,
+        General,
     }
-    let parse_flag = choice((
+    let flag = choice((
+        just(COLUMN_CONTROL_FLAG_SORT).to(Flag::Sort),
+        just(COLUMN_CONTROL_FLAG_DESC).to(Flag::Desc),
         // TODO handle error if number is too large
         int(10).from_str().unwrapped().map(|v| Flag::Ordinal(v)),
-        just(SORT_FLAG_DESC).to(Flag::Desc),
-        just(SORT_FLAG_NULLS_FIRST).to(Flag::NullsFirst),
+        just(COLUMN_CONTROL_FLAG_GROUP).to(Flag::Group),
+        just(COLUMN_CONTROL_FLAG_NULLS_FIRST).to(Flag::NullsFirst),
+        just(COLUMN_CONTROL_FLAG_HIDE).to(Flag::Hide),
+        just(COLUMN_CONTROL_FLAG_PARTITION).to(Flag::Partition),
     ));
-    let parse_flags = parse_flag
-        .repeated()
-        .delimited_by(just(SORT_FLAGS_BRACE_L), just(SORT_FLAGS_BRACE_R))
-        .map(|flags| {
-            let mut ordinal = None;
-            let mut direction = SortDirection::Asc;
-            let mut nulls_sort = NullsSort::default();
-            for flag in flags {
-                match flag {
-                    Flag::Desc => direction = SortDirection::Desc,
-                    Flag::NullsFirst => nulls_sort = NullsSort::First,
-                    Flag::Ordinal(o) => ordinal = Some(o),
+    just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(flag.repeated().at_least(1).map(|flags| {
+        let mut context = Context::General;
+        let mut sort = false;
+        let mut sort_ordinal: Option<u32> = None;
+        let mut sort_direction = SortDirection::default();
+        let mut sort_nulls = NullsSort::default();
+        let mut group = false;
+        let mut group_ordinal: Option<u32> = None;
+        let mut partition = false;
+        let mut hide = false;
+        let mut handle_ordinal = |o: u32, c: &Context| match c {
+            Context::Sorting => sort_ordinal = Some(o),
+            Context::Grouping => group_ordinal = Some(o),
+            Context::General => {}
+        };
+        for flag in flags {
+            match flag {
+                Flag::Sort => {
+                    sort = true;
+                    context = Context::Sorting;
                 }
+                Flag::Desc => sort_direction = SortDirection::Desc,
+                Flag::Ordinal(o) => handle_ordinal(o, &context),
+                Flag::Group => {
+                    group = true;
+                    context = Context::Grouping;
+                }
+                Flag::NullsFirst => sort_nulls = NullsSort::First,
+                Flag::Hide => hide = true,
+                Flag::Partition => partition = true,
             }
-            SortSpec {
-                ordinal,
-                direction,
-                nulls_sort,
-            }
-        });
-    just(COLUMN_CONTROL_FLAG_SORT)
-        .ignore_then(parse_flags.or_not())
-        .map(|v| v.unwrap_or_default())
+        }
+        ColumnControl {
+            sort: if sort {
+                Some(SortSpec {
+                    ordinal: sort_ordinal,
+                    direction: sort_direction,
+                    nulls_sort: sort_nulls,
+                })
+            } else {
+                None
+            },
+            group: if group {
+                Some(GroupSpec {
+                    ordinal: group_ordinal,
+                })
+            } else {
+                None
+            },
+            is_partition_by: partition,
+            is_hidden: hide,
+        }
+    }))
 }
 
 #[cfg(test)]
@@ -122,14 +129,14 @@ mod tests {
     #[test]
     fn test_column_control() {
         assert_eq!(
-            column_control().parse("[s(1d)]"),
+            column_control().parse(r"\s1d"),
             Ok(ColumnControl {
                 sort: Some(SortSpec {
                     ordinal: Some(1),
                     direction: SortDirection::Desc,
                     nulls_sort: NullsSort::default(),
                 }),
-                is_group_by: false,
+                group: None,
                 is_partition_by: false,
                 is_hidden: false,
             })
@@ -139,7 +146,7 @@ mod tests {
     #[test]
     fn test_column_spec() {
         assert_eq!(
-            column_spec().parse("-8"),
+            column_spec().parse(":8"),
             Ok(ColumnSpec {
                 column_control: ColumnControl::default(),
                 expression: Expression {
@@ -150,7 +157,7 @@ mod tests {
             })
         );
         assert_eq!(
-            column_spec().parse("- [s(1d)] foo: bar"),
+            column_spec().parse(r":foo->bar\s1d"),
             Ok(ColumnSpec {
                 column_control: ColumnControl {
                     sort: Some(SortSpec {
@@ -158,13 +165,13 @@ mod tests {
                         direction: SortDirection::Desc,
                         nulls_sort: NullsSort::default(),
                     }),
-                    is_group_by: false,
+                    group: None,
                     is_partition_by: false,
                     is_hidden: false,
                 },
                 expression: Expression {
                     base: Value::Path(Path {
-                        parts: vec![PathPart::LocalColumn("foo".to_string()),]
+                        parts: vec![PathPart::Column("foo".to_string()),]
                     }),
                     compositions: vec![],
                 },
@@ -176,14 +183,14 @@ mod tests {
     #[test]
     fn test_column_layout() {
         assert_eq!(
-            column_layout().parse("-foo -[g]bar: B"),
+            column_layout().parse(r":foo :bar->B \g"),
             Ok(ColumnLayout {
                 column_specs: vec![
                     ColumnSpec {
                         column_control: ColumnControl::default(),
                         expression: Expression {
                             base: Value::Path(Path {
-                                parts: vec![PathPart::LocalColumn("foo".to_string()),]
+                                parts: vec![PathPart::Column("foo".to_string()),]
                             }),
                             compositions: vec![],
                         },
@@ -192,13 +199,13 @@ mod tests {
                     ColumnSpec {
                         column_control: ColumnControl {
                             sort: None,
-                            is_group_by: true,
+                            group: Some(GroupSpec { ordinal: None }),
                             is_partition_by: false,
                             is_hidden: false,
                         },
                         expression: Expression {
                             base: Value::Path(Path {
-                                parts: vec![PathPart::LocalColumn("bar".to_string()),]
+                                parts: vec![PathPart::Column("bar".to_string()),]
                             }),
                             compositions: vec![],
                         },

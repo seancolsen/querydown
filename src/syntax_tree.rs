@@ -33,20 +33,7 @@ pub enum Conjunction {
 pub enum ConditionSetEntry {
     Comparison(Comparison),
     ScopedConditional(ScopedConditional),
-    Has(Has),
     ConditionSet(ConditionSet),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Has {
-    pub quantity: HasQuantity,
-    pub path: Vec<LinkToMany>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum HasQuantity {
-    AtLeastOne,
-    Zero,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,28 +88,24 @@ pub struct ColumnLayout {
 
 #[derive(Debug, PartialEq)]
 pub struct ColumnSpec {
-    pub column_control: ColumnControl,
     pub expression: Expression,
     pub alias: Option<String>,
+    pub column_control: ColumnControl,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct ColumnControl {
     pub sort: Option<SortSpec>,
-    pub is_group_by: bool,
+    pub group: Option<GroupSpec>,
     pub is_partition_by: bool,
     pub is_hidden: bool,
 }
 
-impl Default for ColumnControl {
-    fn default() -> Self {
-        ColumnControl {
-            sort: None,
-            is_group_by: false,
-            is_partition_by: false,
-            is_hidden: false,
-        }
-    }
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct GroupSpec {
+    /// A GroupSpec without an ordinal means that we'd like to group by the column, but we want to
+    /// infer the ordinality from the ColumnSpec's position within the ColumnLayout.
+    pub ordinal: Option<u32>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -176,14 +159,13 @@ pub struct Path {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathPart {
-    LocalColumn(String),
-    LinkToOneViaColumn(String),
-    LinkToOneViaTable(String),
-    LinkToMany(LinkToMany),
+    Column(String),
+    TableWithOne(String),
+    TableWithMany(TableWithMany),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct LinkToMany {
+pub struct TableWithMany {
     pub table: String,
     pub condition_set: ConditionSet,
     pub column: Option<String>,

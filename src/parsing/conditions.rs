@@ -46,7 +46,6 @@ fn condition_set_entry(
     use ConditionSetEntry::*;
     choice((
         condition_set.clone().map(ConditionSet),
-        has(condition_set.clone()).map(Has),
         scoped_conditional(condition_set, expression.clone()).map(ScopedConditional),
         comparison(expression).map(Comparison),
     ))
@@ -106,24 +105,6 @@ fn operator() -> impl QdParser<Operator> {
     ))
 }
 
-pub fn has(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Has> {
-    choice((
-        exactly(HAS_QUANTITY_AT_LEAST_ONE).to(HasQuantity::AtLeastOne),
-        exactly(HAS_QUANTITY_ZERO).to(HasQuantity::Zero),
-    ))
-    .then_ignore(whitespace())
-    .then(
-        link_to_many(condition_set.clone())
-            .then_ignore(whitespace())
-            .chain(
-                prefixed_link_to_many(condition_set)
-                    .then_ignore(whitespace())
-                    .repeated(),
-            ),
-    )
-    .map(|(quantity, path)| Has { quantity, path })
-}
-
 pub fn expression_set(expression: impl QdParser<Expression>) -> impl QdParser<ExpressionSet> {
     let specific_expression_set = |conjunction: Conjunction| {
         let (l_brace, r_brace) = get_braces(conjunction);
@@ -142,7 +123,7 @@ pub fn expression_set(expression: impl QdParser<Expression>) -> impl QdParser<Ex
 
 fn get_braces(conjunction: Conjunction) -> (char, char) {
     match conjunction {
-        And => (AND_CONDITION_L_BRACE, AND_CONDITION_R_BRACE),
-        Or => (OR_CONDITION_L_BRACE, OR_CONDITION_R_BRACE),
+        And => (CONDITION_SET_AND_BRACE_L, CONDITION_SET_AND_BRACE_R),
+        Or => (CONDITION_SET_OR_BRACE_L, CONDITION_SET_OR_BRACE_R),
     }
 }

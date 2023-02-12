@@ -85,7 +85,6 @@ fn convert_condition_set_entry<D: Dialect>(
             SqlConditionSetEntry::ConditionSet(convert_condition_set(condition_set, cx))
         }
         ConditionSetEntry::ScopedConditional(s) => convert_scoped_conditional(s, cx),
-        ConditionSetEntry::Has(h) => todo!(),
     }
 }
 

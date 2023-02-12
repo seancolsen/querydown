@@ -5,51 +5,35 @@
 - Write the name of a table to select from it. when no columns are specified, all are returned.
 
     ```
-    publication
+    issues
     ```
-
-    - ```sql
-      SELECT * FROM "publication";
-      ```
 
 - Here we refer to "publication" the **base table**. Every query has one and only one base table.
 
-- Specify columns by listing them prefixed with `-`
+- Specify columns by listing them prefixed with `:`
 
     ```
-    publication -id -title
+    issues :id :title
     ```
 
-    - ```sql
-      SELECT "id", "title" FROM "publication";
-      ```
-
-- Use `:` after a column to give it an alias.
+- Use `->` after a column to give it an alias.
 
     ```
-    publication -id:Identifier -title:Name
+    issues :id->Identifier :title->Subject
     ```
-
-    - ```sql
-      SELECT
-        "id" AS "Identifier",
-        "first_name" AS "Name"
-      FROM "publication";
-      ```
-
 
 ## White space
 
 White space doesn't matter. The following two queries are identical.
 
 - ```
-  publication-id:Identifier-title:Name
+  issues:id->Identifier:title->Subject
   ```
 
 - ```
-  publication
-  - id: Identifier
-  - title: Name
+  issues
+  : id    -> Identifier
+  : title -> Subject
   ```
 
 ## Quoting identifiers
@@ -58,27 +42,9 @@ If you want to reference a table name or column name which contains characters o
 
 ```
 `Gala Attendees`
-- `Given Name`: `First Name`
-- `Surname`: `Last Name`
+: `Given Name`-> `First Name`
+: `Surname`-> `Last Name`
 ```
-
-- When compiled for Postgres
-
-    ```sql
-    SELECT
-      "Given Name" AS "First Name",
-      "Surname" AS "Last Name"
-    FROM "Gala Attendees";
-    ```
-
-- When compiled for MySQL
-
-    ```txt
-    SELECT
-      `Given Name` AS `First Name`,
-      `Surname` AS `Last Name`
-    FROM `Gala Attendees`;
-    ```
 
 
 ## Sorting
@@ -86,75 +52,40 @@ If you want to reference a table name or column name which contains characters o
 - Ascending sorting by one column. The `s` stands for "sort".
 
     ```
-    author -first_name -[s]last_name
+    issues :title :created_at \s
     ```
 
-    - ```sql
-      SELECT first_name, last_name
-      FROM author
-      ORDER BY last_name NULLS LAST
-      ```
-
-- Descending sorting is indicated via a `d` within parentheses after the `s`.
+- Descending sorting is indicated via a `d` after the `s`.
 
     ```
-    author -first_name -[s(d)]last_name
+    issues :title :created_at \sd
     ```
 
-    - ```sql
-      SELECT first_name, last_name
-      FROM author
-      ORDER BY last_name NULLS LAST
-      ```
-
-- Sorting by multiple columns is done by numbers within the parentheses to indicate ordinality.
+- Sorting by multiple columns is done via numbers to indicate ordinality.
 
     ```
     author
-    - id
-    - [s(3)] first_name
-    - [s(2)] last_name
-    - [s(1d)] birth_date
+    : id
+    : first_name \s3
+    : last_name \s2
+    : birth_date \sd1
     ```
-
-    - ```sql
-      SELECT id, first_name, last_name, birth_date
-      FROM author
-      ORDER BY
-        birth_date DESC NULLS LAST,
-        last_name, first_name
-      ```
 
 - Sorted columns without any ordinality specified are sorted in the order the appear, after all columns with indicated ordinality.
 
     ```
     author
-    - id
-    - [s] first_name
-    - [s] last_name
-    - [s(1)] birth_date
+    : id
+    : first_name \s
+    : last_name \s
+    : birth_date \s1
     ```
-
-    - ```sql
-      SELECT id, first_name, last_name, birth_date
-      FROM author
-      ORDER BY
-        birth_date NULLS LAST,
-        first_name NULLS LAST,
-        last_name NULLS LAST
-      ```
 
 - By default, `NULL` values are sorted last, but this behavior can be modified using the `n` flag, which stands for "nulls first".
 
     ```
-    author -first_name -[s(n)]last_name
+    author :first_name :last_name \sn
     ```
-
-    - ```sql
-      SELECT first_name, last_name
-      FROM author
-      ORDER BY last_name NULLS FIRST
-      ```
 
 ## LIMIT and OFFSET
 
@@ -176,39 +107,23 @@ If you want to reference a table name or column name which contains characters o
     publication {title="Foo"}
     ```
 
-    - ```sql
-      SELECT * FROM "publication" WHERE "title" = 'Foo';
-      ```
-
 - Spaces delimit multiple conditions
 
     ```
     publication {title="Foo" year=1999}
     ```
-    
-    - ```sql
-      SELECT * FROM "publication" WHERE "title" = 'Foo' AND "year" = 1999;
-      ```
 
 - Square brackets enclose `OR` conditions
 
     ```
     publication [title="Foo" year=1999]
     ```
-    
-    - ```sql
-      SELECT * FROM "publication" WHERE "title" = 'Foo' OR "year" = 1999;
-      ```
 
 - If you omit the braces, then a set of AND conditions is inferred
 
     ```
     publication title="Foo" year=1999
     ```
-    
-    - ```sql
-      SELECT * FROM "publication" WHERE "title" = 'Foo' AND "year" = 1999;
-      ```
 
 - Conditions can be nested
 
@@ -218,15 +133,6 @@ If you want to reference a table name or column name which contains characters o
       { title="Bar" year=2000 }
     ]
     ```
-
-    - ```sql
-      SELECT *
-      FROM "publication"
-      WHERE (
-        ("title" = 'Foo' AND "year" = 1999) OR
-        ("title" = 'Bar' AND "year" = 2000)
-      );
-      ```
 
 ### Comparison operators
 
@@ -253,11 +159,6 @@ If you want to reference a table name or column name which contains characters o
     ```
     publication year = [2000 2010]
     ```
-
-    - ```sql
-      SELECT * FROM "publication"
-      WHERE "year" = 2000 OR "year" = 2010;
-      ```
     
     (This is like the SQL `IN` operator.)
 
@@ -265,30 +166,15 @@ If you want to reference a table name or column name which contains characters o
     patron {first_name last_name} = @null
     ```
 
-    - ```sql
-      SELECT * FROM "patron"
-      WHERE "first_name" IS NULL AND "last_name" IS NULL;
-      ```
-
     ```
     patron [first_name last_name] ~ "foo"
     ```
-
-    - ```sql
-      SELECT * FROM "patron"
-      WHERE "first_name" ~ 'foo' OR "last_name" ~ 'foo';
-      ```
 
 - All columns can be specified via the `*` character. Columns which don't support the type of comparison used will be excluded
 
     ```
     patron [*] ~ "foo"
     ```
-
-    - ```sql
-      SELECT * FROM "patron"
-      WHERE "first_name" ~ 'foo' OR "last_name" ~ 'foo';
-      ```
 
     Here the `id` column doesn't support the `~` comparison, so it's not used.
 
@@ -298,32 +184,20 @@ If you want to reference a table name or column name which contains characters o
     patron {first_name last_name} ~ ["foo" "bar"]
     ```
 
-    - ```sql
-      SELECT * FROM "patron"
-      WHERE
-        ("first_name" ~ 'foo' OR "first_name" ~ 'bar') AND
-        ("last_name" ~ 'foo' OR "last_name" ~ 'bar');
-      ```
-
 ### Scoped conditionals
 
 - The comparator can be altered per-value by using `?`, the **scoped conditional operator**
 
     ```
-    publication year ? {# >= 2000 # <= 2010}
+    publication year ? {& >= 2000 & <= 2010}
     ```
 
-    Within the braces, `#` is called a **slot** and refers to the value from the outer scope (i.e. `year` in this case)
+    Within the braces, `&` is called a **slot** and refers to the value from the outer scope (i.e. `year` in this case)
 
-    - ```sql
-      SELECT * FROM "publication"
-      WHERE "year" >= 2000 AND "year" <= 2010;
-      ```
-
-    The above code can be made slightly more readable by reversing the first inner condition so that it reads more like math notation
+    The above code can be made slightly more readable and idiomatic by reversing the first inner condition so that it reads more like math notation
 
     ```
-    publication year ? {2000 <= # # <= 2010}
+    publication year ? {2000 <= & & <= 2010}
     ```
 
     This is similar to the SQL `BETWEEN`, but with more explicit control over the comparison operators 
@@ -331,7 +205,7 @@ If you want to reference a table name or column name which contains characters o
 - Slots can only be used with the scoped conditional operator, and they must be placed _after_ the operator.
 
     ```
-    publication {2000 <= # # <=2010} ? year // INVALID!
+    publication {2000 <= & & <=2010} ? year // INVALID!
     ```
 
 - Scoped conditionals can be mixed with comparison expansion as follows.
@@ -339,15 +213,8 @@ If you want to reference a table name or column name which contains characters o
     Authors who were either born or who died during the 20th century:
 
     ```
-    author [birth_date death_date] ? {1900-01-01 <= # # < 2000-01-01}
+    author [birth_date death_date] ? {@1900-01-01 <= & & < @2000-01-01}
     ```
-
-    - ```sql
-      SELECT * FROM "author"
-      WHERE
-        ("birth_date" >= '1900-01-01' AND "birth_date" < '2000-01-01') OR
-        ("death_date" >= '1900-01-01' AND "death_date" < '2000-01-01');
-      ```
 
 ## Functions
 
@@ -355,8 +222,8 @@ If you want to reference a table name or column name which contains characters o
 
     ```
     checkout
-    - id
-    - [s(d)] due_date|minus(@now)|days: days_overdue
+    : id
+    : due_date|minus(@now)|days-> days_overdue \sd
     ```
 
     Note:
@@ -370,7 +237,13 @@ If you want to reference a table name or column name which contains characters o
     - `plus()`
     - `times()`
     - `divide()`
+    - `is_null`
+    - `is_non_null`
+    - `has_value`
+    - `bool`
+    - `not`
     - `when()`
+    - `if()`
     - `segment()`
     - `bins()`
     - `lower_bounded()`
@@ -395,63 +268,27 @@ If you want to reference a table name or column name which contains characters o
 - Are specified via `^{value}^`
 
     ```
-    patron -^{first_name} {last_name}^: name
+    patron :^{first_name} {last_name}^-> name
     ```
-
-    - ```sql
-      SELECT concat(first_name, ' ', last_name) as "name"
-      from patron
-      ```
 
 ## Incremental column specification
 
--  Use `-()` to specify all columns, giving you control to add a column after all columns
+-  Use `:[]` to specify all columns, giving you control to add a column after all columns
 
     ```
-    patron -() -^{first_name} {last_name}^: full_name
+    patron :[] :^{first_name} {last_name}^->full_name
     ```
-
-    - ```sql
-      SELECT
-        id,
-        first_name,
-        last_name,
-        concat(first_name, ' ', last_name) as "full_name"
-      FROM patron;
-      ```
 
 - Hide a column
 
     ```
-    patron -([h]id)
+    patron :[id\h]
     ```
-
-    - ```sql
-      SELECT
-        id,
-        last_name,
-      FROM patron;
 
 - Sort by columns, leaving their position in the table unchanged.
 
     ```
-    checkout -([s]patron.last_name[s]out_date)
-    ```
-
-    - ```sql
-      SELECT id, item, patron, out_date, due_date, in_date
-      FROM checkout
-      LEFT JOIN patron on patron.id = checkout.patron
-      ORDER BY patron.last_name, checkout.out_date;
-      ```
-
-## Computed fields
-
-- Checkouts which are more than 10 days overdue (with the exact days overdue displayed).
-
-    ```
-    checkout.$days_overdue := due_date|minus(@now)|days
-    checkout { $days_overdue > 10 } -id -[s(d)]$days_overdue
+    checkout :[patron.last_name \s out_date \s]
     ```
 
 
@@ -465,18 +302,9 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Publications with their authors
 
     ```
-    publication -title -author.name
+    publication :title :author.name
     ```
 
-    - ```sql
-      SELECT
-        "publication"."title"
-        "author"."name"
-      FROM "publication"
-      LEFT JOIN "author" ON
-        "publication"."author" = "author"."id";
-      ```
-    
     Note:
     
     - In the querydown code above, `author` refers to the `author` _column_ within the `publication` table (not the `author` table).
@@ -488,53 +316,23 @@ You can bring in data from related tables -- but joins don't work quite like in 
     publication author.death_date=@null
     ```
 
-    - ```sql
-      SELECT "publication".*
-      FROM "publication"
-      LEFT JOIN "author" ON
-        "publication"."author" = "author"."id"
-      WHERE
-        "author"."death_date" IS NULL;
-      ```
-
 - Publications from living authors (excluding unknown authors).
 
     ```
     publication author != @null author.death_date = @null
     ```
 
-    - ```sql
-      SELECT "publication".*
-      FROM "publication"
-      LEFT JOIN "author" ON
-        "publication"."author" = "author"."id"
-      WHERE
-        "author"."id" IS NOT NULL AND
-        "author"."death_date" IS NULL;
-      ```
-
 - When the **scoped conditional operator** (`?`) is used on a foreign key column, the scope of the related table is used inside the braces.
 
     ```
-    publication author ? {birth_date > 2000-01-01 death_date != @null}
+    publication author ? {birth_date > @2000-01-01 death_date != @null}
     ```
 
     This expands to
     
     ```
-    publication author.birth_date > 2000-01-01 author.death_date != @null
+    publication author.birth_date > @2000-01-01 author.death_date != @null
     ```
-
-    - ```sql
-      SELECT "publication".*
-      FROM "publication"
-      LEFT JOIN "author" ON
-        "publication"."author" = "author"."id"
-      WHERE
-        "author"."id" IS NOT NULL AND
-        "author"."birth_date" > '2000-01-01' AND
-        "author"."death_date" IS NOT NULL;
-      ```
 
 - Checkouts by deceased authors
 
@@ -555,87 +353,56 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Authors that have at least one publication
 
     ```
+    author #publication > 0
+    ```
+
+    ```
     author ++publication
     ```
 
 - Authors that have no publications
 
     ```
-    author --publication
+    author #publication = 0
     ```
 
-    - ```sql
-      SELECT
-        "author".*,
-      FROM "author"
-      LEFT JOIN "publication" ON
-        "publication"."author" = "author"."id"
-      WHERE
-        "publication"."id" IS NULL;
-      ```
+    ```
+    author --publication
+    ```
 
 - Authors and how many publications they have
 
     ```
-    author -name -*publication%count
+    author :name :#publication
     ```
 
-    - ```sql    
-      WITH cte_0 AS (
-        SELECT
-          "author" as pk,
-          count(*) AS f0
-        FROM "publication"
-        GROUP BY "author"
-      )
-      SELECT
-        "author"."name",
-        cte_0.f0 as "publication_count"
-      FROM "author"
-      JOIN cte_0 ON cte_0.f0 = "author"."id";
-      ```
-
-    Note:
-
-    - `%count` is an aggregate function. All aggregate functions begin with `%`.
 
 - Authors and the year of their first publication
 
     ```
-    author -name -*publication.year%min
+    author :name :#publication.year%min
     ```
 
-    - ```sql
-      WITH cte_0 AS (
-        SELECT
-          "author" as pk,
-          min("year") AS f0
-        FROM "publication"
-        GROUP BY "author"
-      )
-      SELECT
-        "author"."name",
-        cte_0.f0 as "publication_count"
-      FROM "author"
-      JOIN cte_0 ON cte_0.f0 = "author"."id";
-      ```
+    Note:
+
+    - `%min` is an aggregate function. All aggregate functions begin with `%`.
 
 - Authors who have published books with "Penguin" since year 2000.
 
     ```
-    author ++publication{year > 2000 publisher.name = "Penguin"}
+    author ++publication{year > 2000 publisher.name = "Penguin"} > 0
     ```
 
 - Authors of publications which have been checked out in the past week
 
     ```
-    author ++checkout{out_date > @now|minus(@1D)}
+    author ++checkout{out_date > @1W|ago}
     ```
 
     The `checkout` table is not directly related to the `author` table, but that's okay. The above code is shorthand for the following more explicit code:
 
     ```
-    author ++publication*item*checkout{out_date > @now|minus(@1D)}
+    author #publication.#item.#checkout{out_date > @1W|ago} > 0
     ```
     
     We can use the shorthand in this case because there is only one path through which `author` can be joined to `checkout`. If tables can be joined through multiple paths, then a path will need to be specified which is not ambiguous.
@@ -646,41 +413,15 @@ You can bring in data from related tables -- but joins don't work quite like in 
 
     ```
     location
-    - id
-    - *shipment(destination)%count: count_shipments_to_here
-    - *shipment(origin)%count: count_shipments_from_here
+    : id
+    : #shipment(destination)->count_shipments_to_here
+    : #shipment(origin)->count_shipments_from_here
     ```
 
 - Publications checked out in the past month by employees
 
     ```
-    publication ++checkout{out_date > @now|minus(@1M) ++tag{name = "Employee"}}
-    ```
-
-    ```sql
-    WITH cte_0 AS (
-      SELECT
-        "publication"."id" as "pk"
-      FROM "publication"
-      LEFT JOIN "item" ON
-        "item"."publication_id" = "publication"."id"
-      LEFT JOIN "checkout" ON
-        "checkout"."item_id" = "item"."id" AND
-        "checkout"."out_date" > NOW() - 'P1M'::interval
-      LEFT JOIN "patron" ON
-        "patron"."id" = "checkout"."patron"
-      LEFT JOIN "patron_tag" ON
-        "patron_tag"."patron" = "patron"."id"
-      LEFT JOIN "tag" ON
-        "tag"."id" = "patron_tag"."tag"
-      WHERE
-        "tag"."name" = 'Employee'
-    )
-    SELECT "publication".*,
-    FROM "publication"
-    JOIN cte_0 on cte_0.pk = "publication"."id"
-    LEFT JOIN "author" ON
-      "author"."id" = "publication"."author"
+    publication ++checkout{out_date > @1M|ago ++tag{name = "Employee"}}
     ```
 
 - Checkouts of Biography books
@@ -698,11 +439,7 @@ You can bring in data from related tables -- but joins don't work quite like in 
 - Patrons who, in the past week, have checked out at least one publication which is authored by "Foo" and _not_ categorized as "Biography"
 
     ```
-    patron
-    ++checkout{
-      out_date > @now|minus(@P1W)
-      ..publication ? {author.name = "Foo" --genre{name = "Biography"}}
-    }
+    patron ++checkout{out_date > @1W|ago ..author.name = "Foo" --genre{name = "Biography"}}
     ```
 
 - All aggregate functions
@@ -730,16 +467,14 @@ TODO
 - Grouping is indicated by placing a `g` within the square brackets that prefix the column specifiers.
 
     ```
-    author
-    - [g] death_date|when(@null:@true *:@false): is_alive
-    - %count
+    author :death_date|is_null->is_alive \g :%count
     ```
 
     Note:
 
     - All ungrouped columns must contain an aggregate function
     - `%count` can occur on its own (outside of a function pipeline), which is equivalent to `count(*)`.
-    - Grouping by multiple columns is done via `[g(1)]` and `[g(2)]`, similar to sorting.
+    - Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting.
 
 
 ## Window functions
@@ -747,34 +482,20 @@ TODO
 - Origin locations, with the destination of their most recent shipment
 
     ```
-    shipment %%([s(d)]departure_datetime[p]origin)%row_number = 1
-    - origin
-    - origin.addressee
-    - destination
-    - destination.addressee
+    shipment %%(departure_datetime \sd origin \p)%row_number = 1
+    : origin
+    : origin.addressee
+    : destination
+    : destination.addressee
     ```
 
 - How many days into each month did it take us to reach 1000 checkouts?
 
     ```
-    checkout %%([s]out_date[p]out_date|year_month)%row_number = 1000
-    - out_date|day_of_month
+    checkout %%(out_date \s out_date|year_month \p)%row_number = 1000
+    : out_date|year_month
+    : out_date|day_of_month
     ```
-
-    - ```sql
-      with t as (
-      select
-        "Checkout Time" as checkout_time,
-        row_number() over (
-          partition by to_char("Checkout Time", 'YYYY-MM') order by "Checkout Time"
-        ) as row_num
-        from "Checkouts" 
-      )
-      select extract(day from checkout_time)
-      from t
-      where row_num = 1000
-      order by checkout_time
-      ```
 
 - Publications that have been on the top 10 most frequently checked-out list every month for the past year.
 
@@ -790,22 +511,21 @@ TODO
 - Books that have been checked out by the same patron at least 5 times in the past year
 
     ```
-    checkout
-    { out_date > @now|minus(1Y) }
-    - [g] item.publication: publication
-    - [g] patron
-    - %count: checkout_count
+    checkout {out_date > @1y|ago}
+    :item.publication->publication \g
+    :patron \g
+    :%count->checkout_count
     ~~~
-    { checkout_count > 5 }
-    - [g] publication
-    - patron%count: patron_count
-    - checkout_count%max: max_checkouts
+    {checkout_count > 5}
+    :publication \g
+    :patron%count->patron_count
+    :checkout_count%max->max_checkouts
     ~~~
-    - publication.id
-    - publication.title
-    - publication.author.name
-    - patron_count
-    - [s(d)] max_checkouts
+    :publication.id
+    :publication.title
+    :publication.author.name
+    :patron_count
+    :max_checkouts \sd
     ```
 
 ## UNION
@@ -813,13 +533,13 @@ TODO
 - History of activity for a specific location
 
     ```
-    shipment { origin = 7  departure_datetime != @null }
-    -id -tracking_number -"Send": action -departure_datetime: time
+    shipment {origin = 7  departure_datetime != @null}
+    :id :tracking_number :"Send"->action :departure_datetime->time
     +++
-    shipment { destination = 7  arrival_datetime != @null }
-    -id -tracking_number -"Receive": action -arrival_datetime: time
+    shipment {destination = 7  arrival_datetime != @null}
+    :id :tracking_number :"Receive"->action :arrival_datetime->time
     ~~~
-    -[s]time -action -tracking_number
+    :time \s :action :tracking_number
     ```
 
 
@@ -847,12 +567,6 @@ TODO
 #a +++ #b
 ~~~
 -[s]time -action -tracking_number
-```
-
-## Parameterization
-
-```
-author id = &id
 ```
 
 

@@ -82,7 +82,7 @@ mod tests {
             discerned_expression().parse("foo"),
             Ok(Expression {
                 base: Value::Path(Path {
-                    parts: vec![PathPart::LocalColumn("foo".to_string())]
+                    parts: vec![PathPart::Column("foo".to_string())]
                 }),
                 compositions: vec![],
             })
@@ -91,7 +91,7 @@ mod tests {
             discerned_expression().parse("foo|bar(2)%baz"),
             Ok(Expression {
                 base: Value::Path(Path {
-                    parts: vec![PathPart::LocalColumn("foo".to_string())]
+                    parts: vec![PathPart::Column("foo".to_string())]
                 }),
                 compositions: vec![
                     Composition {
@@ -119,18 +119,18 @@ mod tests {
             Ok(Expression {
                 base: Value::Path(Path {
                     parts: vec![
-                        PathPart::LocalColumn("foo".to_string()),
-                        PathPart::LinkToOneViaColumn("bar".to_string())
+                        PathPart::Column("foo".to_string()),
+                        PathPart::Column("bar".to_string())
                     ]
                 }),
                 compositions: vec![],
             })
         );
         assert_eq!(
-            discerned_expression().parse("*foo(bar)"),
+            discerned_expression().parse("#foo(bar)"),
             Ok(Expression {
                 base: Value::Path(Path {
-                    parts: vec![PathPart::LinkToMany(LinkToMany {
+                    parts: vec![PathPart::TableWithMany(TableWithMany {
                         table: "foo".to_string(),
                         column: Some("bar".to_string()),
                         condition_set: ConditionSet::default(),
@@ -140,10 +140,10 @@ mod tests {
             })
         );
         assert_eq!(
-            discerned_expression().parse("*foo(bar){a=1}"),
+            discerned_expression().parse("#foo(bar){a=1}"),
             Ok(Expression {
                 base: Value::Path(Path {
-                    parts: vec![PathPart::LinkToMany(LinkToMany {
+                    parts: vec![PathPart::TableWithMany(TableWithMany {
                         table: "foo".to_string(),
                         column: Some("bar".to_string()),
                         condition_set: ConditionSet {
@@ -151,7 +151,7 @@ mod tests {
                             entries: vec![ConditionSetEntry::Comparison(Comparison {
                                 left: ComparisonPart::Expression(Expression {
                                     base: Value::Path(Path {
-                                        parts: vec![PathPart::LocalColumn("a".to_string())]
+                                        parts: vec![PathPart::Column("a".to_string())]
                                     }),
                                     compositions: vec![],
                                 }),
@@ -180,7 +180,7 @@ mod tests {
                 entries: vec![ConditionSetEntry::Comparison(Comparison {
                     left: ComparisonPart::Expression(Expression {
                         base: Value::Path(Path {
-                            parts: vec![PathPart::LocalColumn("a".to_string())]
+                            parts: vec![PathPart::Column("a".to_string())]
                         }),
                         compositions: vec![],
                     }),

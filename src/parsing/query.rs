@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn test_query() {
         assert_eq!(
-            query().parse("foo a=8 -bar"),
+            query().parse("foo a=8 :bar"),
             Ok(Query {
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
@@ -39,7 +39,7 @@ mod tests {
                         entries: vec![ConditionSetEntry::Comparison(Comparison {
                             left: ComparisonPart::Expression(Expression {
                                 base: Value::Path(Path {
-                                    parts: vec![PathPart::LocalColumn("a".to_string())]
+                                    parts: vec![PathPart::Column("a".to_string())]
                                 }),
                                 compositions: vec![],
                             }),
@@ -55,7 +55,7 @@ mod tests {
                             column_control: ColumnControl::default(),
                             expression: Expression {
                                 base: Value::Path(Path {
-                                    parts: vec![PathPart::LocalColumn("bar".to_string())]
+                                    parts: vec![PathPart::Column("bar".to_string())]
                                 }),
                                 compositions: vec![],
                             },

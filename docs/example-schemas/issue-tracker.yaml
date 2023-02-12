@@ -1,0 +1,55 @@
+---
+- users
+  - id
+  - username
+  - email
+  - team -> teams
+
+- issues
+  - id
+  - title
+  - description
+  - created_at
+  - created_by -> users
+  - status
+  - project -> projects
+  - duplicate_of -> issues
+
+- assignments
+  - id
+  - issue -> issues
+  - user -> users
+
+- blocks
+  - id
+  - blocker -> issues
+  - blocking -> issues
+
+- projects
+  - id
+  - title
+  - product -> products
+
+- labels
+  - id
+  - title
+
+- issue_labels
+  - id
+  - issue -> issues
+  - label -> labels
+
+- comments
+  - id
+  - issue -> issues
+  - user -> users
+  - body
+  - created_at
+
+- teams
+  - id
+  - name
+
+- products
+  - id
+  - name

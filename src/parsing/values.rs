@@ -14,7 +14,7 @@ pub fn value(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Value>
         exactly(LITERAL_TRUE).to(Value::True),
         exactly(LITERAL_FALSE).to(Value::False),
         exactly(LITERAL_NULL).to(Value::Null),
-        just(SLOT).to(Value::Slot),
+        just(LITERAL_SLOT).to(Value::Slot),
         date().map(Value::Date),
         number().map(Value::Number),
         duration().map(Value::Duration),
@@ -37,8 +37,8 @@ fn test_db_identifier() {
 }
 
 fn escape(quote: char) -> impl QdParser<char> {
-    just(ESCAPE_PREFIX).ignore_then(
-        just(ESCAPE_PREFIX)
+    just(STRING_ESCAPE_PREFIX).ignore_then(
+        just(STRING_ESCAPE_PREFIX)
             .or(just('/'))
             .or(just(quote))
             .or(just('b').to('\x08'))
@@ -66,7 +66,7 @@ fn escape(quote: char) -> impl QdParser<char> {
 fn quoted(quote: char) -> impl QdParser<String> {
     just(quote)
         .ignore_then(
-            filter(move |c| *c != ESCAPE_PREFIX && *c != quote)
+            filter(move |c| *c != STRING_ESCAPE_PREFIX && *c != quote)
                 .or(escape(quote))
                 .repeated(),
         )

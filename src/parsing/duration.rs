@@ -24,7 +24,7 @@ pub fn duration() -> impl QdParser<Duration> {
         part('M').map(|value| Part { kind: Minute, value }),
         part('S').map(|value| Part { kind: Second, value }),
     ));
-    just(LITERAL_PREFIX).ignore_then(
+    just(LITERAL_DURATION_PREFIX).ignore_then(
         large_part
             .repeated()
             .chain::<Part, _, _>(
