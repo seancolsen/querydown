@@ -10,10 +10,11 @@
   - title
   - description
   - created_at
-  - created_by -> users
+  - author -> users
   - status
   - project -> projects
   - duplicate_of -> issues
+  - deadline
 
 - assignments
   - id
@@ -29,6 +30,7 @@
   - id
   - title
   - product -> products
+  - deadline
 
 - labels
   - id
@@ -51,5 +53,10 @@
   - name
 
 - products
+  - id
+  - name
+  - client
+
+- clients
   - id
   - name

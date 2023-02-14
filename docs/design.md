@@ -1,40 +1,50 @@
 # Querydown Design
 
+## Example schemas
+
+💡 Most examples in this document are based on a **[issue-tracker sample schema](./example-schemas/issue-tracker.yaml)**. It has an [ER diagram](../resources/test/issue_schema.diagram.pdf) too. Understanding the schema will be important to understand some of the examples.
+
+_Some other examples near the end are based on a [library shcema](./example-schemas/library.yaml) and [logistics schema](./example-schemas/logistics.yaml)._
+
 ## Basics
 
-- Write the name of a table to select from it. when no columns are specified, all are returned.
+Write the name of a table to select from it. When no conditions and no columns are specified, all rows and columns are returned.
 
-    ```
-    issues
-    ```
+```
+issues
+```
 
-- Here we refer to "publication" the **base table**. Every query has one and only one base table.
+Here we refer to "issues" the **base table**. Every query has one and only one base table.
 
-- Specify columns by listing them prefixed with `:`
+---
 
-    ```
-    issues :id :title
-    ```
+Specify columns by listing them prefixed with `:`
 
-- Use `->` after a column to give it an alias.
+```
+issues :id :title
+```
 
-    ```
-    issues :id->Identifier :title->Subject
-    ```
+---
+
+Use `->` after a column to give it an alias.
+
+```
+issues :id->Identifier :title->Subject
+```
 
 ## White space
 
 White space doesn't matter. The following two queries are identical.
 
-- ```
-  issues:id->Identifier:title->Subject
-  ```
+```
+issues:id->Identifier:title->Subject
+```
 
-- ```
-  issues
-  : id    -> Identifier
-  : title -> Subject
-  ```
+```
+issues
+: id    -> Identifier
+: title -> Subject
+```
 
 ## Quoting identifiers
 
@@ -49,410 +59,350 @@ If you want to reference a table name or column name which contains characters o
 
 ## Sorting
 
-- Ascending sorting by one column. The `s` stands for "sort".
+Ascending sorting by one column. The `s` stands for "sort".
 
-    ```
-    issues :title :created_at \s
-    ```
+```
+issues :title :created_at \s
+```
 
-- Descending sorting is indicated via a `d` after the `s`.
+---
 
-    ```
-    issues :title :created_at \sd
-    ```
+Descending sorting is indicated via a `d` after the `s`.
 
-- Sorting by multiple columns is done via numbers to indicate ordinality.
+```
+issues :title :created_at \sd
+```
 
-    ```
-    author
-    : id
-    : first_name \s3
-    : last_name \s2
-    : birth_date \sd1
-    ```
+---
 
-- Sorted columns without any ordinality specified are sorted in the order the appear, after all columns with indicated ordinality.
+Sorting by multiple columns is done via numbers to indicate ordinality.
 
-    ```
-    author
-    : id
-    : first_name \s
-    : last_name \s
-    : birth_date \s1
-    ```
+```
+issues :title \s2 :created_at \sd1
+```
 
-- By default, `NULL` values are sorted last, but this behavior can be modified using the `n` flag, which stands for "nulls first".
+Sorted columns without any ordinality specified are sorted in the order the appear, after all columns with indicated ordinality.
 
-    ```
-    author :first_name :last_name \sn
-    ```
+---
+
+By default, `NULL` values are sorted last, but this behavior can be modified using the `n` flag, which stands for "nulls first".
+
+```
+issues :title :created_at \sdn
+```
+
 
 ## LIMIT and OFFSET
 
-- Ten authors starting from 100
-
-    ```
-    author
-    --> limit(10)
-    --> offset(100)
-    ```
+TODO
 
 ## Conditions
 
 ### AND vs OR
 
-- One condition
+Curly braces enclose multiple `AND` conditions.
 
-    ```
-    publication {title="Foo"}
-    ```
+```
+issues {status="open" created_at>@2023-03-04}
+```
 
-- Spaces delimit multiple conditions
+---
 
-    ```
-    publication {title="Foo" year=1999}
-    ```
+Square brackets enclose `OR` conditions.
 
-- Square brackets enclose `OR` conditions
+```
+issues [status="open" created_at>@2023-03-04]
+```
 
-    ```
-    publication [title="Foo" year=1999]
-    ```
+---
 
-- If you omit the braces, then a set of AND conditions is inferred
+If you omit the top-level braces, then a set of AND conditions is inferred.
 
-    ```
-    publication title="Foo" year=1999
-    ```
+```
+issues status="open" created_at>@2023-03-04
+```
 
-- Conditions can be nested
+---
 
-    ```
-    publication [
-      { title="Foo" year=1999 }
-      { title="Bar" year=2000 }
-    ]
-    ```
+Conditions can be nested
 
-### Comparison operators
+> Issues that are open and created after 2023-03-04 _or_ reopened and created after 2022-11-22:
 
-- `field = 1`
-- `field = other_field`
-- `field = "string literal"`
-- `field = 'string literal in single quotes'`
-- `field = 2017-01-01`
-- `field > 1`
-- `field > 2017-01-01`
-- `field >= 1`
-- `field < 1`
-- `field <= 1`
-- `field != 1`
-- `field ~ "^foo.*"` Regex comparison
-- `field ~(i) "^foo.*"` Regex comparison with flags (TODO: flesh out specs)
-- `field ~~ "foo"` Like comparison
+```
+issues [
+  {status="open" created_at>@2023-03-04}
+  {status="reopened" created_at>@2022-11-22}
+]
+```
+
+---
+
+See the [Syntax cheat sheet](./syntax-cheat-sheet.md) for a reference to all the comparison operators.
 
 
 ### Comparison expansion
 
-- Comparisons get expanded when one side is enclosed in brackets
+Comparisons get expanded when one side is enclosed in brackets
 
-    ```
-    publication year = [2000 2010]
-    ```
-    
-    (This is like the SQL `IN` operator.)
+> Issues that are either open or reopened:
 
-    ```
-    patron {first_name last_name} = @null
-    ```
+```
+issues status = ["open" "reopened"]
+```
 
-    ```
-    patron [first_name last_name] ~ "foo"
-    ```
+> Issues that are missing a title and description:
 
-- All columns can be specified via the `*` character. Columns which don't support the type of comparison used will be excluded
+```
+issues {title description} = @null
+```
 
-    ```
-    patron [*] ~ "foo"
-    ```
+> Issues where the title or description contain "foo":
 
-    Here the `id` column doesn't support the `~` comparison, so it's not used.
+```
+issues [title description] ~ "foo"
+```
 
-- If both sides of the comparison are enclosed in brackets, then the brackets on left side are used for the outer precedence
+---
 
-    ```
-    patron {first_name last_name} ~ ["foo" "bar"]
-    ```
+If both sides of the comparison are enclosed in brackets, then the brackets on left side are used for the outer precedence
+
+> Issues where the title and description both contain "foo" or contain "bar":
+
+```
+issue {title description} ~ ["foo" "bar"]
+```
 
 ### Scoped conditionals
 
-- The comparator can be altered per-value by using `?`, the **scoped conditional operator**
+The comparison operator can be altered per-value by using `?`, the **scoped conditional operator**
 
-    ```
-    publication year ? {& >= 2000 & <= 2010}
-    ```
+```
+issues created_at ? {@2000-01-01 <= & & < @2010-01-01}
+```
 
-    Within the braces, `&` is called a **slot** and refers to the value from the outer scope (i.e. `year` in this case)
+Within the braces, `&` is called a **slot** and refers to the value before the `?` (i.e. `created_at` in this case).
 
-    The above code can be made slightly more readable and idiomatic by reversing the first inner condition so that it reads more like math notation
+_This is similar to SQL `BETWEEN`, but with more explicit control over the comparison operators._
 
-    ```
-    publication year ? {2000 <= & & <= 2010}
-    ```
+## Computations and functions
 
-    This is similar to the SQL `BETWEEN`, but with more explicit control over the comparison operators 
+Functions are applied to values via `|` (pipe) syntax.
 
-- Slots can only be used with the scoped conditional operator, and they must be placed _after_ the operator.
+> The most overdue issues
 
-    ```
-    publication {2000 <= & & <=2010} ? year // INVALID!
-    ```
+```
+issues :id :title :(deadline-@now)|days|above(0) \sd
+```
 
-- Scoped conditionals can be mixed with comparison expansion as follows.
+Here:
 
-    Authors who were either born or who died during the 20th century:
-
-    ```
-    author [birth_date death_date] ? {@1900-01-01 <= & & < @2000-01-01}
-    ```
-
-## Functions
-
-- The most overdue checkouts 
-
-    ```
-    checkout
-    : id
-    : due_date|minus(@now)|days-> days_overdue \sd
-    ```
-
-    Note:
-
-    - All scalar functions are applied via the pipe syntax.
-    - There are no operators like `+ - * /`. Named functions are used instead, providing for clear, linear chaining of operations.
-
-- Functions
-
-    - `minus()`
-    - `plus()`
-    - `times()`
-    - `divide()`
-    - `is_null`
-    - `is_non_null`
-    - `has_value`
-    - `bool`
-    - `not`
-    - `when()`
-    - `if()`
-    - `segment()`
-    - `bins()`
-    - `lower_bounded()`
-    - `upper_bounded()`
-    - `when_null()` (i.e. `COALESCE`)
-    - `date_format()`
-    - `days`
-    - `months`
-    - `years`
-    - `weeks`
-    - `floor`
-    - `ceil`
-    - `mod`
-    - `and()`
-    - `or()`
-    - `xor()`
-    - `not()`
-    - ...
+1. `deadline` and `@now` are both dates. Subtracting the two produces an interval.
+1. Then we pipe the interval into the `days` function to produce a number of days.
+1. Then we pipe the number of days into the `above` function, which turns negative numbers into 0.
 
 ## Interpolated strings
 
-- Are specified via `^{value}^`
+Are specified via `^{value}^`
 
-    ```
-    patron :^{first_name} {last_name}^-> name
-    ```
+```
+users :^"{username}" <{email})>^
+```
 
 ## Incremental column specification
 
--  Use `:[]` to specify all columns, giving you control to add a column after all columns
+Use `:[]` to specify all columns, giving you control to add a column after all columns
 
-    ```
-    patron :[] :^{first_name} {last_name}^->full_name
-    ```
+> Issues with all columns, plus a special concatenation of the username and email:
 
-- Hide a column
+```
+users :[] :^"{username}" <{email})>^
+```
 
-    ```
-    patron :[id\h]
-    ```
+---
 
-- Sort by columns, leaving their position in the table unchanged.
+Within the set of all columns, you can add column names and flags to control the behavior of columns.
 
-    ```
-    checkout :[patron.last_name \s out_date \s]
-    ```
+---
+
+Use `\h` to hide a column.
+
+> Issues with all columns except description:
+
+```
+issues :[description \h]
+```
+
+---
+
+Use `\s` (and similar flags) to sort by columns, leaving their position in the table unchanged.
+
+```
+issues :[created_at \sd]
+```
 
 
 ## Joining related data
 
-You can bring in data from related tables -- but joins don't work quite like in SQL. In querydown, the number of rows in the results will never be more than the number of rows in the base table.
+You can refer to data from related tables -- but joins don't work quite like in SQL. In querydown, the number of rows in the results will never be more than the number of rows in the base table.
 
 
-### Many to one
+### Referring to _single related records_
 
-- Publications with their authors
+When a column links to another table, the `.` character can be used after the column to refer to columns in the related table.
 
-    ```
-    publication :title :author.name
-    ```
+> Issues created by members of the backend team, displaying the issue title and author's username
 
-    Note:
-    
-    - In the querydown code above, `author` refers to the `author` _column_ within the `publication` table (not the `author` table).
-    - We use `LEFT JOIN` so that we don't inadvertently filter out publications with no associated author. A condition can be manually added to filter out those publications if desired.
+```
+issues author.team.name="Backend" :id :title :author.username
+```
 
-- Publications from living authors -- _or unknown authors_.
+---
 
-    ```
-    publication author.death_date=@null
-    ```
+When the **scoped conditional operator** (`?`) is used on a foreign key column, the scope of the related table is used inside the braces.
 
-- Publications from living authors (excluding unknown authors).
+> Issues for all projects under the "Foo" product which are due within two months:
 
-    ```
-    publication author != @null author.death_date = @null
-    ```
+```
+issues project ? {deadline < @2m|away product.name = "Foo"}
+```
 
-- When the **scoped conditional operator** (`?`) is used on a foreign key column, the scope of the related table is used inside the braces.
+This expands to
 
-    ```
-    publication author ? {birth_date > @2000-01-01 death_date != @null}
-    ```
+```
+issues project.deadline < @2m|away project.product.name = "Foo"
+```
 
-    This expands to
-    
-    ```
-    publication author.birth_date > @2000-01-01 author.death_date != @null
-    ```
+---
 
-- Checkouts by deceased authors
+You can also refer to related tables by name.
 
-    ```
-    checkout ..author.death_date != @null
-    ```
+> All issues associated with the "Foo" client.
 
-    Here, `author` refers to the `author` _table_ (not column). Note that the `checkout` table does not have an `author` column, but each `checkout` record _is_ directly related to one `author` record (via the `item` and `publication` tables). So the above code is shorthand for:
+```
+issues >>clients.name = "Foo"
+```
 
-    ```
-    checkout item.publication.author.death_date != @null}
-    ```
+This expands to:
 
-    This shorthand only works if there is one unambiguous path from the base table to the linked table. The longer form is required if there is more than one way to join the two tables.
+```
+issues project.product.client.name = "Foo"
+```
 
-### One to many
+The `>>` syntax is shorthand only works if there is one unambiguous path from the base table to the linked table. The longer form is required if there is more than one way to join the two tables.
 
-- Authors that have at least one publication
+### Referring to _multiple related records_
 
-    ```
-    author #publication > 0
-    ```
+> Users, and the number of issues they have created
 
-    ```
-    author ++publication
-    ```
+```
+users :id :username :#issues
+```
 
-- Authors that have no publications
+In our schema, each user has multiple issues. We use `#` to refer to a related table which has multiple records for each record in the base table.
 
-    ```
-    author #publication = 0
-    ```
+The rows returned from the query still correspond directly to the rows in the base table -- all data joined with `#` will be aggregated vs the base table. The default aggregation is to _count_ the related records.
 
-    ```
-    author --publication
-    ```
+---
 
-- Authors and how many publications they have
+Specific aggregate functions can be applied via `%` (similar to pipe syntax).
 
-    ```
-    author :name :#publication
-    ```
+> Users, along with most recent date on which they created a ticket
 
+```
+users :id :username :#issues.created_at%max
+```
 
-- Authors and the year of their first publication
+---
 
-    ```
-    author :name :#publication.year%min
-    ```
+You can use the `++` and `--` shorthand syntax to construct conditions based on aggregate counts
 
-    Note:
+> Users that have created at least one issue
 
-    - `%min` is an aggregate function. All aggregate functions begin with `%`.
+```
+users ++issues
+```
 
-- Authors who have published books with "Penguin" since year 2000.
+This expands to 
 
-    ```
-    author ++publication{year > 2000 publisher.name = "Penguin"} > 0
-    ```
+```
+users #issues > 0
+```
 
-- Authors of publications which have been checked out in the past week
+> Users that have not created any issues
 
-    ```
-    author ++checkout{out_date > @1W|ago}
-    ```
+```
+users --issues
+```
 
-    The `checkout` table is not directly related to the `author` table, but that's okay. The above code is shorthand for the following more explicit code:
+This expands to 
 
-    ```
-    author #publication.#item.#checkout{out_date > @1W|ago} > 0
-    ```
-    
-    We can use the shorthand in this case because there is only one path through which `author` can be joined to `checkout`. If tables can be joined through multiple paths, then a path will need to be specified which is not ambiguous.
+```
+users #issues = 0
+```
 
-- If one table directly links to another table multiple times, then parentheses must be used to specify which foreign key column to use.
+---
 
-    A location with counts of its shipments.
+You can add a condition block after any aggregated table
 
-    ```
-    location
-    : id
-    : #shipment(destination)->count_shipments_to_here
-    : #shipment(origin)->count_shipments_from_here
-    ```
+> Users who have not created any issues within the past year
 
-- Publications checked out in the past month by employees
+```
+users --issues{created_at > 1y|ago}
+```
 
-    ```
-    publication ++checkout{out_date > @1M|ago ++tag{name = "Employee"}}
-    ```
+---
 
-- Checkouts of Biography books
+You can refer to distantly-related tables
 
-    ```
-    checkout ++genre{name = "Biography"}
-    ```
+> Clients, sorted by the highest number of associated open issues
 
-- Checkouts by patrons with no emails
+```
+clients :id :name :#issues{status="Open"} \sd
+```
 
-    ```
-    checkout patron ? {--email}
-    ```
-    
-- Patrons who, in the past week, have checked out at least one publication which is authored by "Foo" and _not_ categorized as "Biography"
+Here, the `issues` table is not directly related to the `clients` table, but that's okay. The above code is shorthand for the following:
 
-    ```
-    patron ++checkout{out_date > @1W|ago ..author.name = "Foo" --genre{name = "Biography"}}
-    ```
+```
+clients :id :name :#products.#projects.#issues{status="Open"}
+```
 
-- All aggregate functions
+The shorthand works in this case because there is only one path through which `clients` can be joined to `issues`. Querydown will choose the shortest unambiguous path it can find.
 
-    - `%count` (This is the only aggregate function which can also be applied to the _table_)
-    - `%count_distinct`
-    - `%sum`
-    - `%product`
-    - `%min`
-    - `%max`
-    - `%avg`
-    - `%list()` (i.e. `group_concat` or `string_agg`) This function accepts a `separator` argument. TODO: how to sort entries
+---
 
+If the related table can be joined via multiple routes which tie as being the shortest path, then Querydown will throw an error.
+
+> Attempt to display the number of users associated with each issue.
+
+```
+issues :id :title :#users // ERROR!
+```
+
+This doesn't work because `#users` can be joined either through the `assignments` table or through the `comments` table.
+
+This works:
+
+> The number of unique users _who have commented_ on each ticket
+
+```
+issues :id :title :#comments.#users.id%count_distinct
+```
+
+---
+
+If one table directly links to another table multiple times, then parentheses must be used to specify which foreign key column to use.
+
+> Issues that are blocking other issues
+
+```
+issues ++blocks(blocker)
+```
+
+> Issues that are not blocked by any other issues
+
+```
+issues --blocks(blocking)
+```
 
 ### Multi-column foreign keys
 
@@ -464,110 +414,103 @@ TODO
 
 ## Grouping and aggregating
 
-- Grouping is indicated by placing a `g` within the square brackets that prefix the column specifiers.
+Grouping is indicated by the `g` flag, similar to sorting.
 
-    ```
-    author :death_date|is_null->is_alive \g :%count
-    ```
+> The count of tickets, by status, for the Foo project:
 
-    Note:
+```
+issues project.name="Foo" :status \g :%count \sd
+```
 
-    - All ungrouped columns must contain an aggregate function
-    - `%count` can occur on its own (outside of a function pipeline), which is equivalent to `count(*)`.
-    - Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting.
+- All ungrouped columns must contain an aggregate function
+- `%count` can occur on its own (outside of a function pipeline), which is equivalent to `count(*)`.
+- Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting.
 
 
 ## Window functions
 
-- Origin locations, with the destination of their most recent shipment
+Origin locations, with the destination of their most recent shipment
 
-    ```
-    shipment %%(departure_datetime \sd origin \p)%row_number = 1
-    : origin
-    : origin.addressee
-    : destination
-    : destination.addressee
-    ```
+```
+shipment %%(departure_datetime \sd origin \p)%row_number = 1
+: origin
+: origin.addressee
+: destination
+: destination.addressee
+```
 
-- How many days into each month did it take us to reach 1000 checkouts?
+How many days into each month did it take us to reach 1000 checkouts?
 
-    ```
-    checkout %%(out_date \s out_date|year_month \p)%row_number = 1000
-    : out_date|year_month
-    : out_date|day_of_month
-    ```
-
-- Publications that have been on the top 10 most frequently checked-out list every month for the past year.
-
-    TODO
-
-## HAVING
-
-- Doesn't exist, but you can achieve similar behavior using "pipeline of multiple queries" (described below).
-
+```
+checkout %%(out_date \s out_date|year_month \p)%row_number = 1000
+: out_date|year_month
+: out_date|day_of_month
+```
 
 ## Pipeline of multiple queries
 
-- Books that have been checked out by the same patron at least 5 times in the past year
+Books that have been checked out by the same patron at least 5 times in the past year
 
-    ```
-    checkout {out_date > @1y|ago}
-    :item.publication->publication \g
-    :patron \g
-    :%count->checkout_count
-    ~~~
-    {checkout_count > 5}
-    :publication \g
-    :patron%count->patron_count
-    :checkout_count%max->max_checkouts
-    ~~~
-    :publication.id
-    :publication.title
-    :publication.author.name
-    :patron_count
-    :max_checkouts \sd
-    ```
+```
+checkout {out_date > @1y|ago}
+:item.publication->publication \g
+:patron \g
+:%count->checkout_count
+~~~
+{checkout_count > 5}
+:publication \g
+:patron%count->patron_count
+:checkout_count%max->max_checkouts
+~~~
+:publication.id
+:publication.title
+:publication.author.name
+:patron_count
+:max_checkouts \sd
+```
 
 ## UNION
 
-- History of activity for a specific location
+History of activity for a specific location
 
-    ```
-    shipment {origin = 7  departure_datetime != @null}
-    :id :tracking_number :"Send"->action :departure_datetime->time
-    +++
-    shipment {destination = 7  arrival_datetime != @null}
-    :id :tracking_number :"Receive"->action :arrival_datetime->time
-    ~~~
-    :time \s :action :tracking_number
-    ```
+```
+shipment {origin = 7  departure_datetime != @null}
+:id :tracking_number :"Send"->action :departure_datetime->time
++++
+shipment {destination = 7  arrival_datetime != @null}
+:id :tracking_number :"Receive"->action :arrival_datetime->time
+~~~
+:time \s :action :tracking_number
+```
 
 
 - TODO what if I want to do a pipeline within a union?
 
-```
-#a := (
-  shipment { origin = 7  departure_datetime != @null }
-  - id
-  - tracking_number
-  - "Send": action
-  - departure_datetime: time
-)
+    Ideas...
 
-#b := (
-    shipment { destination = 7  arrival_datetime != @null }
-    - id
-    - tracking_number
-    - "Receive": action
-    - arrival_datetime: time
+    ```
+    ##a := (
+      shipment {origin = 7  departure_datetime != @null}
+      : id
+      : tracking_number
+      : "Send": action
+      : departure_datetime-> time
+    )
+
+    ##b := (
+        shipment {destination = 7  arrival_datetime != @null}
+        : id
+        : tracking_number
+        : "Receive": action
+        : arrival_datetime-> time
+        ~~~
+        // more here
+    );
+
+    ##a +++ ##b
     ~~~
-    // more here
-);
-
-#a +++ #b
-~~~
--[s]time -action -tracking_number
-```
+    :time\s :action :tracking_number
+    ```
 
 
 ## Complex examples
@@ -599,6 +542,10 @@ TODO
     checkout.$days_overdue := in_date|when(@null:@now|minus(due_date)|days *:@null)
     checkout $days_overdue > 0 -[gs]out_date|year_month -$days_overdue|avg
     ```
+
+- Publications that have been on the top 10 most frequently checked-out list every month for the past year.
+
+    TODO
 
 - TODO examples
     - CRM total number of contacts who have given at least $500 total donations of certain type in past year and who are not registered for a specific event

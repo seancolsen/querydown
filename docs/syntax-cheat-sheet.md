@@ -29,7 +29,7 @@
 | `#`                       | path to table with aggregated records |
 | `>>`                      | path to table with singular records |
 
-## Conditionals
+## Conditions
 
 | Code   | Usage |
 | --     | -- |

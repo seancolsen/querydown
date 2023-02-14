@@ -33,7 +33,7 @@
                     "name": "created_at"
                 },
                 {
-                    "name": "created_by"
+                    "name": "author"
                 },
                 {
                     "name": "status"
@@ -43,6 +43,9 @@
                 },
                 {
                     "name": "duplicate_of"
+                },
+                {
+                    "name": "due_date"
                 }
             ]
         },
@@ -152,6 +155,20 @@
                 },
                 {
                     "name": "name"
+                },
+                {
+                    "name": "client"
+                }
+            ]
+        },
+        {
+            "name": "clients",
+            "columns": [
+                {
+                    "name": "id"
+                },
+                {
+                    "name": "name"
                 }
             ]
         }
@@ -171,7 +188,7 @@
         {
             "from": {
                 "table": "issues",
-                "column": "created_by"
+                "column": "author"
             },
             "to": {
                 "table": "users",
@@ -296,6 +313,17 @@
             },
             "to": {
                 "table": "products",
+                "column": "id"
+            },
+            "unique": false
+        },
+        {
+            "from": {
+                "table": "products",
+                "column": "client"
+            },
+            "to": {
+                "table": "clients",
                 "column": "id"
             },
             "unique": false
