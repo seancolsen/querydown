@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   fill="none"
+   height="128"
+   viewBox="0 0 208 128"
+   width="208"
+   version="1.1"
+   id="svg8"
+   sodipodi:docname="logo-src.svg"
+   inkscape:version="1.2.2 (1:1.2.2+202212051552+b0a8486541)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs12" />
+  <sodipodi:namedview
+     id="namedview10"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="0.65186406"
+     inkscape:cx="-0.76703108"
+     inkscape:cy="-268.46088"
+     inkscape:window-width="1920"
+     inkscape:window-height="1080"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="g1159" />
+  <path
+     clip-rule="evenodd"
+     d="m 15,10 c -2.7614,0 -5,2.2386 -5,5 v 98 c 0,2.761 2.2386,5 5,5 h 178 c 2.761,0 5,-2.239 5,-5 V 15 c 0,-2.7614 -2.239,-5 -5,-5 z M 0,15 C 0,6.71573 6.71573,0 15,0 h 178 c 8.284,0 15,6.71573 15,15 v 98 c 0,8.284 -6.716,15 -15,15 H 15 C 6.71573,128 0,121.284 0,113 Z"
+     fill-rule="evenodd"
+     id="path2"
+     style="fill:#000000" />
+  <path
+     style="fill:#000000"
+     d="m 149.63078,98 -30,-33 h 20 V 30 h 20 v 35 h 20 z"
+     id="path300" />
+  <g
+     id="g1159"
+     transform="rotate(-45,1.3019942,-107.54831)">
+    <path
+       style="color:#000000;fill:#000000;-inkscape-stroke:none;paint-order:stroke fill markers"
+       d="m -75.666016,24 c -18.659216,0 -34.000004,15.340784 -34.000004,34 0,18.659216 15.340788,34 34.000004,34 18.659217,0 34,-15.340784 34,-34 0,-18.659216 -15.340783,-34 -34,-34 z m 0,20 c 7.850425,0 14,6.149575 14,14 0,7.850425 -6.149575,14 -14,14 -7.850425,0 -14,-6.149575 -14,-14 0,-7.850425 6.149575,-14 14,-14 z"
+       id="circle1153" />
+    <path
+       style="font-variation-settings:normal;opacity:1;vector-effect:none;fill:none;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:20;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;-inkscape-stroke:none;paint-order:stroke fill markers;stop-color:#000000;stop-opacity:1"
+       d="M -77.111013,84.627446 -78.23194,109.11353"
+       id="path1155"
+       sodipodi:nodetypes="cc" />
+  </g>
+</svg>
