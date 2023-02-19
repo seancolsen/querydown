@@ -4,6 +4,7 @@ use dialects::postgres::Postgres;
 use crate::compiler::Compiler;
 use std::io::{self, Read};
 
+mod chain;
 mod compiler;
 mod converters;
 mod dialects;
