@@ -427,26 +427,6 @@ issues project.name="Foo" :status \g :%count \sd
 - Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting.
 
 
-## Window functions
-
-Origin locations, with the destination of their most recent shipment
-
-```
-shipment %%(departure_datetime \sd origin \p)%row_number = 1
-: origin
-: origin.addressee
-: destination
-: destination.addressee
-```
-
-How many days into each month did it take us to reach 1000 checkouts?
-
-```
-checkout %%(out_date \s out_date|year_month \p)%row_number = 1000
-: out_date|year_month
-: out_date|day_of_month
-```
-
 ## Pipeline of multiple queries
 
 Books that have been checked out by the same patron at least 5 times in the past year
@@ -469,9 +449,49 @@ checkout {out_date > @1y|ago}
 :max_checkouts \sd
 ```
 
+## Window functions
+
+Window functions are defined via `%%( )`. Inside the parentheses, you use the same syntax as with incremental column specification. One additional flag is available: `\p` for "partition".
+
+After the window function definition, you apply an aggregate function, such as `row_number`, `lag`, `dense_rank`, etc.
+
+> Issues which have a lot of sequential comments from the same user, showing the max number of sequential comments within the issue, along with the names of all the users who tied for making that many sequential comments
+
+```qd
+comments
+:issue :user :%%(issue\p user\p created_on\s)%row_number->count
+~~~
+%%(issue\p count\sd)%row_number = 1
+:issue\g :count :user.username%list
+```
+
+---
+
+> Origin locations, with the destination of their most recent shipment
+
+```
+shipment %%(departure_datetime \sd origin \p)%row_number = 1
+: origin
+: origin.addressee
+: destination
+: destination.addressee
+```
+
+---
+
+> How many days into each month did it take us to reach 1000 checkouts?
+
+```
+checkout %%(out_date \s out_date|year_month \p)%row_number = 1000
+: out_date|year_month
+: out_date|day_of_month
+```
+
 ## UNION
 
-History of activity for a specific location
+The `+++` operator performs an SQL `UNION`. Tables on both sides must have identical column structures.
+
+> History of activity for a specific location
 
 ```
 shipment {origin = 7  departure_datetime != @null}
@@ -483,35 +503,34 @@ shipment {destination = 7  arrival_datetime != @null}
 :time \s :action :tracking_number
 ```
 
+Union has higher precedence than pipeline (the union will be performed before the pipeline). Temporary tables can be used if you need a pipeline within a union.
 
-- TODO what if I want to do a pipeline within a union?
+## Temporary tables
 
-    Ideas...
+Pipeline within a union
 
-    ```
-    ##a := (
-      shipment {origin = 7  departure_datetime != @null}
-      : id
-      : tracking_number
-      : "Send": action
-      : departure_datetime-> time
-    )
-
-    ##b := (
-        shipment {destination = 7  arrival_datetime != @null}
-        : id
-        : tracking_number
-        : "Receive": action
-        : arrival_datetime-> time
-        ~~~
-        // more here
-    );
-
-    ##a +++ ##b
+```
+$$a := (
+  shipment origin = 7  departure_datetime != @null
+  : id
+  : tracking_number
+  : "Send": action
+  : departure_datetime-> time
+)
+$$b := (
+    shipment destination = 7  arrival_datetime != @null
+    : id
+    : tracking_number
+    : "Receive": action
+    : arrival_datetime-> time
     ~~~
-    :time\s :action :tracking_number
-    ```
+    // more here
+);
 
+$$a +++ $$b
+~~~
+:time\s :action :tracking_number
+```
 
 ## Complex examples
 
