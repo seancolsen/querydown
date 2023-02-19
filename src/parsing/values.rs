@@ -7,33 +7,39 @@ use super::duration::duration;
 use super::paths::path;
 use super::utils::*;
 
+pub fn contextual_value(
+    condition_set: impl QdParser<ConditionSet>,
+) -> impl QdParser<ContextualValue> {
+    choice::<_, Simple<char>>((
+        just(LITERAL_SLOT).to(ContextualValue::Slot),
+        value(condition_set).map(ContextualValue::Value),
+    ))
+}
+
 pub fn value(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Value> {
     choice::<_, Simple<char>>((
-        exactly(LITERAL_NOW).to(Value::Now),
-        exactly(LITERAL_INFINITY).to(Value::Infinity),
-        exactly(LITERAL_TRUE).to(Value::True),
-        exactly(LITERAL_FALSE).to(Value::False),
-        exactly(LITERAL_NULL).to(Value::Null),
-        just(LITERAL_SLOT).to(Value::Slot),
-        date().map(Value::Date),
-        number().map(Value::Number),
-        duration().map(Value::Duration),
-        choice((quoted(STRING_QUOTE_SINGLE), quoted(STRING_QUOTE_DOUBLE))).map(Value::String),
         path(condition_set).map(Value::Path),
+        literal().map(Value::Literal),
+    ))
+}
+
+pub fn literal() -> impl QdParser<Literal> {
+    choice::<_, Simple<char>>((
+        exactly(LITERAL_NOW).to(Literal::Now),
+        exactly(LITERAL_INFINITY).to(Literal::Infinity),
+        exactly(LITERAL_TRUE).to(Literal::True),
+        exactly(LITERAL_FALSE).to(Literal::False),
+        exactly(LITERAL_NULL).to(Literal::Null),
+        date().map(Literal::Date),
+        number().map(Literal::Number),
+        duration().map(Literal::Duration),
+        quoted(STRING_QUOTE_SINGLE).map(Literal::String),
+        quoted(STRING_QUOTE_DOUBLE).map(Literal::String),
     ))
 }
 
 pub fn db_identifier() -> impl QdParser<String> {
     ident().or(quoted(DB_IDENTIFIER_QUOTE))
-}
-
-#[test]
-fn test_db_identifier() {
-    assert_eq!(db_identifier().parse("foo"), Ok("foo".to_string()));
-    assert_eq!(
-        db_identifier().parse("` !f \\`o'\"o`"),
-        Ok(" !f `o'\"o".to_string())
-    );
 }
 
 fn escape(quote: char) -> impl QdParser<char> {
@@ -96,4 +102,18 @@ fn date() -> impl QdParser<Date> {
         .then(usize_with_digit_count(2))
         .map(|((year, month), day)| Date { year, month, day })
         .labelled("date")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_db_identifier() {
+        assert_eq!(db_identifier().parse("foo"), Ok("foo".to_string()));
+        assert_eq!(
+            db_identifier().parse("` !f \\`o'\"o`"),
+            Ok(" !f `o'\"o".to_string())
+        );
+    }
 }

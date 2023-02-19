@@ -237,6 +237,10 @@ impl Schema {
         self.table_lookup.contains_key(table_name)
     }
 
+    pub fn get_table(&self, table_name: &str) -> Option<&Table> {
+        self.tables.get(self.table_lookup.get(table_name)?)
+    }
+
     pub fn get_chain_map(&self, from: TableId) -> ChainMap {
         build_chain_map_from_chains(self.get_chains_from_table(from))
     }

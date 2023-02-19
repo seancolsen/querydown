@@ -1,8 +1,9 @@
 use crate::{
+    converters::{combine_expression_with_slot, simplify_expression},
     dialects::dialect::Dialect,
-    schema::schema::Schema,
-    sql_tree::{Cte, Join},
-    syntax_tree::{Composition, Conjunction, Expression, Operator, Path, Value},
+    schema::schema::{Schema, Table},
+    sql_tree::{Cte, Join, SqlConditionSetEntry},
+    syntax_tree::{Composition, Conjunction, Expression, Literal, Operator, Path, Value},
 };
 
 /// We may eventually make this configurable
@@ -19,57 +20,79 @@ mod functions {
 
 use functions::*;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecontextualizedExpression {
+    pub base: Value,
+    pub compositions: Vec<Composition>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimpleExpression {
+    pub base: Literal,
+    pub compositions: Vec<Composition>,
+}
+
 pub struct RenderingContext<'a, D: Dialect> {
     pub dialect: &'a D,
     pub schema: &'a Schema,
-    pub base_table: &'a str,
-    pub indentation_level: usize,
-    slot_value: Option<ExpressionWithCachedRender>,
+    base_table_name: &'a str,
+    base_table: &'a Table,
+    indentation_level: usize,
+    slot_value: Option<DecontextualizedExpression>,
     ctes: Vec<Cte>,
     joins: Vec<Join>,
 }
 
 impl<'a, D: Dialect> RenderingContext<'a, D> {
-    pub fn new(dialect: &'a D, schema: &'a Schema, base_table: &'a str) -> Self {
-        Self {
+    pub fn build(
+        dialect: &'a D,
+        schema: &'a Schema,
+        base_table_name: &'a str,
+    ) -> Result<Self, String> {
+        let base_table = schema
+            .get_table(base_table_name)
+            .ok_or(format!("Base table `{}` does not exist.", base_table_name))?;
+        Ok(Self {
             dialect,
             schema,
+            base_table_name,
             base_table,
             indentation_level: 0,
             slot_value: None,
             ctes: vec![],
             joins: vec![],
-        }
+        })
+    }
+
+    pub fn get_base_table_name(&self) -> &str {
+        self.base_table_name
+    }
+
+    pub fn get_base_table(&self) -> &Table {
+        self.base_table
     }
 
     pub fn get_indentation(&self) -> String {
         INDENT_SPACER.repeat(self.indentation_level)
     }
 
-    pub fn render_path(&mut self, path: &Path) -> String {
-        // Reminder: need to look at the slot value within the `self` and see if it establishes a
-        // new base table. If so we need to prepend `path` with the path from the slot value.
-        "TODO".to_string()
-    }
-
-    pub fn with_slot_value<T>(&mut self, expr: Expression, f: impl FnOnce(&mut Self) -> T) -> T {
-        // We render the slot value enclosed in parentheses as a sort of hacky way of dealing with
-        // precedence issues that arise in Querydown code like this:
-        //
-        // ```qd
-        // users "bar"|plus(2) ? {#|times(3) < 4}
-        // ```
-        //
-        // If we don't use parentheses, then we end up with SQL `'bar' + 2 * 3 < 4` which has
-        // incorrect precedence. We might want to fix this in a cleaner way by moving away from
-        // pre-rendering the slot value and instead doing some more complex logic which merges the
-        // slot expression with its surrounding expression.
-        let new_slot_value =
-            ExpressionWithCachedRender::new(format!("({})", expr.render(self)), expr);
-        let old_slot_value = std::mem::replace(&mut self.slot_value, Some(new_slot_value));
+    pub fn with_slot_value<T>(
+        &mut self,
+        expr: DecontextualizedExpression,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let old_slot_value = std::mem::replace(&mut self.slot_value, Some(expr));
+        // TODO_CODE we also need to set the base table in the case that a slot establishes a new
+        // table context. If the last PathPart within `expr` is a FK column or a `TableWithOne`,
+        // then we need to determine the name of the table, as joined, and set that as the
+        // self.base_table.
         let result = f(self);
         self.slot_value = old_slot_value;
         result
+    }
+
+    pub fn get_slot_value(&self) -> Option<&DecontextualizedExpression> {
+        self.slot_value.as_ref()
     }
 
     pub fn indented<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -78,45 +101,31 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         self.indentation_level = self.indentation_level.saturating_sub(1);
         result
     }
-
-    pub fn render_slot(&self) -> Option<String> {
-        self.slot_value.as_ref().map(|i| i.render())
-    }
 }
 
-struct ExpressionWithCachedRender {
-    value: Expression,
-    rendered: String,
-}
-
-impl ExpressionWithCachedRender {
-    fn new(rendered: String, value: Expression) -> Self {
-        Self { value, rendered }
-    }
-
-    fn render(&self) -> String {
-        self.rendered.clone()
-    }
-}
+const SQL_NOW: &str = "NOW()";
 
 pub trait Render {
     fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String;
 }
 
-impl Render for Value {
+impl Render for Literal {
     fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
         match self {
-            Value::Date(d) => cx.dialect.date(d),
-            Value::Duration(d) => cx.dialect.duration(d),
-            Value::False => "FALSE".to_string(),
-            Value::Infinity => "INFINITY".to_string(),
-            Value::Now => "NOW()".to_string(),
-            Value::Null => "NULL".to_string(),
-            Value::Number(n) => n.clone(),
-            Value::Path(p) => cx.render_path(p),
-            Value::Slot => cx.render_slot().unwrap(), // TODO handle error
-            Value::String(s) => cx.dialect.quote_string(s),
-            Value::True => "TRUE".to_string(),
+            Literal::Date(d) => cx.dialect.date(d),
+            Literal::Duration(d) => cx.dialect.duration(d),
+            Literal::False => "FALSE".to_string(),
+            Literal::Infinity => "INFINITY".to_string(),
+            Literal::Now => SQL_NOW.to_string(),
+            Literal::Null => "NULL".to_string(),
+            Literal::Number(n) => n.clone(),
+            Literal::String(s) => cx.dialect.quote_string(s),
+            Literal::True => "TRUE".to_string(),
+            Literal::TableColumnReference(table, column) => {
+                let quoted_table = cx.dialect.quote_identifier(table);
+                let quoted_column = cx.dialect.quote_identifier(column);
+                format!("{}.{}", quoted_table, quoted_column)
+            }
         }
     }
 }
@@ -136,8 +145,8 @@ fn render_composition<D: Dialect>(
         MINUS => operator("-"),
         TIMES => operator("*"),
         DIVIDE => operator("/"),
-        AGO => format!("{} - {}", Value::Now.render(cx), base),
-        FROM_NOW => format!("{} + {}", Value::Now.render(cx), base),
+        AGO => format!("{} - {}", SQL_NOW.to_string(), base),
+        FROM_NOW => format!("{} + {}", SQL_NOW.to_string(), base),
         _ => base.to_owned(),
     }
 }
@@ -158,9 +167,12 @@ fn render_expression<D: Dialect>(
     expr: &Expression,
     cx: &mut RenderingContext<D>,
 ) -> ExpressionRenderingOutput {
-    let mut rendered = expr.base.render(cx);
+    // TODO_ERR handle error when attempting to read an empty slot value
+    let decontextualized_expr = combine_expression_with_slot(expr, cx).unwrap();
+    let simple_expr = simplify_expression(decontextualized_expr, cx);
+    let mut rendered = simple_expr.base.render(cx);
     let mut last_composition: Option<&Composition> = None;
-    for composition in expr.compositions.iter() {
+    for composition in simple_expr.compositions.iter() {
         let outer_fn = &composition.function.name;
         let argument = composition.argument.as_ref().map(|arg_expr| {
             let mut output = render_expression(arg_expr, cx);

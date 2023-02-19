@@ -60,7 +60,7 @@ fn column_control() -> impl QdParser<ColumnControl> {
     let flag = choice((
         just(COLUMN_CONTROL_FLAG_SORT).to(Flag::Sort),
         just(COLUMN_CONTROL_FLAG_DESC).to(Flag::Desc),
-        // TODO handle error if number is too large
+        // TODO_ERR handle error if number is too large
         int(10).from_str().unwrapped().map(|v| Flag::Ordinal(v)),
         just(COLUMN_CONTROL_FLAG_GROUP).to(Flag::Group),
         just(COLUMN_CONTROL_FLAG_NULLS_FIRST).to(Flag::NullsFirst),
@@ -150,7 +150,7 @@ mod tests {
             Ok(ColumnSpec {
                 column_control: ColumnControl::default(),
                 expression: Expression {
-                    base: Value::Number("8".to_string()),
+                    base: ContextualValue::Value(Value::Literal(Literal::Number("8".to_string()))),
                     compositions: vec![],
                 },
                 alias: None,
@@ -170,9 +170,9 @@ mod tests {
                     is_hidden: false,
                 },
                 expression: Expression {
-                    base: Value::Path(Path {
-                        parts: vec![PathPart::Column("foo".to_string()),]
-                    }),
+                    base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
+                        PathPartToOne::Column("foo".to_string())
+                    ]))),
                     compositions: vec![],
                 },
                 alias: Some("bar".to_string()),
@@ -189,9 +189,9 @@ mod tests {
                     ColumnSpec {
                         column_control: ColumnControl::default(),
                         expression: Expression {
-                            base: Value::Path(Path {
-                                parts: vec![PathPart::Column("foo".to_string()),]
-                            }),
+                            base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
+                                PathPartToOne::Column("foo".to_string())
+                            ]))),
                             compositions: vec![],
                         },
                         alias: None,
@@ -204,9 +204,9 @@ mod tests {
                             is_hidden: false,
                         },
                         expression: Expression {
-                            base: Value::Path(Path {
-                                parts: vec![PathPart::Column("bar".to_string()),]
-                            }),
+                            base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
+                                PathPartToOne::Column("bar".to_string())
+                            ]))),
                             compositions: vec![],
                         },
                         alias: Some("B".to_string()),

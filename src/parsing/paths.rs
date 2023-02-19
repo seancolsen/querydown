@@ -7,21 +7,21 @@ use super::utils::*;
 use super::values::db_identifier;
 
 pub fn path(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Path> {
-    path_part(condition_set.clone())
+    general_path_part(condition_set.clone())
         .chain(
             whitespace()
                 .then(just(PATH_SEPARATOR))
-                .ignore_then(path_part(condition_set))
+                .ignore_then(general_path_part(condition_set))
                 .repeated(),
         )
-        .map(|parts| Path { parts })
+        .map(|parts| Path::from(parts))
 }
 
-fn path_part(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<PathPart> {
+fn general_path_part(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<GeneralPathPart> {
     choice((
-        db_identifier().map(PathPart::Column),
-        table_with_many(condition_set).map(PathPart::TableWithMany),
-        table_with_one().map(PathPart::TableWithOne),
+        db_identifier().map(GeneralPathPart::Column),
+        table_with_many(condition_set).map(GeneralPathPart::TableWithMany),
+        table_with_one().map(GeneralPathPart::TableWithOne),
     ))
 }
 
@@ -70,68 +70,60 @@ mod tests {
     fn test_path() {
         assert_eq!(
             simple_path().parse("foo"),
-            Ok(Path {
-                parts: vec![PathPart::Column("foo".to_string()),]
-            })
+            Ok(Path::ToOne(vec![PathPartToOne::Column("foo".to_string())]))
         );
         assert_eq!(
             simple_path().parse("foo.bar"),
-            Ok(Path {
-                parts: vec![
-                    PathPart::Column("foo".to_string()),
-                    PathPart::Column("bar".to_string()),
-                ]
-            })
+            Ok(Path::ToOne(vec![
+                PathPartToOne::Column("foo".to_string()),
+                PathPartToOne::Column("bar".to_string()),
+            ]))
         );
         assert_eq!(
             simple_path().parse("#foo"),
-            Ok(Path {
-                parts: vec![PathPart::TableWithMany(TableWithMany {
+            Ok(Path::ToMany(vec![GeneralPathPart::TableWithMany(
+                TableWithMany {
                     table: "foo".to_string(),
                     column: None,
                     condition_set: ConditionSet::default(),
-                })]
-            })
+                }
+            )]))
         );
         assert_eq!(
             simple_path().parse("#foo(bar)"),
-            Ok(Path {
-                parts: vec![PathPart::TableWithMany(TableWithMany {
+            Ok(Path::ToMany(vec![GeneralPathPart::TableWithMany(
+                TableWithMany {
                     table: "foo".to_string(),
                     column: Some("bar".to_string()),
                     condition_set: ConditionSet::default(),
-                })]
-            })
+                }
+            )]))
         );
         assert_eq!(
             simple_path().parse(">>clients.start_date"),
-            Ok(Path {
-                parts: vec![
-                    PathPart::TableWithOne("clients".to_string()),
-                    PathPart::Column("start_date".to_string())
-                ]
-            })
+            Ok(Path::ToOne(vec![
+                PathPartToOne::TableWithOne("clients".to_string()),
+                PathPartToOne::Column("start_date".to_string()),
+            ]))
         );
         assert_eq!(
             simple_path().parse("foo.bar.#baz(a).#bat.>>spam.eggs"),
-            Ok(Path {
-                parts: vec![
-                    PathPart::Column("foo".to_string()),
-                    PathPart::Column("bar".to_string()),
-                    PathPart::TableWithMany(TableWithMany {
-                        table: "baz".to_string(),
-                        column: Some("a".to_string()),
-                        condition_set: ConditionSet::default(),
-                    }),
-                    PathPart::TableWithMany(TableWithMany {
-                        table: "bat".to_string(),
-                        column: None,
-                        condition_set: ConditionSet::default(),
-                    }),
-                    PathPart::TableWithOne("spam".to_string()),
-                    PathPart::Column("eggs".to_string()),
-                ]
-            })
+            Ok(Path::ToMany(vec![
+                GeneralPathPart::Column("foo".to_string()),
+                GeneralPathPart::Column("bar".to_string()),
+                GeneralPathPart::TableWithMany(TableWithMany {
+                    table: "baz".to_string(),
+                    column: Some("a".to_string()),
+                    condition_set: ConditionSet::default(),
+                }),
+                GeneralPathPart::TableWithMany(TableWithMany {
+                    table: "bat".to_string(),
+                    column: None,
+                    condition_set: ConditionSet::default(),
+                }),
+                GeneralPathPart::TableWithOne("spam".to_string()),
+                GeneralPathPart::Column("eggs".to_string()),
+            ]))
         );
 
         assert!(simple_path().parse(".foo").is_err(),);

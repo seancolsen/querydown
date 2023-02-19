@@ -25,16 +25,11 @@ impl<D: Dialect> Compiler<D> {
     pub fn compile(&self, input: String) -> Result<String, String> {
         let mut query = query()
             .parse(input)
-            // TODO improve error handling
+            // TODO_ERR improve error handling
             .map_err(|_| "Invalid querydown code".to_string())?;
-        let base_table = std::mem::take(&mut query.base_table);
-        if !self.schema.has_table(&base_table) {
-            return Err(format!("Base table `{}` does not exist.", base_table));
-        }
-        let mut select = Select::from(base_table);
-
-        let mut cx = RenderingContext::new(&self.dialect, &self.schema, &select.base_table);
-
+        let base_table_name = std::mem::take(&mut query.base_table);
+        let mut select = Select::from(base_table_name);
+        let mut cx = RenderingContext::build(&self.dialect, &self.schema, &select.base_table)?;
         let mut transformations_iter = query.transformations.into_iter();
         let first_transformation = transformations_iter.next().unwrap_or_default();
         let second_transformation = transformations_iter.next();
