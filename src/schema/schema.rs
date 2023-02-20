@@ -1,7 +1,5 @@
 use std::{collections::HashMap, ops::BitAnd};
 
-use crate::chain::Chain;
-
 use super::primitive_schema::{PrimitiveSchema, PrimitiveTable};
 
 pub type TableName = String;
@@ -102,76 +100,9 @@ impl Link {
     }
 }
 
-/// Keys are destination tables, values are possible paths to that destination.
-type ChainMap = HashMap<TableId, Vec<Chain>>;
-
-fn build_chain_map_from_chains(chains: Vec<Chain>) -> ChainMap {
-    let mut map = HashMap::<TableId, Vec<Chain>>::new();
-    for chain in chains {
-        map.entry(chain.get_ending_table_id())
-            .or_insert_with(Vec::new)
-            .push(chain);
-    }
-    map
-}
-
-#[derive(Debug)]
-enum ChainSeed {
-    Table(TableId),
-    Chain(Chain),
-}
-
 impl Schema {
-    pub fn has_table(&self, table_name: &str) -> bool {
-        self.table_lookup.contains_key(table_name)
-    }
-
     pub fn get_table(&self, table_name: &str) -> Option<&Table> {
         self.tables.get(self.table_lookup.get(table_name)?)
-    }
-
-    pub fn get_chain_map(&self, from: TableId) -> ChainMap {
-        build_chain_map_from_chains(self.get_chains_from_table(from))
-    }
-
-    fn get_chains_from_table(&self, from: TableId) -> Vec<Chain> {
-        self.get_recursive_chains(ChainSeed::Table(from))
-    }
-
-    fn get_recursive_chains(&self, seed: ChainSeed) -> Vec<Chain> {
-        let mut chains = vec![];
-        let starting_table_id = match &seed {
-            ChainSeed::Table(table_id) => *table_id,
-            ChainSeed::Chain(chain) => chain.get_ending_table_id(),
-        };
-        // Unwrap is safe because we know all the table ids in the schema are valid.
-        let starting_table = self.tables.get(&starting_table_id).unwrap();
-        for link in starting_table.links.iter() {
-            let new_chain_attempt = match &seed {
-                ChainSeed::Table(_) => {
-                    Chain::new(link).and_then(|c| {
-                        if c.get_starting_table_id() == starting_table_id {
-                            Ok(c)
-                        } else {
-                            // This should never happen if we have a valid schema, but we handle
-                            // anyway just for code cleanliness.
-                            Err("Starting link does not connect to starting table")
-                        }
-                    })
-                }
-                ChainSeed::Chain(chain) => chain.clone().with(link),
-            };
-            match new_chain_attempt {
-                Err(_) => continue,
-                Ok(new_chain) => {
-                    chains.extend(self.get_recursive_chains(ChainSeed::Chain(new_chain)));
-                }
-            }
-        }
-        if let ChainSeed::Chain(chain) = seed {
-            chains.push(chain);
-        }
-        chains
     }
 }
 
@@ -287,15 +218,7 @@ mod tests {
     fn test_schema_from_primitive_schema() {
         let primitive_schema: PrimitiveSchema =
             serde_json::from_str(&get_test_resource("issue_schema.json")).unwrap();
-        let schema = Schema::try_from(primitive_schema).unwrap();
-        let issues_table_id = schema.table_lookup.get("issues").unwrap();
-        let m = schema.get_chain_map(*issues_table_id);
-        let get_table_name = |id| schema.tables.get(&id).unwrap().name.clone();
-        for (table_id, chains) in m.iter() {
-            println!("TO TABLE: {}", get_table_name(*table_id));
-            for chain in chains {
-                println!("  Chain: {:?}", chain.print_tables(get_table_name));
-            }
-        }
+        let schema = Schema::try_from(primitive_schema);
+        assert!(schema.is_ok())
     }
 }

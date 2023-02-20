@@ -79,14 +79,6 @@ impl Chain {
             table_ids,
         })
     }
-
-    pub fn print_tables(&self, t: impl Fn(TableId) -> String) -> String {
-        let mut table_names = Vec::from([t(self.starting_table_id)]);
-        for link in self.links.iter() {
-            table_names.push(t(link.get_ending_table_id()));
-        }
-        table_names.join(" -> ")
-    }
 }
 
 impl TryFrom<Vec<Link>> for Chain {
