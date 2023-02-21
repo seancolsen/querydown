@@ -91,11 +91,38 @@ impl Render for Select {
         cx.indented(|cx| rendered.push_str(&self.columns.render(cx)));
         rendered.push_str("FROM ");
         rendered.push_str(cx.dialect.quote_identifier(&self.base_table).as_str());
+        rendered.push_str(&self.joins.render(cx));
         if self.condition_set.entries.len() > 0 {
             rendered.push_str("\nWHERE\n");
             cx.indented(|cx| rendered.push_str(&self.condition_set.render(cx)))
         }
         rendered
+    }
+}
+
+impl Render for Vec<Join> {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let mut rendered = String::new();
+        for join in self.iter() {
+            rendered.push_str("\n");
+            rendered.push_str(cx.get_indentation().as_str());
+            rendered.push_str(&join.render(cx));
+        }
+        rendered
+    }
+}
+
+impl Render for Join {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let quoted_table = cx.dialect.quote_identifier(&self.table);
+        let table_expr = if self.alias == self.table {
+            quoted_table
+        } else {
+            let quoted_alias = cx.dialect.quote_identifier(&self.alias);
+            format!("{} AS {}", quoted_table, quoted_alias)
+        };
+        let condition_set = self.condition_set.render(cx);
+        format!("LEFT JOIN {} ON {}", table_expr, condition_set)
     }
 }
 

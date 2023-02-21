@@ -1,7 +1,11 @@
 use crate::{
     dialects::dialect::Dialect,
-    rendering::{DecontextualizedExpression, Render, RenderingContext, SimpleExpression},
-    schema::schema::Table,
+    rendering::{DecontextualizedExpression, JoinTree, Render, RenderingContext, SimpleExpression},
+    schema::{
+        chain::ChainToOne,
+        links::{Link, LinkToOne},
+        schema::Table,
+    },
     sql_tree::*,
     syntax_tree::*,
 };
@@ -271,37 +275,77 @@ fn simplify_path_expression<D: Dialect>(
     path: Path,
     compositions: Vec<Composition>,
     cx: &mut RenderingContext<D>,
-) -> Result<SimpleExpression, &'static str> {
+) -> Result<SimpleExpression, String> {
     match path {
-        Path::ToOne(parts) => simplify_path_to_one_expression(parts, compositions, cx),
+        Path::ToOne(parts) => {
+            let clarified_path = clarify_path_to_one(parts, cx)?;
+            let table_name = if let Some(chain) = clarified_path.chain {
+                cx.join_chain_to_one(&chain)
+            } else {
+                cx.get_base_table().name.clone()
+            };
+            let column_name = clarified_path.final_column_name;
+            Ok(SimpleExpression {
+                base: Literal::TableColumnReference(table_name, column_name),
+                compositions,
+            })
+        }
         Path::ToMany(parts) => simplify_path_to_many_expression(parts, compositions, cx),
     }
 }
 
-fn simplify_path_to_one_expression<D: Dialect>(
+struct ClarifiedPathToOne {
+    chain: Option<ChainToOne>,
+    final_column_name: String,
+}
+
+fn clarify_path_to_one<D: Dialect>(
     parts: Vec<PathPartToOne>,
-    compositions: Vec<Composition>,
-    cx: &mut RenderingContext<D>,
-) -> Result<SimpleExpression, &'static str> {
-    let mut table_name = cx.get_base_table_name();
-    let mut table = cx.get_base_table();
-    let mut inferred_table: Option<&Table> = None;
-    let mut column_name: Option<&str> = None;
+    cx: &RenderingContext<D>,
+) -> Result<ClarifiedPathToOne, String> {
+    let mut chain: Option<ChainToOne> = None;
+    let mut final_column_name_opt: Option<String> = None;
+    let mut base_table: Option<&Table> = Some(cx.get_base_table());
     for part in parts {
         match part {
-            PathPartToOne::Column(column) => {
-                column_name = Some(&column);
+            PathPartToOne::Column(column_name) => {
+                if let Some(table) = base_table {
+                    if let Some(column_id) = table.column_lookup.get(&column_name).copied() {
+                        final_column_name_opt = Some(column_name);
+                        if let Some(link) = table.forward_links_to_one.get(&column_id).copied() {
+                            let link_to_one = LinkToOne::ForwardLinkToOne(link);
+                            chain = chain.map_or_else(
+                                || ChainToOne::new(&link_to_one).ok(),
+                                |c| c.with(&link_to_one).ok(),
+                            );
+                            base_table = cx.schema.tables.get(&link.get_end().table_id);
+                        } else {
+                            // If the current column is not an FK column, then we need to ensure
+                            // that no more columns can be used in the path expression.
+                            base_table = None;
+                        }
+                    } else {
+                        return Err(format!(
+                            "Column {} not found within table {}.",
+                            column_name, table.name
+                        ));
+                    }
+                } else {
+                    return Err("Non-FK columns can only appear at the end of a path.".to_owned());
+                }
+            }
+            PathPartToOne::TableWithOne(table_name) => {
                 todo!()
             }
-            PathPartToOne::TableWithOne(table) => todo!(),
         }
     }
-    match column_name {
-        Some(c) => Ok(SimpleExpression {
-            base: Literal::TableColumnReference(table_name.to_owned(), c.to_owned()),
-            compositions,
-        }),
-        None => Err("Scalar path expression must specify a column name at the end."),
+    if let Some(final_column_name) = final_column_name_opt {
+        Ok(ClarifiedPathToOne {
+            chain,
+            final_column_name,
+        })
+    } else {
+        Err("Scalar path expressions must specify a column name at the end.".to_owned())
     }
 }
 
@@ -309,7 +353,43 @@ fn simplify_path_to_many_expression<D: Dialect>(
     parts: Vec<GeneralPathPart>,
     compositions: Vec<Composition>,
     cx: &mut RenderingContext<D>,
-) -> Result<SimpleExpression, &'static str> {
+) -> Result<SimpleExpression, String> {
     // TODO_CODE finish this function
     todo!()
+}
+
+pub fn convert_join_tree<D: Dialect>(tree: &JoinTree, cx: &RenderingContext<D>) -> Vec<Join> {
+    let mut joins: Vec<Join> = vec![];
+    for (link, subtree) in tree.get_dependents().iter() {
+        let start = link.get_start();
+        let starting_table_id = start.table_id;
+        let starting_table = cx.schema.tables.get(&starting_table_id).unwrap();
+        let starting_column_id = start.column_id;
+        let starting_column = starting_table.columns.get(&starting_column_id).unwrap();
+        let starting_alias = tree.get_alias();
+
+        let end = link.get_end();
+        let ending_table_id = end.table_id;
+        let ending_table = cx.schema.tables.get(&ending_table_id).unwrap();
+        let ending_column_id = end.column_id;
+        let ending_column = ending_table.columns.get(&ending_column_id).unwrap();
+        let ending_alias = subtree.get_alias();
+
+        let condition = format!(
+            "{} = {}",
+            cx.dialect
+                .table_column(starting_alias, &starting_column.name),
+            cx.dialect.table_column(&ending_alias, &ending_column.name),
+        );
+        joins.push(Join {
+            table: cx.schema.tables.get(&ending_table_id).unwrap().name.clone(),
+            alias: ending_alias.to_owned(),
+            condition_set: SqlConditionSet {
+                conjunction: Conjunction::And,
+                entries: vec![SqlConditionSetEntry::Expression(condition)],
+            },
+        });
+        joins.extend(convert_join_tree(subtree, cx));
+    }
+    joins
 }

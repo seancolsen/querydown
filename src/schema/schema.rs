@@ -1,6 +1,15 @@
-use std::{collections::HashMap, ops::BitAnd};
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
+};
 
-use super::primitive_schema::{PrimitiveSchema, PrimitiveTable};
+use super::{
+    links::{
+        ForeignKey, ForwardLinkToOne, Link, LinkToOne, Reference, ReverseLinkToMany,
+        ReverseLinkToOne,
+    },
+    primitive_schema::{PrimitiveSchema, PrimitiveTable},
+};
 
 pub type TableName = String;
 pub type ColumnName = String;
@@ -13,97 +22,63 @@ pub struct Schema {
     pub table_lookup: HashMap<TableName, TableId>,
 }
 
+impl Schema {
+    pub fn get_table(&self, table_name: &str) -> Option<&Table> {
+        self.tables.get(self.table_lookup.get(table_name)?)
+    }
+
+    pub fn get_ideal_alias_for_link_to_one(&self, link: &LinkToOne) -> &str {
+        // The `unwrap` calls within this fn are safe because we know all links within the schema
+        // are valid.
+        match link {
+            LinkToOne::ForwardLinkToOne(forward_link) => {
+                let target_table_id = forward_link.target.table_id;
+                let base_table_id = forward_link.base.table_id;
+                let base_table = self.tables.get(&base_table_id).unwrap();
+                let links_which_point_to_the_same_target_table = base_table
+                    .forward_links_to_one
+                    .values()
+                    .filter(|&l| l.target.table_id == target_table_id);
+                // TODO_PERF: we don't need to consume the whole iterator here just to see if the
+                // count is greater than 1. We can stop when we get a count of 2.
+                let is_duplicate = links_which_point_to_the_same_target_table.count() > 1;
+                if is_duplicate {
+                    &base_table
+                        .columns
+                        .get(&forward_link.base.column_id)
+                        .unwrap()
+                        .name
+                } else {
+                    &self.tables.get(&target_table_id).unwrap().name
+                }
+            }
+            LinkToOne::ReverseLinkToOne(reverse_link) => {
+                let table_id = reverse_link.get_end().table_id;
+                let table = self.tables.get(&table_id).unwrap();
+                &table.name
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Table {
     pub id: TableId,
     pub name: TableName,
     pub columns: HashMap<ColumnId, Column>,
     pub column_lookup: HashMap<ColumnName, ColumnId>,
-    pub links: Vec<Link>,
+    /// Keys are starting column ids in this table
+    pub forward_links_to_one: HashMap<ColumnId, ForwardLinkToOne>,
+    /// Keys are ending table ids in the other table
+    pub reverse_links_to_one: HashMap<TableId, Vec<ReverseLinkToOne>>,
+    /// Keys are ending table ids in the other table
+    pub reverse_links_to_many: HashMap<TableId, Vec<ReverseLinkToMany>>,
 }
 
 #[derive(Debug)]
 pub struct Column {
     pub id: ColumnId,
     pub name: ColumnName,
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum JoinQuantity {
-    One,
-    Many,
-}
-
-use JoinQuantity::*;
-
-impl BitAnd for JoinQuantity {
-    type Output = Self;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (One, One) => One,
-            (One, Many) => Many,
-            (Many, One) => Many,
-            (Many, Many) => Many,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum LinkDirection {
-    Forward,
-    Reverse,
-}
-
-use LinkDirection::*;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Reference {
-    pub table_id: TableId,
-    pub column_id: ColumnId,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ForeignKey {
-    pub base: Reference,
-    pub target: Reference,
-    pub unique: bool,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Link {
-    pub foreign_key: ForeignKey,
-    pub direction: LinkDirection,
-}
-
-impl Link {
-    pub fn get_starting_table_id(&self) -> TableId {
-        match self.direction {
-            Forward => self.foreign_key.base.table_id,
-            Reverse => self.foreign_key.target.table_id,
-        }
-    }
-
-    pub fn get_ending_table_id(&self) -> TableId {
-        match self.direction {
-            Forward => self.foreign_key.target.table_id,
-            Reverse => self.foreign_key.base.table_id,
-        }
-    }
-
-    pub fn get_join_quantity(&self) -> JoinQuantity {
-        if self.foreign_key.unique {
-            One
-        } else {
-            Many
-        }
-    }
-}
-
-impl Schema {
-    pub fn get_table(&self, table_name: &str) -> Option<&Table> {
-        self.tables.get(self.table_lookup.get(table_name)?)
-    }
 }
 
 fn make_table(id: TableId, primitive_table: PrimitiveTable) -> Table {
@@ -126,7 +101,9 @@ fn make_table(id: TableId, primitive_table: PrimitiveTable) -> Table {
         name: primitive_table.name,
         columns,
         column_lookup,
-        links: vec![],
+        forward_links_to_one: HashMap::new(),
+        reverse_links_to_one: HashMap::new(),
+        reverse_links_to_many: HashMap::new(),
     }
 }
 
@@ -189,16 +166,34 @@ impl TryFrom<PrimitiveSchema> for Schema {
         };
 
         for foreign_key in foreign_keys {
-            let base_table = tables.get_mut(&foreign_key.base.table_id).unwrap();
-            base_table.links.push(Link {
-                foreign_key: foreign_key.clone(),
-                direction: Forward,
-            });
-            let target_table = tables.get_mut(&foreign_key.target.table_id).unwrap();
-            target_table.links.push(Link {
-                foreign_key,
-                direction: Reverse,
-            });
+            let base = foreign_key.base;
+            let target = foreign_key.target;
+
+            let base_table = tables.get_mut(&base.table_id).unwrap();
+            match base_table.forward_links_to_one.entry(base.column_id) {
+                Occupied(_) => {
+                    let msg = "Schema has multiple foreign keys from the same column".to_string();
+                    return Err(msg);
+                }
+                Vacant(e) => {
+                    e.insert(ForwardLinkToOne::from(foreign_key));
+                }
+            }
+
+            let target_table = tables.get_mut(&target.table_id).unwrap();
+            if foreign_key.unique {
+                target_table
+                    .reverse_links_to_one
+                    .entry(base.table_id)
+                    .or_default()
+                    .push(ReverseLinkToOne::from(foreign_key))
+            } else {
+                target_table
+                    .reverse_links_to_many
+                    .entry(base.table_id)
+                    .or_default()
+                    .push(ReverseLinkToMany::from(foreign_key));
+            }
         }
 
         Ok(Schema {

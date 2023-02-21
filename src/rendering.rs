@@ -1,9 +1,15 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::{
     converters::{combine_expression_with_slot, simplify_expression},
     dialects::dialect::Dialect,
-    schema::schema::{Schema, Table},
-    sql_tree::{Cte, Join, SqlConditionSetEntry},
-    syntax_tree::{Composition, Conjunction, Expression, Literal, Operator, Path, Value},
+    schema::{
+        chain::ChainToOne,
+        links::LinkToOne,
+        schema::{Schema, Table},
+    },
+    sql_tree::Cte,
+    syntax_tree::{Composition, Conjunction, Expression, Literal, Operator, Value},
 };
 
 /// We may eventually make this configurable
@@ -32,6 +38,83 @@ pub struct SimpleExpression {
     pub compositions: Vec<Composition>,
 }
 
+#[derive(Debug)]
+pub struct JoinTree {
+    alias: String,
+    dependents: HashMap<LinkToOne, JoinTree>,
+}
+
+impl JoinTree {
+    pub fn new(alias: String) -> Self {
+        Self {
+            alias,
+            dependents: HashMap::new(),
+        }
+    }
+
+    pub fn get_alias(&self) -> &str {
+        &self.alias
+    }
+
+    pub fn get_dependents(&self) -> &HashMap<LinkToOne, JoinTree> {
+        &self.dependents
+    }
+
+    pub fn integrate_chain(
+        &mut self,
+        chain_to_one: &ChainToOne,
+        mut get_alias: impl FnMut(&LinkToOne) -> String,
+    ) -> String {
+        let (next_link, remainder_chain_opt) = chain_to_one.with_first_link_broken_off();
+        let subtree_opt = self.dependents.get_mut(next_link);
+        match (subtree_opt, remainder_chain_opt) {
+            // We have one more new link to add to the tree and then we're done. We add an empty
+            // subtree and return its alias.
+            (None, None) => {
+                // TODO It seems like we can probably merge the code in the match arm with the
+                // code in the next match arm
+                let alias = get_alias(next_link);
+                let subtree = JoinTree::new(alias.clone());
+                self.dependents.insert(*next_link, subtree);
+                alias
+            }
+
+            // We have multiple new links to add to the tree. We build a full subtree and return
+            // the alias of its furthest child.
+            (None, Some(remainder_chain)) => {
+                let mut final_alias = String::new();
+                let mut dependents = HashMap::<LinkToOne, JoinTree>::new();
+                let links = remainder_chain.get_links().to_vec();
+                for (index, link) in links.into_iter().rev().enumerate() {
+                    let alias = get_alias(&link);
+                    if index == 0 {
+                        final_alias = alias.clone();
+                    }
+                    let subtree = JoinTree {
+                        alias,
+                        dependents: std::mem::take(&mut dependents),
+                    };
+                    dependents.insert(link, subtree);
+                }
+                let subtree = JoinTree {
+                    alias: get_alias(next_link),
+                    dependents,
+                };
+                self.dependents.insert(*next_link, subtree);
+                final_alias
+            }
+
+            // We have a complete match for all links. We return the alias of the matching tree.
+            (Some(subtree), None) => subtree.alias.clone(),
+
+            // We need to continue matching the chain to the tree
+            (Some(subtree), Some(remainder_chain)) => {
+                subtree.integrate_chain(&remainder_chain, get_alias)
+            }
+        }
+    }
+}
+
 pub struct RenderingContext<'a, D: Dialect> {
     pub dialect: &'a D,
     pub schema: &'a Schema,
@@ -40,7 +123,8 @@ pub struct RenderingContext<'a, D: Dialect> {
     indentation_level: usize,
     slot_value: Option<DecontextualizedExpression>,
     ctes: Vec<Cte>,
-    joins: Vec<Join>,
+    join_tree: JoinTree,
+    aliases: HashSet<String>,
 }
 
 impl<'a, D: Dialect> RenderingContext<'a, D> {
@@ -60,7 +144,8 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
             indentation_level: 0,
             slot_value: None,
             ctes: vec![],
-            joins: vec![],
+            join_tree: JoinTree::new(base_table_name.to_owned()),
+            aliases: HashSet::new(),
         })
     }
 
@@ -70,6 +155,10 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
 
     pub fn get_base_table(&self) -> &Table {
         self.base_table
+    }
+
+    pub fn get_join_tree(&self) -> &JoinTree {
+        &self.join_tree
     }
 
     pub fn get_indentation(&self) -> String {
@@ -101,6 +190,34 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         self.indentation_level = self.indentation_level.saturating_sub(1);
         result
     }
+
+    pub fn join_chain_to_one(&mut self, chain: &ChainToOne) -> String {
+        let mut aliases = std::mem::take(&mut self.aliases);
+        let mut try_alias = |alias: &str| -> bool {
+            if !aliases.contains(alias) {
+                aliases.insert(alias.to_string());
+                true
+            } else {
+                false
+            }
+        };
+        let get_alias = |link: &LinkToOne| -> String {
+            let ideal_alias = self.schema.get_ideal_alias_for_link_to_one(link);
+            if try_alias(ideal_alias) {
+                return ideal_alias.to_string();
+            }
+            let suffix_index: usize = 1;
+            loop {
+                let new_alias = format!("{}_{}", ideal_alias, suffix_index);
+                if try_alias(&new_alias) {
+                    return new_alias;
+                }
+            }
+        };
+        let alias = self.join_tree.integrate_chain(chain, get_alias);
+        self.aliases = aliases;
+        alias
+    }
 }
 
 const SQL_NOW: &str = "NOW()";
@@ -121,11 +238,7 @@ impl Render for Literal {
             Literal::Number(n) => n.clone(),
             Literal::String(s) => cx.dialect.quote_string(s),
             Literal::True => "TRUE".to_string(),
-            Literal::TableColumnReference(table, column) => {
-                let quoted_table = cx.dialect.quote_identifier(table);
-                let quoted_column = cx.dialect.quote_identifier(column);
-                format!("{}.{}", quoted_table, quoted_column)
-            }
+            Literal::TableColumnReference(t, c) => cx.dialect.table_column(t, c),
         }
     }
 }

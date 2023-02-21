@@ -1,7 +1,7 @@
 use chumsky::Parser;
 
 use crate::{
-    converters::convert_condition_set,
+    converters::{convert_condition_set, convert_join_tree},
     dialects::dialect::Dialect,
     parsing::query::query,
     rendering::{Render, RenderingContext},
@@ -44,6 +44,8 @@ impl<D: Dialect> Compiler<D> {
             let alias = column_spec.alias;
             select.columns.push(Column { expression, alias });
         }
+
+        select.joins = convert_join_tree(cx.get_join_tree(), &cx);
 
         let mut result = select.render(&mut cx);
         result.push(';');
