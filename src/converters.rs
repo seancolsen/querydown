@@ -309,29 +309,27 @@ fn clarify_path_to_one<D: Dialect>(
     for part in parts {
         match part {
             PathPartToOne::Column(column_name) => {
-                if let Some(table) = base_table {
-                    if let Some(column_id) = table.column_lookup.get(&column_name).copied() {
-                        final_column_name_opt = Some(column_name);
-                        if let Some(link) = table.forward_links_to_one.get(&column_id).copied() {
-                            let link_to_one = LinkToOne::ForwardLinkToOne(link);
-                            chain = chain.map_or_else(
-                                || ChainToOne::new(&link_to_one).ok(),
-                                |c| c.with(&link_to_one).ok(),
-                            );
-                            base_table = cx.schema.tables.get(&link.get_end().table_id);
-                        } else {
-                            // If the current column is not an FK column, then we need to ensure
-                            // that no more columns can be used in the path expression.
-                            base_table = None;
-                        }
-                    } else {
-                        return Err(format!(
-                            "Column {} not found within table {}.",
-                            column_name, table.name
-                        ));
-                    }
-                } else {
+                let Some(table) = base_table else {
                     return Err("Non-FK columns can only appear at the end of a path.".to_owned());
+                };
+                let Some(column_id) = table.column_lookup.get(&column_name).copied() else {
+                    return Err(format!(
+                        "Column {} not found within table {}.",
+                        column_name, table.name
+                    ));
+                };
+                final_column_name_opt = Some(column_name);
+                if let Some(link) = table.forward_links_to_one.get(&column_id).copied() {
+                    let link_to_one = LinkToOne::ForwardLinkToOne(link);
+                    chain = chain.map_or_else(
+                        || ChainToOne::new(&link_to_one).ok(),
+                        |c| c.with(&link_to_one).ok(),
+                    );
+                    base_table = cx.schema.tables.get(&link.get_end().table_id);
+                } else {
+                    // If the current column is not an FK column, then we need to ensure
+                    // that no more columns can be used in the path expression.
+                    base_table = None;
                 }
             }
             PathPartToOne::TableWithOne(table_name) => {
