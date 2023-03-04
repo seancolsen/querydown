@@ -9,12 +9,7 @@ Applied via `|`
 - `ago`
 - `away`
 - `is_null`
-- `is_non_null`
 - `has_value`
-- `bool`
-- `not`
-- `when()`
-- `if()`
 - `segment()`
 - `bins()`
 - `above()`
@@ -27,11 +22,12 @@ Applied via `|`
 - `weeks`
 - `floor`
 - `ceil`
-- `mod`
+- `mod()`
 - `and()`
 - `or()`
 - `xor()`
-- `not()`
+- `not`
+- `bool`
 - `minus()`
 - `plus()`
 - `times()`

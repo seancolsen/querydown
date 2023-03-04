@@ -4,7 +4,7 @@
 
 💡 Most examples in this document are based on a **[issue-tracker sample schema](./example-schemas/issue-tracker.yaml)**. It has an [ER diagram](../resources/test/issue_schema.diagram.pdf) too. Understanding the schema will be important to understand some of the examples.
 
-_Some other examples near the end are based on a [library shcema](./example-schemas/library.yaml) and [logistics schema](./example-schemas/logistics.yaml)._
+_Some other examples near the end are based on a [library schema](./example-schemas/library.yaml) and [logistics schema](./example-schemas/logistics.yaml)._
 
 ## Basics
 
@@ -18,10 +18,10 @@ Here we refer to "issues" the **base table**. Every query has one and only one b
 
 ---
 
-Specify columns by listing them prefixed with `:`
+Specify columns by listing them prefixed with `|`
 
 ```
-issues :id :title
+issues | id | title
 ```
 
 ---
@@ -29,7 +29,7 @@ issues :id :title
 Use `->` after a column to give it an alias.
 
 ```
-issues :id->Identifier :title->Subject
+issues | id -> Identifier | title -> Subject
 ```
 
 ## White space
@@ -37,13 +37,13 @@ issues :id->Identifier :title->Subject
 White space doesn't matter. The following two queries are identical.
 
 ```
-issues:id->Identifier:title->Subject
+issues|id->Identifier|title->Subject
 ```
 
 ```
 issues
-: id    -> Identifier
-: title -> Subject
+| id    -> Identifier
+| title -> Subject
 ```
 
 ## Quoting identifiers
@@ -52,8 +52,8 @@ If you want to reference a table name or column name which contains characters o
 
 ```
 `Gala Attendees`
-: `Given Name`-> `First Name`
-: `Surname`-> `Last Name`
+| `Given Name`-> `First Name`
+| `Surname`-> `Last Name`
 ```
 
 
@@ -62,7 +62,7 @@ If you want to reference a table name or column name which contains characters o
 Ascending sorting by one column. The `s` stands for "sort".
 
 ```
-issues :title :created_at \s
+issues | title | created_at \s
 ```
 
 ---
@@ -70,7 +70,7 @@ issues :title :created_at \s
 Descending sorting is indicated via a `d` after the `s`.
 
 ```
-issues :title :created_at \sd
+issues | title | created_at \sd
 ```
 
 ---
@@ -78,7 +78,7 @@ issues :title :created_at \sd
 Sorting by multiple columns is done via numbers to indicate ordinality.
 
 ```
-issues :title \s2 :created_at \sd1
+issues | title \s2 | created_at \sd1
 ```
 
 Sorted columns without any ordinality specified are sorted in the order the appear, after all columns with indicated ordinality.
@@ -88,7 +88,7 @@ Sorted columns without any ordinality specified are sorted in the order the appe
 By default, `NULL` values are sorted last, but this behavior can be modified using the `n` flag, which stands for "nulls first".
 
 ```
-issues :title :created_at \sdn
+issues | title | created_at \sdn
 ```
 
 
@@ -172,26 +172,25 @@ If both sides of the comparison are enclosed in brackets, then the brackets on l
 issue {title description} ~ ["foo" "bar"]
 ```
 
-### Scoped conditionals
+### Ranges
 
-The comparison operator can be altered per-value by using `?`, the **scoped conditional operator**
+> Issues created in the 2010's decade
 
 ```
-issues created_at ? {@2000-01-01 <= & & < @2010-01-01}
+issues created_at:year ~ 2010..2019
 ```
 
-Within the braces, `&` is called a **slot** and refers to the value before the `?` (i.e. `created_at` in this case).
+The range `2010..2019` **includes** both 2010 and 2019. You can use exclamation marks on either side of the `..` to make the range exclude either of the bounds, i.e. `2010!..2019` or `2010..!2019` or `2010!..!2019`.
 
-_This is similar to SQL `BETWEEN`, but with more explicit control over the comparison operators._
 
 ## Computations and functions
 
-Functions are applied to values via `|` (pipe) syntax.
+Functions are applied to values via `:` syntax.
 
 > The most overdue issues
 
 ```
-issues :id :title :(deadline-@now)|days|above(0) \sd
+issues | id | title | (deadline-@now):days:above(0)\sd
 ```
 
 Here:
@@ -205,17 +204,17 @@ Here:
 Are specified via `^{value}^`
 
 ```
-users :^"{username}" <{email})>^
+users | ^"{username}" <{email}>^
 ```
 
 ## Incremental column specification
 
-Use `:[]` to specify all columns, giving you control to add a column after all columns
+Use `| []` to specify all columns, giving you control to add a column after all columns
 
 > Issues with all columns, plus a special concatenation of the username and email:
 
 ```
-users :[] :^"{username}" <{email})>^
+users | [] | ^"{username}" <{email})>^
 ```
 
 ---
@@ -229,7 +228,7 @@ Use `\h` to hide a column.
 > Issues with all columns except description:
 
 ```
-issues :[description \h]
+issues | [description \h]
 ```
 
 ---
@@ -237,7 +236,7 @@ issues :[description \h]
 Use `\s` (and similar flags) to sort by columns, leaving their position in the table unchanged.
 
 ```
-issues :[created_at \sd]
+issues | [created_at \sd]
 ```
 
 
@@ -253,23 +252,21 @@ When a column links to another table, the `.` character can be used after the co
 > Issues created by members of the backend team, displaying the issue title and author's username
 
 ```
-issues author.team.name="Backend" :id :title :author.username
+issues author.team.name="Backend" | id | title | author.username
 ```
 
 ---
 
-When the **scoped conditional operator** (`?`) is used on a foreign key column, the scope of the related table is used inside the braces.
-
 > Issues for all projects under the "Foo" product which are due within two months:
 
 ```
-issues project ? {deadline < @2m|away product.name = "Foo"}
+issues project ~ {deadline < @2m:away product.name = "Foo"}
 ```
 
 This expands to
 
 ```
-issues project.deadline < @2m|away project.product.name = "Foo"
+issues project.deadline < @2m:away project.product.name = "Foo"
 ```
 
 ---
@@ -295,7 +292,7 @@ The `>>` syntax is shorthand only works if there is one unambiguous path from th
 > Users, and the number of issues they have created
 
 ```
-users :id :username :#issues
+users | id | username | #issues
 ```
 
 In our schema, each user has multiple issues. We use `#` to refer to a related table which has multiple records for each record in the base table.
@@ -309,7 +306,7 @@ Specific aggregate functions can be applied via `%` (similar to pipe syntax).
 > Users, along with most recent date on which they created a ticket
 
 ```
-users :id :username :#issues.created_at%max
+users | id | username | #issues.created_at%max
 ```
 
 ---
@@ -347,7 +344,7 @@ You can add a condition block after any aggregated table
 > Users who have not created any issues within the past year
 
 ```
-users --issues{created_at > 1y|ago}
+users --issues{created_at > 1y:ago}
 ```
 
 ---
@@ -357,13 +354,13 @@ You can refer to distantly-related tables
 > Clients, sorted by the highest number of associated open issues
 
 ```
-clients :id :name :#issues{status="Open"} \sd
+clients | id | name | #issues{status="Open"} \sd
 ```
 
 Here, the `issues` table is not directly related to the `clients` table, but that's okay. The above code is shorthand for the following:
 
 ```
-clients :id :name :#products.#projects.#issues{status="Open"}
+clients | id | name | #products.#projects.#issues{status="Open"}
 ```
 
 The shorthand works in this case because there is only one path through which `clients` can be joined to `issues`. Querydown will choose the shortest unambiguous path it can find.
@@ -375,7 +372,7 @@ If the related table can be joined via multiple routes which tie as being the sh
 > Attempt to display the number of users associated with each issue.
 
 ```
-issues :id :title :#users // ERROR!
+issues | id | title | #users // ERROR!
 ```
 
 This doesn't work because `#users` can be joined either through the `assignments` table or through the `comments` table.
@@ -385,7 +382,7 @@ This works:
 > The number of unique users _who have commented_ on each ticket
 
 ```
-issues :id :title :#comments.#users.id%count_distinct
+issues | id | title | #comments.#users.id%count_distinct
 ```
 
 ---
@@ -419,7 +416,7 @@ Grouping is indicated by the `g` flag, similar to sorting.
 > The count of tickets, by status, for the Foo project:
 
 ```
-issues project.name="Foo" :status \g :%count \sd
+issues project.name="Foo" | status \g | %count \sd
 ```
 
 - All ungrouped columns must contain an aggregate function
@@ -432,26 +429,26 @@ issues project.name="Foo" :status \g :%count \sd
 Books that have been checked out by the same patron at least 5 times in the past year
 
 ```
-checkout {out_date > @1y|ago}
-:item.publication->publication \g
-:patron \g
-:%count->checkout_count
+checkout {out_date > @1y:ago}
+| item.publication->publication \g
+| patron \g
+| %count->checkout_count
 ~~~
 {checkout_count > 5}
-:publication \g
-:patron%count->patron_count
-:checkout_count%max->max_checkouts
+| publication \g
+| patron%count->patron_count
+| checkout_count%max->max_checkouts
 ~~~
-:publication.id
-:publication.title
-:publication.author.name
-:patron_count
-:max_checkouts \sd
+| publication.id
+| publication.title
+| publication.author.name
+| patron_count
+| max_checkouts \sd
 ```
 
 ## Window functions
 
-Window functions are defined via `%%( )`. Inside the parentheses, you use the same syntax as with incremental column specification. One additional flag is available: `\p` for "partition".
+Window functions are defined via `%%[ ]`. Inside the parentheses, you use the same syntax as with incremental column specification. One additional flag is available: `\p` for "partition".
 
 After the window function definition, you apply an aggregate function, such as `row_number`, `lag`, `dense_rank`, etc.
 
@@ -459,10 +456,10 @@ After the window function definition, you apply an aggregate function, such as `
 
 ```qd
 comments
-:issue :user :%%(issue\p user\p created_on\s)%row_number->count
+| issue | user | %%[issue\p user\p created_on\s]%row_number -> count
 ~~~
-%%(issue\p count\sd)%row_number = 1
-:issue\g :count :user.username%list
+%%[issue\p count\sd]%row_number = 1
+| issue\g | count | user.username%list
 ```
 
 ---
@@ -470,11 +467,11 @@ comments
 > Origin locations, with the destination of their most recent shipment
 
 ```
-shipment %%(departure_datetime \sd origin \p)%row_number = 1
-: origin
-: origin.addressee
-: destination
-: destination.addressee
+shipment %%[departure_datetime \sd origin \p]%row_number = 1
+| origin
+| origin.addressee
+| destination
+| destination.addressee
 ```
 
 ---
@@ -482,9 +479,9 @@ shipment %%(departure_datetime \sd origin \p)%row_number = 1
 > How many days into each month did it take us to reach 1000 checkouts?
 
 ```
-checkout %%(out_date \s out_date|year_month \p)%row_number = 1000
-: out_date|year_month
-: out_date|day_of_month
+checkout %%[out_date \s out_date:year_month \p]%row_number = 1000
+| out_date:year_month
+| out_date:day_of_month
 ```
 
 ## UNION
@@ -495,12 +492,12 @@ The `+++` operator performs an SQL `UNION`. Tables on both sides must have ident
 
 ```
 shipment {origin = 7  departure_datetime != @null}
-:id :tracking_number :"Send"->action :departure_datetime->time
+| id | tracking_number | "Send"->action | departure_datetime->time
 +++
 shipment {destination = 7  arrival_datetime != @null}
-:id :tracking_number :"Receive"->action :arrival_datetime->time
+| id | tracking_number | "Receive"->action | arrival_datetime->time
 ~~~
-:time \s :action :tracking_number
+| time \s | action | tracking_number
 ```
 
 Union has higher precedence than pipeline (the union will be performed before the pipeline). Temporary tables can be used if you need a pipeline within a union.
@@ -510,26 +507,26 @@ Union has higher precedence than pipeline (the union will be performed before th
 Pipeline within a union
 
 ```
-$$a := (
+#a := (
   shipment origin = 7  departure_datetime != @null
-  : id
-  : tracking_number
-  : "Send": action
-  : departure_datetime-> time
+  | id
+  | tracking_number
+  | "Send" -> action
+  | departure_datetime-> time
 )
-$$b := (
+#b := (
     shipment destination = 7  arrival_datetime != @null
-    : id
-    : tracking_number
-    : "Receive": action
-    : arrival_datetime-> time
+    | id
+    | tracking_number
+    | "Receive" -> action
+    | arrival_datetime -> time
     ~~~
     // more here
 );
 
-$$a +++ $$b
+a +++ b
 ~~~
-:time\s :action :tracking_number
+| time \s | action | tracking_number
 ```
 
 ## Complex examples
@@ -545,7 +542,7 @@ $$a +++ $$b
 - Patrons who currently have the highest late fee
 
     ```
-    checkout.$days_overdue := in_date|when(@null:@now|minus(due_date)|days *:@null)
+    checkout.$days_overdue := in_date:when(@null:@now|minus(due_date)|days *:@null)
     checkout.$late_fee := $days_overdue|when_null(0)|times(2) // $2.00 per day
     patron.$late_fee := *checkout.$late_fee%sum
     patron -[s(d)]$late_fee -*email.email%list

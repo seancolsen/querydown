@@ -4,9 +4,8 @@
 
 | Code          | Usage |
 | --            | -- |
-| `"`           | string quote |
-| `'`           | string quote (alternate) |
 | `` ` ``       | db entity quote |
+| `"` or `'`    | string quote |
 | `^`           | interpolated string quote |
 | `{ }`         | expression within an interpolated string |
 | `\`           | escape sequence within string |
@@ -20,43 +19,13 @@
 | `//`          | single line comment |
 | `/* */`       | multi-line comment |
 
-## Paths to data (i.e. joins)
-
-| Code   | Usage |
-| --     | -- |
-| `.`                       | path separator |
-| _alphanumeric identifier_ | column |
-| `#`                       | path to table with aggregated records |
-| `>>`                      | path to table with singular records |
-
-## Conditions
-
-| Code   | Usage |
-| --     | -- |
-| `[ ]` | OR conditions |
-| `{ }` | AND conditions |
-| `=`   | equals |
-| `!=`  | not equal |
-| `<`   | less than |
-| `<=`  | less or equal |
-| `>`   | greater than |
-| `>=`  | greater or equal |
-| `~`   | regex |
-| `!~`  | not RLIKE |
-| `~~`  | LIKE |
-| `!~~` | not LIKE |
-| `?`   | comparison expansion |
-| `&`   | slot (value from scope outside comparison expansion) |
-| `++`  | has at least one |
-| `--`  | has none |
-
 ## Column control
 
 | Code      | Usage |
 | --        | -- |
-| `:`       | column spec prefix |
-| `:[ ]`    | incremental column spec |
-| `->`      |  alias |
+| <tt>&VerticalLine;</tt>       | column spec prefix |
+| <tt>&VerticalLine;[ ]</tt>    | incremental column spec |
+| `->`      | alias |
 | `\`       | column control flags |
 | `g`       | "group" flag |
 | `s`       | "sort" flag |
@@ -66,34 +35,74 @@
 | `h`       | "hide" flag |
 | `p`       | "partition" flag (in a window definition) |
 
+## Paths to data
+
+| Code   | Usage |
+| --     | -- |
+| `.`                       | path separator |
+| _alphanumeric identifier_ | column |
+| `#`                       | path to table with many records (to be aggregated) |
+| `>>`                      | path to table with a single record |
+
+## Conditions
+
+| Code   | Usage |
+| --     | -- |
+| `[ ]` | OR conditions |
+| `{ }` | AND conditions |
+| `=`   | equals |
+| `<`   | less than |
+| `<=`  | less or equal |
+| `>`   | greater than |
+| `>=`  | greater or equal |
+| `~`   | regex |
+| `~~`  | LIKE |
+| `!`   | negate any comparison |
+| `++`  | has at least one |
+| `--`  | has none |
+
+## Ternary
+
+| Code      | Usage |
+| --        | -- |
+| `?`       | if |
+| `=>`      | then (can occur many times without nesting) |
+| `*=>`     | else |
+
 ## Functions
 
 | Code    | Usage |
 | --      | -- |
-| `%`     | aggregate function |
-| `∣`     | scalar function |
+| `+` `-` `*` `/` | standard algebraic operators |
+| `:`     | pipe a value to a scalar function (higher precedence than algebra) |
+| `%`     | pipe a value to an aggregate function |
 | `( )`   | function arguments (if any) |
 | `%%[ ]` | window definition |
+| `;`     | anonymous scalar function |
+
+## Variable definition
+
+| Code    | Usage |
+| --      | -- |
+| `@foo := 42`           | define a constant |
+| `foo := v; v + 42`     | define a scalar function with one parameter |
+| `plus := (a b); a + b` | define a scalar function with two parameters |
+| `foo.bar := baz + bat` | define a computed column |
+| `#foo := ( )`          | define a temporary table |
 
 ## Transformations
 
 | Code   | Usage |
 | --     | -- |
-| `-->` | LIMIT and OFFSET |
+| `:::` | LIMIT and OFFSET |
 | `~~~` | pipeline |
 | `+++` | union |
 
-## Not (yet) used
+## Not used
 
 ```
-$   reserved for user-defined variables and functions
-
-*   reserved for algebraic expressions
-/   reserved for algebraic expressions
-+   reserved for algebraic expressions
--   reserved for algebraic expressions
-
+$
+&
 _
-;
 ,
 ```
