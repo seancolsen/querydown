@@ -77,7 +77,7 @@ pub enum Operator {
     Like,
     Neq,
     NLike,
-    RLike,
+    Match,
     NRLike,
 }
 

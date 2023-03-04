@@ -324,7 +324,7 @@ impl Render for Operator {
             Operator::Like => "LIKE".to_string(),
             Operator::Neq => "<>".to_string(),
             Operator::NLike => "NOT LIKE".to_string(),
-            Operator::RLike => "RLIKE".to_string(),
+            Operator::Match => "RLIKE".to_string(),
             Operator::NRLike => "NOT RLIKE".to_string(),
         }
     }

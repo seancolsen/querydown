@@ -88,7 +88,7 @@ mod tests {
             })
         );
         assert_eq!(
-            discerned_expression().parse("foo|bar(2)%baz"),
+            discerned_expression().parse("foo:bar(2)%baz"),
             Ok(Expression {
                 base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
                     PathPartToOne::Column("foo".to_string())
