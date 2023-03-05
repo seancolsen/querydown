@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    converters::{combine_expression_with_slot, simplify_expression},
+    converters::simplify_expression,
     dialects::dialect::Dialect,
     schema::{
         chain::ChainToOne,
@@ -25,12 +25,6 @@ mod functions {
 }
 
 use functions::*;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DecontextualizedExpression {
-    pub base: Value,
-    pub compositions: Vec<Composition>,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SimpleExpression {
@@ -121,7 +115,6 @@ pub struct RenderingContext<'a, D: Dialect> {
     base_table_name: &'a str,
     base_table: &'a Table,
     indentation_level: usize,
-    slot_value: Option<DecontextualizedExpression>,
     ctes: Vec<Cte>,
     join_tree: JoinTree,
     aliases: HashSet<String>,
@@ -142,7 +135,6 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
             base_table_name,
             base_table,
             indentation_level: 0,
-            slot_value: None,
             ctes: vec![],
             join_tree: JoinTree::new(base_table_name.to_owned()),
             aliases: HashSet::new(),
@@ -163,25 +155,6 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
 
     pub fn get_indentation(&self) -> String {
         INDENT_SPACER.repeat(self.indentation_level)
-    }
-
-    pub fn with_slot_value<T>(
-        &mut self,
-        expr: DecontextualizedExpression,
-        f: impl FnOnce(&mut Self) -> T,
-    ) -> T {
-        let old_slot_value = std::mem::replace(&mut self.slot_value, Some(expr));
-        // TODO_CODE we also need to set the base table in the case that a slot establishes a new
-        // table context. If the last PathPart within `expr` is a FK column or a `TableWithOne`,
-        // then we need to determine the name of the table, as joined, and set that as the
-        // self.base_table.
-        let result = f(self);
-        self.slot_value = old_slot_value;
-        result
-    }
-
-    pub fn get_slot_value(&self) -> Option<&DecontextualizedExpression> {
-        self.slot_value.as_ref()
     }
 
     pub fn indented<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -280,9 +253,7 @@ fn render_expression<D: Dialect>(
     expr: &Expression,
     cx: &mut RenderingContext<D>,
 ) -> ExpressionRenderingOutput {
-    // TODO_ERR handle error when attempting to read an empty slot value
-    let decontextualized_expr = combine_expression_with_slot(expr, cx).unwrap();
-    let simple_expr = simplify_expression(decontextualized_expr, cx);
+    let simple_expr = simplify_expression(expr, cx);
     let mut rendered = simple_expr.base.render(cx);
     let mut last_composition: Option<&Composition> = None;
     for composition in simple_expr.compositions.iter() {

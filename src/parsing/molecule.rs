@@ -67,32 +67,28 @@ mod tests {
         assert_eq!(
             discerned_expression().parse("1"),
             Ok(Expression {
-                base: ContextualValue::Value(Value::Literal(Literal::Number("1".to_string()))),
+                base: Value::Literal(Literal::Number("1".to_string())),
                 compositions: vec![],
             })
         );
         assert_eq!(
             discerned_expression().parse("@true"),
             Ok(Expression {
-                base: ContextualValue::Value(Value::Literal(Literal::True)),
+                base: Value::Literal(Literal::True),
                 compositions: vec![]
             })
         );
         assert_eq!(
             discerned_expression().parse("foo"),
             Ok(Expression {
-                base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
-                    PathPartToOne::Column("foo".to_string())
-                ]))),
+                base: (Value::Path(Path::ToOne(vec![PathPartToOne::Column("foo".to_string())]))),
                 compositions: vec![],
             })
         );
         assert_eq!(
             discerned_expression().parse("foo:bar(2)%baz"),
             Ok(Expression {
-                base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
-                    PathPartToOne::Column("foo".to_string())
-                ]))),
+                base: Value::Path(Path::ToOne(vec![PathPartToOne::Column("foo".to_string())])),
                 compositions: vec![
                     Composition {
                         function: Function {
@@ -100,9 +96,7 @@ mod tests {
                             dimension: FunctionDimension::Scalar
                         },
                         argument: Some(Expression {
-                            base: ContextualValue::Value(Value::Literal(Literal::Number(
-                                "2".to_string()
-                            ))),
+                            base: Value::Literal(Literal::Number("2".to_string())),
                             compositions: vec![]
                         }),
                     },
@@ -119,53 +113,51 @@ mod tests {
         assert_eq!(
             discerned_expression().parse("foo .bar"),
             Ok(Expression {
-                base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
+                base: Value::Path(Path::ToOne(vec![
                     PathPartToOne::Column("foo".to_string()),
                     PathPartToOne::Column("bar".to_string()),
-                ]))),
+                ])),
                 compositions: vec![],
             })
         );
         assert_eq!(
             discerned_expression().parse("#foo(bar)"),
             Ok(Expression {
-                base: ContextualValue::Value(Value::Path(Path::ToMany(vec![
-                    GeneralPathPart::TableWithMany(TableWithMany {
+                base: Value::Path(Path::ToMany(vec![GeneralPathPart::TableWithMany(
+                    TableWithMany {
                         table: "foo".to_string(),
                         column: Some("bar".to_string()),
                         condition_set: ConditionSet::default(),
-                    }),
-                ]))),
+                    }
+                ),])),
                 compositions: vec![],
             })
         );
         assert_eq!(
             discerned_expression().parse("#foo(bar){a=1}"),
             Ok(Expression {
-                base: ContextualValue::Value(Value::Path(Path::ToMany(vec![
-                    GeneralPathPart::TableWithMany(TableWithMany {
+                base: Value::Path(Path::ToMany(vec![GeneralPathPart::TableWithMany(
+                    TableWithMany {
                         table: "foo".to_string(),
                         column: Some("bar".to_string()),
                         condition_set: ConditionSet {
                             conjunction: Conjunction::And,
                             entries: vec![ConditionSetEntry::Comparison(Comparison {
                                 left: ComparisonPart::Expression(Expression {
-                                    base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
-                                        PathPartToOne::Column("a".to_string())
-                                    ]))),
+                                    base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
+                                        "a".to_string()
+                                    )])),
                                     compositions: vec![],
                                 }),
                                 operator: Operator::Eq,
                                 right: ComparisonPart::Expression(Expression {
-                                    base: ContextualValue::Value(Value::Literal(Literal::Number(
-                                        "1".to_string()
-                                    ))),
+                                    base: Value::Literal(Literal::Number("1".to_string())),
                                     compositions: vec![],
                                 }),
                             })],
                         },
-                    }),
-                ]))),
+                    }
+                ),])),
                 compositions: vec![],
             })
         );
@@ -181,16 +173,14 @@ mod tests {
                 conjunction: Conjunction::And,
                 entries: vec![ConditionSetEntry::Comparison(Comparison {
                     left: ComparisonPart::Expression(Expression {
-                        base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
-                            PathPartToOne::Column("a".to_string())
-                        ]))),
+                        base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
+                            "a".to_string()
+                        )])),
                         compositions: vec![],
                     }),
                     operator: Operator::Eq,
                     right: ComparisonPart::Expression(Expression {
-                        base: ContextualValue::Value(Value::Literal(Literal::Number(
-                            "1".to_string()
-                        ))),
+                        base: Value::Literal(Literal::Number("1".to_string())),
                         compositions: vec![],
                     }),
                 })],

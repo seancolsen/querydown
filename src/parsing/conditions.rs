@@ -46,7 +46,6 @@ fn condition_set_entry(
     use ConditionSetEntry::*;
     choice((
         condition_set.clone().map(ConditionSet),
-        scoped_conditional(condition_set, expression.clone()).map(ScopedConditional),
         comparison(expression).map(Comparison),
     ))
 }
@@ -63,21 +62,6 @@ fn comparison(expression: impl QdParser<Expression>) -> impl QdParser<Comparison
             operator,
             right: rhs,
         })
-}
-
-fn scoped_conditional(
-    condition_set: impl QdParser<ConditionSet>,
-    expression: impl QdParser<Expression>,
-) -> impl QdParser<ScopedConditional> {
-    comparison_part(expression)
-        .clone()
-        .then_ignore(
-            whitespace()
-                .then(just(SCOPED_CONDITIONAL))
-                .then(whitespace()),
-        )
-        .then(condition_set)
-        .map(|(left, right)| ScopedConditional { left, right })
 }
 
 fn comparison_part(expression: impl QdParser<Expression>) -> impl QdParser<ComparisonPart> {

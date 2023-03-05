@@ -31,16 +31,14 @@ mod tests {
                     conjunction: Conjunction::And,
                     entries: vec![ConditionSetEntry::Comparison(Comparison {
                         left: ComparisonPart::Expression(Expression {
-                            base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
-                                PathPartToOne::Column("a".to_string())
-                            ]))),
+                            base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
+                                "a".to_string()
+                            )])),
                             compositions: vec![],
                         }),
                         operator: Operator::Eq,
                         right: ComparisonPart::Expression(Expression {
-                            base: ContextualValue::Value(Value::Literal(Literal::Number(
-                                "8".to_string()
-                            ))),
+                            base: Value::Literal(Literal::Number("8".to_string())),
                             compositions: vec![],
                         })
                     })]
@@ -49,9 +47,9 @@ mod tests {
                     column_specs: vec![ColumnSpec {
                         column_control: ColumnControl::default(),
                         expression: Expression {
-                            base: ContextualValue::Value(Value::Path(Path::ToOne(vec![
-                                PathPartToOne::Column("foo".to_string())
-                            ]))),
+                            base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
+                                "foo".to_string()
+                            )])),
                             compositions: vec![],
                         },
                         alias: None,

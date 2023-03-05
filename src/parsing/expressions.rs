@@ -1,12 +1,12 @@
 use chumsky::{prelude::*, text::*};
 
+use super::utils::QdParser;
+use crate::parsing::values::value;
 use crate::{syntax_tree::*, tokens::*};
-
-use super::{utils::QdParser, values::contextual_value};
 
 pub fn expression(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Expression> {
     recursive(|e| {
-        contextual_value(condition_set)
+        value(condition_set)
             .then(whitespace().ignore_then(composition(e)).repeated())
             .map(|(base, compositions)| Expression { base, compositions })
     })

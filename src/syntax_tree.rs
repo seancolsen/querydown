@@ -32,7 +32,6 @@ pub enum Conjunction {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConditionSetEntry {
     Comparison(Comparison),
-    ScopedConditional(ScopedConditional),
     ConditionSet(ConditionSet),
 }
 
@@ -41,12 +40,6 @@ pub struct Comparison {
     pub left: ComparisonPart,
     pub operator: Operator,
     pub right: ComparisonPart,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ScopedConditional {
-    pub left: ComparisonPart,
-    pub right: ConditionSet,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -133,24 +126,18 @@ pub enum SortDirection {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expression {
-    pub base: ContextualValue,
+    pub base: Value,
     pub compositions: Vec<Composition>,
 }
 
 impl Expression {
     pub fn is_zero(&self) -> bool {
         let base_is_zero = match self.base {
-            ContextualValue::Value(Value::Literal(Literal::Number(ref num))) => num == "0",
+            Value::Literal(Literal::Number(ref num)) => num == "0",
             _ => false,
         };
         base_is_zero && self.compositions.is_empty()
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ContextualValue {
-    Value(Value),
-    Slot,
 }
 
 #[derive(Debug, Clone, PartialEq)]

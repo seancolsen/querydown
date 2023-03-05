@@ -1,6 +1,6 @@
 use crate::{
     dialects::dialect::Dialect,
-    rendering::{DecontextualizedExpression, JoinTree, Render, RenderingContext, SimpleExpression},
+    rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
         chain::ChainToOne,
         links::{Link, LinkToOne},
@@ -78,7 +78,6 @@ fn convert_condition_set_entry<D: Dialect>(
         ConditionSetEntry::ConditionSet(condition_set) => {
             SqlConditionSetEntry::ConditionSet(convert_condition_set(condition_set, cx))
         }
-        ConditionSetEntry::ScopedConditional(s) => convert_scoped_conditional(s, cx),
     }
 }
 
@@ -200,67 +199,11 @@ fn expand_comparison(comparison: &Comparison) -> SimpleConditionSetEntry {
     }
 }
 
-fn convert_scoped_conditional<D: Dialect>(
-    scoped_conditional: &ScopedConditional,
-    cx: &mut RenderingContext<D>,
-) -> SqlConditionSetEntry {
-    let ScopedConditional { left, right } = scoped_conditional;
-    let mut convert_with_left_expr = |left_expr: &Expression| -> SqlConditionSet {
-        // TODO_ERR handle error when attempting to set a slot value which contains an empty slot
-        // value
-        let slot_value = combine_expression_with_slot(left_expr, cx).unwrap();
-        cx.with_slot_value(slot_value, |cx| SqlConditionSet {
-            conjunction: right.conjunction,
-            entries: right
-                .entries
-                .iter()
-                .map(|entry| convert_condition_set_entry(entry, cx))
-                .collect(),
-        })
-    };
-    let condition_set = match left {
-        ComparisonPart::Expression(expr) => convert_with_left_expr(expr),
-        ComparisonPart::ExpressionSet(expr_set) => SqlConditionSet {
-            conjunction: expr_set.conjunction,
-            entries: expr_set
-                .entries
-                .iter()
-                .map(|expr| SqlConditionSetEntry::ConditionSet(convert_with_left_expr(expr)))
-                .collect(),
-        },
-    };
-    SqlConditionSetEntry::ConditionSet(condition_set)
-}
-
-// Try to remove the Slot from the expression by incorporating the slot value from the context.
-pub fn combine_expression_with_slot<D: Dialect>(
-    expr: &Expression,
-    cx: &RenderingContext<D>,
-) -> Result<DecontextualizedExpression, &'static str> {
-    match &expr.base {
-        ContextualValue::Value(value) => Ok(DecontextualizedExpression {
-            base: value.clone(),
-            compositions: expr.compositions.clone(),
-        }),
-        ContextualValue::Slot => {
-            let slot_value = cx.get_slot_value();
-            match slot_value {
-                None => Err("Cannot use slot outside of a scoped conditional."),
-                Some(slot_expr) => {
-                    let mut compositions = slot_expr.compositions.clone();
-                    compositions.extend_from_slice(&expr.compositions);
-                    let base = slot_expr.base.clone();
-                    Ok(DecontextualizedExpression { base, compositions })
-                }
-            }
-        }
-    }
-}
-
 pub fn simplify_expression<D: Dialect>(
-    expr: DecontextualizedExpression,
+    expr: &Expression,
     cx: &mut RenderingContext<D>,
 ) -> SimpleExpression {
+    let expr = expr.clone();
     match expr.base {
         Value::Literal(literal) => SimpleExpression {
             base: literal,

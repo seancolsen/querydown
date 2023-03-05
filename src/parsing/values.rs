@@ -7,15 +7,6 @@ use super::duration::duration;
 use super::paths::path;
 use super::utils::*;
 
-pub fn contextual_value(
-    condition_set: impl QdParser<ConditionSet>,
-) -> impl QdParser<ContextualValue> {
-    choice::<_, Simple<char>>((
-        just(LITERAL_SLOT).to(ContextualValue::Slot),
-        value(condition_set).map(ContextualValue::Value),
-    ))
-}
-
 pub fn value(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<Value> {
     choice::<_, Simple<char>>((
         path(condition_set).map(Value::Path),
