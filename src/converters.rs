@@ -2,9 +2,9 @@ use crate::{
     dialects::dialect::Dialect,
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
-        chain::ChainToOne,
-        links::{Link, LinkToOne},
-        schema::Table,
+        chain::Chain,
+        links::{ForwardLinkToOne, GenericLink, Link, LinkToOne},
+        schema::{ChainSearchBase, Table},
     },
     sql_tree::*,
     syntax_tree::*,
@@ -215,88 +215,114 @@ pub fn simplify_expression<D: Dialect>(
 }
 
 fn simplify_path_expression<D: Dialect>(
-    path: Path,
+    parts: Vec<PathPart>,
     compositions: Vec<Composition>,
     cx: &mut RenderingContext<D>,
 ) -> Result<SimpleExpression, String> {
-    match path {
-        Path::ToOne(parts) => {
-            let clarified_path = clarify_path_to_one(parts, cx)?;
-            let table_name = if let Some(chain) = clarified_path.chain {
-                cx.join_chain_to_one(&chain)
-            } else {
-                cx.get_base_table().name.clone()
-            };
-            let column_name = clarified_path.final_column_name;
-            Ok(SimpleExpression {
-                base: Literal::TableColumnReference(table_name, column_name),
-                compositions,
-            })
-        }
-        Path::ToMany(parts) => simplify_path_to_many_expression(parts, compositions, cx),
+    let clarified_path = clarify_path(parts, cx)?;
+    let table_name = if let Some(chain_to_one) = clarified_path.head {
+        cx.join_chain_to_one(&chain_to_one)
+    } else {
+        cx.get_base_table().name.clone()
+    };
+    match clarified_path.tail {
+        ClarifiedPathTail::Column(column_name) => Ok(SimpleExpression {
+            base: Literal::TableColumnReference(table_name, column_name),
+            compositions,
+        }),
+        ClarifiedPathTail::ChainToMany(_) => todo!(),
     }
 }
 
-struct ClarifiedPathToOne {
-    chain: Option<ChainToOne>,
-    final_column_name: String,
+struct ClarifiedPath {
+    head: Option<Chain<LinkToOne>>,
+    tail: ClarifiedPathTail,
 }
 
-fn clarify_path_to_one<D: Dialect>(
-    parts: Vec<PathPartToOne>,
+enum ClarifiedPathTail {
+    Column(String),
+    ChainToMany(Chain<GenericLink>),
+}
+
+impl ClarifiedPathTail {
+    fn with_column(&self, column: String) -> Self {
+        match self {
+            Self::Column(_) => Self::Column(column),
+            Self::ChainToMany(_) => todo!(),
+        }
+    }
+}
+
+/// Error messages
+mod msg {
+    pub fn no_current_table() -> String {
+        "Non-FK columns can only appear at the end of a path.".to_string()
+    }
+
+    pub fn col_not_in_table(column_name: &str, table_name: &str) -> String {
+        format!("Column {column_name} not found within table {table_name}.")
+    }
+
+    pub fn missing_tail() -> String {
+        "Scalar path expressions must specify a column name at the end.".to_string()
+    }
+}
+
+fn clarify_path<D: Dialect>(
+    parts: Vec<PathPart>,
     cx: &RenderingContext<D>,
-) -> Result<ClarifiedPathToOne, String> {
-    let mut chain: Option<ChainToOne> = None;
-    let mut final_column_name_opt: Option<String> = None;
-    let mut base_table: Option<&Table> = Some(cx.get_base_table());
+) -> Result<ClarifiedPath, String> {
+    let mut is_first = true;
+    let mut current_table_opt: Option<&Table> = Some(cx.get_base_table());
+    let mut head: Option<Chain<LinkToOne>> = None;
+    let mut tail_opt: Option<ClarifiedPathTail> = None;
+    let mut prev_fw_link_to_one: Option<ForwardLinkToOne> = None;
     for part in parts {
-        match part {
-            PathPartToOne::Column(column_name) => {
-                let Some(table) = base_table else {
-                    return Err("Non-FK columns can only appear at the end of a path.".to_owned());
-                };
-                let Some(column_id) = table.column_lookup.get(&column_name).copied() else {
-                    return Err(format!(
-                        "Column {} not found within table {}.",
-                        column_name, table.name
-                    ));
-                };
-                final_column_name_opt = Some(column_name);
-                if let Some(link) = table.forward_links_to_one.get(&column_id).copied() {
-                    let link_to_one = LinkToOne::ForwardLinkToOne(link);
-                    chain = chain.map_or_else(
-                        || ChainToOne::new(&link_to_one).ok(),
-                        |c| c.with(&link_to_one).ok(),
-                    );
-                    base_table = cx.schema.tables.get(&link.get_end().table_id);
-                } else {
-                    // If the current column is not an FK column, then we need to ensure
-                    // that no more columns can be used in the path expression.
-                    base_table = None;
+        if !is_first {
+            if let Some(link) = prev_fw_link_to_one {
+                let link_to_one = LinkToOne::ForwardLinkToOne(link);
+                match head {
+                    Some(ref mut c) => c.try_append(link_to_one)?,
+                    None => head = Some(Chain::try_new(link_to_one)?),
                 }
+                current_table_opt = cx.schema.tables.get(&link.get_end().table_id);
+            } else {
+                // If the current column is not an FK column, then we need to ensure
+                // that no more columns can be used in the path expression.
+                current_table_opt = None;
             }
-            PathPartToOne::TableWithOne(table_name) => {
+        }
+        let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
+        match part {
+            PathPart::Column(column_name) => {
+                let column_id = current_table
+                    .column_lookup
+                    .get(&column_name)
+                    .copied()
+                    .ok_or_else(|| msg::col_not_in_table(&column_name, &current_table.name))?;
+                prev_fw_link_to_one = current_table.forward_links_to_one.get(&column_id).copied();
+                tail_opt = Some(tail_opt.map_or_else(
+                    || ClarifiedPathTail::Column(column_name.clone()),
+                    |tail| tail.with_column(column_name.clone()),
+                ));
+            }
+            PathPart::TableWithOne(table_name) => {
+                todo!()
+            }
+            PathPart::TableWithMany(table_with_many) => {
+                let base = ChainSearchBase::TableId(current_table.id);
+                let chain = cx
+                    .schema
+                    .get_chain_to_table_with_many(base, &table_with_many, None);
+                println!("chain: {:#?}", chain);
                 todo!()
             }
         }
+        is_first = false;
     }
-    if let Some(final_column_name) = final_column_name_opt {
-        Ok(ClarifiedPathToOne {
-            chain,
-            final_column_name,
-        })
-    } else {
-        Err("Scalar path expressions must specify a column name at the end.".to_owned())
-    }
-}
-
-fn simplify_path_to_many_expression<D: Dialect>(
-    parts: Vec<GeneralPathPart>,
-    compositions: Vec<Composition>,
-    cx: &mut RenderingContext<D>,
-) -> Result<SimpleExpression, String> {
-    // TODO_CODE finish this function
-    todo!()
+    tail_opt
+        .ok_or_else(msg::missing_tail)
+        .map(|tail| ClarifiedPath { head, tail })
 }
 
 pub fn convert_join_tree<D: Dialect>(tree: &JoinTree, cx: &RenderingContext<D>) -> Vec<Join> {

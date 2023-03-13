@@ -81,14 +81,14 @@ mod tests {
         assert_eq!(
             discerned_expression().parse("foo"),
             Ok(Expression {
-                base: (Value::Path(Path::ToOne(vec![PathPartToOne::Column("foo".to_string())]))),
+                base: (Value::Path(vec![PathPart::Column("foo".to_string())])),
                 compositions: vec![],
             })
         );
         assert_eq!(
             discerned_expression().parse("foo:bar(2)%baz"),
             Ok(Expression {
-                base: Value::Path(Path::ToOne(vec![PathPartToOne::Column("foo".to_string())])),
+                base: Value::Path(vec![PathPart::Column("foo".to_string())]),
                 compositions: vec![
                     Composition {
                         function: Function {
@@ -113,51 +113,45 @@ mod tests {
         assert_eq!(
             discerned_expression().parse("foo .bar"),
             Ok(Expression {
-                base: Value::Path(Path::ToOne(vec![
-                    PathPartToOne::Column("foo".to_string()),
-                    PathPartToOne::Column("bar".to_string()),
-                ])),
+                base: Value::Path(vec![
+                    PathPart::Column("foo".to_string()),
+                    PathPart::Column("bar".to_string()),
+                ]),
                 compositions: vec![],
             })
         );
         assert_eq!(
             discerned_expression().parse("#foo(bar)"),
             Ok(Expression {
-                base: Value::Path(Path::ToMany(vec![GeneralPathPart::TableWithMany(
-                    TableWithMany {
-                        table: "foo".to_string(),
-                        column: Some("bar".to_string()),
-                        condition_set: ConditionSet::default(),
-                    }
-                ),])),
+                base: Value::Path(vec![PathPart::TableWithMany(TableWithMany {
+                    table: "foo".to_string(),
+                    linking_column: Some("bar".to_string()),
+                    condition_set: ConditionSet::default(),
+                }),]),
                 compositions: vec![],
             })
         );
         assert_eq!(
             discerned_expression().parse("#foo(bar){a=1}"),
             Ok(Expression {
-                base: Value::Path(Path::ToMany(vec![GeneralPathPart::TableWithMany(
-                    TableWithMany {
-                        table: "foo".to_string(),
-                        column: Some("bar".to_string()),
-                        condition_set: ConditionSet {
-                            conjunction: Conjunction::And,
-                            entries: vec![ConditionSetEntry::Comparison(Comparison {
-                                left: ComparisonPart::Expression(Expression {
-                                    base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
-                                        "a".to_string()
-                                    )])),
-                                    compositions: vec![],
-                                }),
-                                operator: Operator::Eq,
-                                right: ComparisonPart::Expression(Expression {
-                                    base: Value::Literal(Literal::Number("1".to_string())),
-                                    compositions: vec![],
-                                }),
-                            })],
-                        },
-                    }
-                ),])),
+                base: Value::Path(vec![PathPart::TableWithMany(TableWithMany {
+                    table: "foo".to_string(),
+                    linking_column: Some("bar".to_string()),
+                    condition_set: ConditionSet {
+                        conjunction: Conjunction::And,
+                        entries: vec![ConditionSetEntry::Comparison(Comparison {
+                            left: ComparisonPart::Expression(Expression {
+                                base: Value::Path(vec![PathPart::Column("a".to_string())]),
+                                compositions: vec![],
+                            }),
+                            operator: Operator::Eq,
+                            right: ComparisonPart::Expression(Expression {
+                                base: Value::Literal(Literal::Number("1".to_string())),
+                                compositions: vec![],
+                            }),
+                        })],
+                    },
+                }),]),
                 compositions: vec![],
             })
         );
@@ -173,9 +167,7 @@ mod tests {
                 conjunction: Conjunction::And,
                 entries: vec![ConditionSetEntry::Comparison(Comparison {
                     left: ComparisonPart::Expression(Expression {
-                        base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
-                            "a".to_string()
-                        )])),
+                        base: Value::Path(vec![PathPart::Column("a".to_string())]),
                         compositions: vec![],
                     }),
                     operator: Operator::Eq,

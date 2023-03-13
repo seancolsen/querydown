@@ -1,12 +1,20 @@
-use std::collections::{
-    hash_map::Entry::{Occupied, Vacant},
-    HashMap,
+use std::{
+    collections::{
+        hash_map::Entry::{Occupied, Vacant},
+        HashMap,
+    },
+    convert::identity,
 };
 
+use itertools::Itertools;
+
+use crate::syntax_tree::TableWithMany;
+
 use super::{
+    chain::Chain,
     links::{
-        ForeignKey, ForwardLinkToOne, Link, LinkToOne, Reference, ReverseLinkToMany,
-        ReverseLinkToOne,
+        FilteredReverseLinkToMany, ForeignKey, ForwardLinkToOne, GenericLink, Link, LinkToOne,
+        Reference, ReverseLinkToMany, ReverseLinkToOne, SimpleLink,
     },
     primitive_schema::{PrimitiveSchema, PrimitiveTable},
 };
@@ -59,6 +67,92 @@ impl Schema {
             }
         }
     }
+
+    pub fn get_chain_to_table_with_many(
+        &self,
+        base: ChainSearchBase,
+        target: &TableWithMany,
+        max_chain_len: Option<usize>,
+    ) -> Option<Chain<GenericLink>> {
+        let base_table = self.tables.get(&base.get_base_table_id())?;
+        let ending_table = self.get_table(&target.table)?;
+
+        // Success path
+        if let Some(links) = base_table.reverse_links_to_many.get(&ending_table.id) {
+            if let Ok(link) = links.iter().exactly_one() {
+                let simple_link = SimpleLink::ReverseLinkToMany(*link);
+                if let Ok(simple_chain) = base.clone().try_append_into_chain(simple_link) {
+                    let mut chain = Chain::<GenericLink>::from(simple_chain);
+                    chain.set_final_condition_set(target.condition_set.clone());
+                    return Some(chain);
+                }
+            }
+        }
+
+        let get_transitive_chain = |link: SimpleLink, max: usize| {
+            let Ok(chain) = base.clone().try_append_into_chain(link) else { return None };
+            self.get_chain_to_table_with_many(ChainSearchBase::Chain(chain), target, Some(max))
+        };
+        let get_max_len = |winner_opt: &Option<Chain<GenericLink>>| {
+            winner_opt
+                .as_ref()
+                .map(|c| c.len())
+                .unwrap_or(max_chain_len.unwrap_or(usize::MAX))
+        };
+
+        // Recursive path
+        let mut winner_opt: Option<Chain<GenericLink>> = None;
+        for link in base_table.get_simple_links() {
+            let max_len = get_max_len(&winner_opt);
+            let Some(chain) = get_transitive_chain(link, max_len) else {continue};
+            if let Some(winner) = &winner_opt {
+                if chain.len() == winner.len() {
+                    // If two chains tie for the same length, we can't decide which one is better
+                    // so we return None.
+                    return None;
+                }
+                if chain.len() < winner.len() {
+                    winner_opt = Some(chain);
+                }
+            } else {
+                winner_opt = Some(chain);
+            }
+        }
+        winner_opt
+    }
+}
+
+#[derive(Clone)]
+pub enum ChainSearchBase {
+    Chain(Chain<SimpleLink>),
+    TableId(TableId),
+}
+
+impl ChainSearchBase {
+    pub fn get_base_table_id(&self) -> TableId {
+        match self {
+            Self::Chain(chain) => chain.get_ending_table_id(),
+            Self::TableId(id) => *id,
+        }
+    }
+
+    pub fn try_append_into_chain(
+        self,
+        link: SimpleLink,
+    ) -> Result<Chain<SimpleLink>, &'static str> {
+        match self {
+            Self::Chain(mut chain) => {
+                chain.try_append(link)?;
+                Ok(chain)
+            }
+            Self::TableId(table_id) => {
+                if table_id != link.get_start().table_id {
+                    return Err("Link does not connect to starting table");
+                }
+                Chain::try_new(link)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -73,6 +167,31 @@ pub struct Table {
     pub reverse_links_to_one: HashMap<TableId, Vec<ReverseLinkToOne>>,
     /// Keys are ending table ids in the other table
     pub reverse_links_to_many: HashMap<TableId, Vec<ReverseLinkToMany>>,
+}
+
+impl Table {
+    pub fn get_simple_links(&self) -> impl Iterator<Item = SimpleLink> + '_ {
+        let forward_links_to_one = self
+            .forward_links_to_one
+            .values()
+            .copied()
+            .map(SimpleLink::ForwardLinkToOne);
+        let reverse_links_to_many = self
+            .reverse_links_to_many
+            .values()
+            .flatten()
+            .copied()
+            .map(SimpleLink::ReverseLinkToMany);
+        let reverse_links_to_one = self
+            .reverse_links_to_one
+            .values()
+            .flatten()
+            .copied()
+            .map(SimpleLink::ReverseLinkToOne);
+        forward_links_to_one
+            .chain(reverse_links_to_many)
+            .chain(reverse_links_to_one)
+    }
 }
 
 #[derive(Debug)]

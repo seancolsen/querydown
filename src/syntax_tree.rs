@@ -142,7 +142,7 @@ impl Expression {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    Path(Path),
+    Path(Vec<PathPart>),
     Literal(Literal),
 }
 
@@ -162,61 +162,17 @@ pub enum Literal {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Path {
-    ToMany(Vec<GeneralPathPart>),
-    ToOne(Vec<PathPartToOne>),
-}
-
-impl From<Vec<GeneralPathPart>> for Path {
-    fn from(parts: Vec<GeneralPathPart>) -> Self {
-        if parts.is_many() {
-            return Path::ToMany(parts);
-        }
-        let mut parts_to_one: Vec<PathPartToOne> = Vec::new();
-        for part in parts {
-            match part {
-                GeneralPathPart::Column(column) => parts_to_one.push(PathPartToOne::Column(column)),
-                GeneralPathPart::TableWithOne(table) => {
-                    parts_to_one.push(PathPartToOne::TableWithOne(table))
-                }
-                _ => {}
-            }
-        }
-        return Path::ToOne(parts_to_one);
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum GeneralPathPart {
+pub enum PathPart {
     Column(String),
     TableWithOne(String),
     TableWithMany(TableWithMany),
-}
-
-trait PathParts {
-    fn is_many(&self) -> bool;
-}
-
-impl PathParts for Vec<GeneralPathPart> {
-    fn is_many(&self) -> bool {
-        self.iter().any(|part| match part {
-            GeneralPathPart::TableWithMany(_) => true,
-            _ => false,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PathPartToOne {
-    Column(String),
-    TableWithOne(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableWithMany {
     pub table: String,
     pub condition_set: ConditionSet,
-    pub column: Option<String>,
+    pub linking_column: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

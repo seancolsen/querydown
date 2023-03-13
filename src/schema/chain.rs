@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use crate::schema::schema::TableId;
+use crate::{schema::schema::TableId, syntax_tree::ConditionSet};
 
-use super::links::{Link, LinkToOne};
+use super::links::{GenericLink, Link, SimpleLink};
 
 #[derive(Debug, Clone)]
 struct ChainStats {
@@ -14,13 +14,17 @@ struct ChainStats {
 #[derive(Debug)]
 /// A series of zero or more connected links, along with cached information about that series
 /// for the purpose of easy analysis.
-pub struct ChainToOne {
-    links: Vec<LinkToOne>,
+pub struct Chain<L: Link> {
+    links: Vec<L>,
     stats: ChainStats,
 }
 
-impl ChainToOne {
-    pub fn validate_link(link: &LinkToOne) -> Result<(), &'static str> {
+impl<L: Link> Chain<L> {
+    pub fn len(&self) -> usize {
+        self.links.len()
+    }
+
+    pub fn validate_link(link: &L) -> Result<(), &'static str> {
         let starting_table_id = link.get_start().table_id;
         let ending_table_id = link.get_end().table_id;
         if starting_table_id == ending_table_id {
@@ -29,12 +33,12 @@ impl ChainToOne {
         Ok(())
     }
 
-    pub fn new(link: &LinkToOne) -> Result<Self, &'static str> {
-        Self::validate_link(link)?;
+    pub fn try_new(link: L) -> Result<Self, &'static str> {
+        Self::validate_link(&link)?;
         let starting_table_id = link.get_start().table_id;
         let ending_table_id = link.get_end().table_id;
         Ok(Self {
-            links: Vec::from([*link]),
+            links: Vec::from([link]),
             stats: ChainStats {
                 starting_table_id,
                 ending_table_id,
@@ -51,7 +55,7 @@ impl ChainToOne {
         self.stats.ending_table_id
     }
 
-    pub fn get_links(&self) -> &[LinkToOne] {
+    pub fn get_links(&self) -> &[L] {
         &self.links
     }
 
@@ -59,9 +63,10 @@ impl ChainToOne {
         self.stats.table_ids.contains(&table_id)
     }
 
-    /// Attempt to create a new valid chain by adding a link to this chain.
-    pub fn with(&self, link: &LinkToOne) -> Result<Self, &'static str> {
-        Self::validate_link(link)?;
+    /// Try to add a link to the end of this chain. If it was successfully added, then return
+    /// `Ok(())`. If it can't be added, then return an error message.
+    pub fn try_append(&mut self, link: L) -> Result<(), &'static str> {
+        Self::validate_link(&link)?;
         let link_starting_table_id = link.get_start().table_id;
         let link_ending_table_id = link.get_end().table_id;
         if self.stats.ending_table_id != link_starting_table_id {
@@ -70,21 +75,15 @@ impl ChainToOne {
         if self.stats.table_ids.contains(&link_ending_table_id) {
             return Err("Link would cause chain to intersect itself");
         }
-        let mut links = self.links.clone();
-        links.push(*link);
-        let mut table_ids = self.stats.table_ids.clone();
-        table_ids.insert(link_ending_table_id);
-        Ok(Self {
-            links,
-            stats: ChainStats {
-                starting_table_id: self.stats.starting_table_id,
-                ending_table_id: link_ending_table_id,
-                table_ids,
-            },
-        })
+        self.links.push(link);
+        self.stats.ending_table_id = link_ending_table_id;
+        self.stats.table_ids.insert(link_ending_table_id);
+        Ok(())
     }
+}
 
-    pub fn with_first_link_broken_off(&self) -> (&LinkToOne, Option<Self>) {
+impl<L: Link + Copy> Chain<L> {
+    pub fn with_first_link_broken_off(&self) -> (&L, Option<Self>) {
         // This unwrap is safe because we know that a chain will have at least one link
         let first_link = self.links.first().unwrap();
         let remaining_links = self.links[1..].to_vec();
@@ -105,21 +104,49 @@ impl ChainToOne {
     }
 }
 
-impl TryFrom<Vec<LinkToOne>> for ChainToOne {
+impl<L: Link + Clone> TryFrom<Vec<L>> for Chain<L> {
     type Error = &'static str;
 
-    fn try_from(links: Vec<LinkToOne>) -> Result<Self, &'static str> {
+    fn try_from(links: Vec<L>) -> Result<Self, &'static str> {
         let mut iter = links.into_iter();
         let first_link_option = iter.next();
         match first_link_option {
             Some(first_link) => {
-                let mut chain = ChainToOne::new(&first_link)?;
+                let mut chain = Chain::try_new(first_link)?;
                 for link in iter {
-                    chain = chain.with(&link)?;
+                    chain.try_append(link)?;
                 }
                 Ok(chain)
             }
             None => Err("A chain cannot be created from an empty list of links"),
         }
+    }
+}
+
+impl<L: Link + Clone> Clone for Chain<L> {
+    fn clone(&self) -> Self {
+        Self {
+            links: self.links.clone(),
+            stats: self.stats.clone(),
+        }
+    }
+}
+
+impl From<Chain<SimpleLink>> for Chain<GenericLink> {
+    fn from(chain: Chain<SimpleLink>) -> Self {
+        Self {
+            links: chain.links.into_iter().map(|link| link.into()).collect(),
+            stats: chain.stats,
+        }
+    }
+}
+
+impl Chain<GenericLink> {
+    pub fn set_final_condition_set(&mut self, condition_set: ConditionSet) {
+        // unwrap is safe here because we know that a chain will have at least one link
+        self.links
+            .last_mut()
+            .unwrap()
+            .set_condition_set(condition_set);
     }
 }

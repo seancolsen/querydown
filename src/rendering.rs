@@ -4,12 +4,12 @@ use crate::{
     converters::simplify_expression,
     dialects::dialect::Dialect,
     schema::{
-        chain::ChainToOne,
+        chain::Chain,
         links::LinkToOne,
         schema::{Schema, Table},
     },
     sql_tree::Cte,
-    syntax_tree::{Composition, Conjunction, Expression, Literal, Operator, Value},
+    syntax_tree::{Composition, Conjunction, Expression, Literal, Operator},
 };
 
 /// We may eventually make this configurable
@@ -36,6 +36,7 @@ pub struct SimpleExpression {
 pub struct JoinTree {
     alias: String,
     dependents: HashMap<LinkToOne, JoinTree>,
+    ctes: Vec<Cte>,
 }
 
 impl JoinTree {
@@ -43,6 +44,7 @@ impl JoinTree {
         Self {
             alias,
             dependents: HashMap::new(),
+            ctes: Vec::new(),
         }
     }
 
@@ -56,7 +58,7 @@ impl JoinTree {
 
     pub fn integrate_chain(
         &mut self,
-        chain_to_one: &ChainToOne,
+        chain_to_one: &Chain<LinkToOne>,
         mut get_alias: impl FnMut(&LinkToOne) -> String,
     ) -> String {
         let (next_link, remainder_chain_opt) = chain_to_one.with_first_link_broken_off();
@@ -87,12 +89,14 @@ impl JoinTree {
                     let subtree = JoinTree {
                         alias,
                         dependents: std::mem::take(&mut dependents),
+                        ctes: Vec::new(),
                     };
                     dependents.insert(link, subtree);
                 }
                 let subtree = JoinTree {
                     alias: get_alias(next_link),
                     dependents,
+                    ctes: Vec::new(),
                 };
                 self.dependents.insert(*next_link, subtree);
                 final_alias
@@ -112,10 +116,8 @@ impl JoinTree {
 pub struct RenderingContext<'a, D: Dialect> {
     pub dialect: &'a D,
     pub schema: &'a Schema,
-    base_table_name: &'a str,
     base_table: &'a Table,
     indentation_level: usize,
-    ctes: Vec<Cte>,
     join_tree: JoinTree,
     aliases: HashSet<String>,
 }
@@ -132,17 +134,11 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         Ok(Self {
             dialect,
             schema,
-            base_table_name,
             base_table,
             indentation_level: 0,
-            ctes: vec![],
-            join_tree: JoinTree::new(base_table_name.to_owned()),
+            join_tree: JoinTree::new(base_table.name.to_owned()),
             aliases: HashSet::new(),
         })
-    }
-
-    pub fn get_base_table_name(&self) -> &str {
-        self.base_table_name
     }
 
     pub fn get_base_table(&self) -> &Table {
@@ -164,7 +160,7 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         result
     }
 
-    pub fn join_chain_to_one(&mut self, chain: &ChainToOne) -> String {
+    pub fn join_chain_to_one(&mut self, chain: &Chain<LinkToOne>) -> String {
         let mut aliases = std::mem::take(&mut self.aliases);
         let mut try_alias = |alias: &str| -> bool {
             if !aliases.contains(alias) {

@@ -31,9 +31,7 @@ mod tests {
                     conjunction: Conjunction::And,
                     entries: vec![ConditionSetEntry::Comparison(Comparison {
                         left: ComparisonPart::Expression(Expression {
-                            base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
-                                "a".to_string()
-                            )])),
+                            base: Value::Path(vec![PathPart::Column("a".to_string())]),
                             compositions: vec![],
                         }),
                         operator: Operator::Eq,
@@ -47,9 +45,7 @@ mod tests {
                     column_specs: vec![ColumnSpec {
                         column_control: ColumnControl::default(),
                         expression: Expression {
-                            base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
-                                "foo".to_string()
-                            )])),
+                            base: Value::Path(vec![PathPart::Column("foo".to_string())]),
                             compositions: vec![],
                         },
                         alias: None,

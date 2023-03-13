@@ -170,7 +170,7 @@ mod tests {
                     is_hidden: false,
                 },
                 expression: Expression {
-                    base: Value::Path(Path::ToOne(vec![PathPartToOne::Column("foo".to_string())])),
+                    base: Value::Path(vec![PathPart::Column("foo".to_string())]),
                     compositions: vec![],
                 },
                 alias: Some("bar".to_string()),
@@ -187,9 +187,7 @@ mod tests {
                     ColumnSpec {
                         column_control: ColumnControl::default(),
                         expression: Expression {
-                            base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
-                                "foo".to_string()
-                            )])),
+                            base: Value::Path(vec![PathPart::Column("foo".to_string())]),
                             compositions: vec![],
                         },
                         alias: None,
@@ -202,9 +200,7 @@ mod tests {
                             is_hidden: false,
                         },
                         expression: Expression {
-                            base: Value::Path(Path::ToOne(vec![PathPartToOne::Column(
-                                "bar".to_string()
-                            )])),
+                            base: Value::Path(vec![PathPart::Column("bar".to_string())]),
                             compositions: vec![],
                         },
                         alias: Some("B".to_string()),
