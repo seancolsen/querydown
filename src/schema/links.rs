@@ -234,7 +234,7 @@ impl Link for LinkToOne {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum SimpleLink {
     ForwardLinkToOne(ForwardLinkToOne),
     ReverseLinkToOne(ReverseLinkToOne),

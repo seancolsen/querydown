@@ -72,67 +72,111 @@ impl Schema {
         &self,
         base: ChainSearchBase,
         target: &TableWithMany,
-        max_chain_len: Option<usize>,
-    ) -> Option<Chain<GenericLink>> {
-        let base_table = self.tables.get(&base.get_base_table_id())?;
-        let ending_table = self.get_table(&target.table)?;
+        max_chain_length: Option<usize>,
+    ) -> Result<Chain<GenericLink>, String> {
+        let max_chain_len = max_chain_length.unwrap_or(usize::MAX);
+        if base.len() >= max_chain_len {
+            // I don't think this should never happen, but I put it here just in case
+            return Err("Chain search base already too long before searching.".to_string());
+        }
+        let target_table = self
+            .get_table(&target.table)
+            .ok_or("Target table not found.".to_string())?;
+        let make_final_chain = |simple_chain: Chain<SimpleLink>| -> Chain<GenericLink> {
+            let mut chain = Chain::<GenericLink>::from(simple_chain);
+            chain.set_final_condition_set(target.condition_set.clone());
+            chain
+        };
 
-        // Success path
-        if let Some(links) = base_table.reverse_links_to_many.get(&ending_table.id) {
+        // Success case where the base is already at the target
+        if base.get_ending_table_id() == Some(target_table.id) {
+            if let ChainSearchBase::Chain(simple_chain) = base {
+                return Ok(make_final_chain(simple_chain));
+            }
+        }
+
+        let base_table = self
+            .tables
+            .get(&base.get_base_table_id())
+            .ok_or("Base table not found.".to_string())?;
+
+        // Success case where we can directly find the target from the base
+        if let Some(links) = base_table.reverse_links_to_many.get(&target_table.id) {
             if let Ok(link) = links.iter().exactly_one() {
                 let simple_link = SimpleLink::ReverseLinkToMany(*link);
                 if let Ok(simple_chain) = base.clone().try_append_into_chain(simple_link) {
-                    let mut chain = Chain::<GenericLink>::from(simple_chain);
-                    chain.set_final_condition_set(target.condition_set.clone());
-                    return Some(chain);
+                    return Ok(make_final_chain(simple_chain));
                 }
             }
+        }
+
+        if base.len() + 1 >= max_chain_len {
+            return Err("Max chain length reached.".to_string());
         }
 
         let get_transitive_chain = |link: SimpleLink, max: usize| {
-            let Ok(chain) = base.clone().try_append_into_chain(link) else { return None };
+            let chain = base.clone().try_append_into_chain(link)?;
             self.get_chain_to_table_with_many(ChainSearchBase::Chain(chain), target, Some(max))
         };
-        let get_max_len = |winner_opt: &Option<Chain<GenericLink>>| {
-            winner_opt
-                .as_ref()
-                .map(|c| c.len())
-                .unwrap_or(max_chain_len.unwrap_or(usize::MAX))
+        enum ChainSearchResult {
+            Winner(Chain<GenericLink>),
+            Tie(usize),
+            NoneFound,
+        }
+        let get_max_len = |result: &ChainSearchResult| match result {
+            ChainSearchResult::Winner(chain) => chain.len(),
+            ChainSearchResult::Tie(len) => *len,
+            ChainSearchResult::NoneFound => max_chain_len,
         };
 
-        // Recursive path
-        let mut winner_opt: Option<Chain<GenericLink>> = None;
+        // Recursive case
+        let mut result = ChainSearchResult::NoneFound;
         for link in base_table.get_simple_links() {
-            let max_len = get_max_len(&winner_opt);
-            let Some(chain) = get_transitive_chain(link, max_len) else {continue};
-            if let Some(winner) = &winner_opt {
+            let max_len = get_max_len(&result);
+            let Ok(chain) = get_transitive_chain(link, max_len) else {continue};
+            if let ChainSearchResult::Winner(winner) = &result {
                 if chain.len() == winner.len() {
-                    // If two chains tie for the same length, we can't decide which one is better
-                    // so we return None.
-                    return None;
-                }
-                if chain.len() < winner.len() {
-                    winner_opt = Some(chain);
+                    result = ChainSearchResult::Tie(chain.len());
+                } else if chain.len() < winner.len() {
+                    result = ChainSearchResult::Winner(chain);
                 }
             } else {
-                winner_opt = Some(chain);
+                result = ChainSearchResult::Winner(chain);
             }
         }
-        winner_opt
+        match result {
+            ChainSearchResult::Winner(chain) => Ok(chain),
+            ChainSearchResult::Tie(_) => Err("Two chains tie for the same length".to_string()),
+            ChainSearchResult::NoneFound => Err("No chain found.".to_string()),
+        }
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ChainSearchBase {
     Chain(Chain<SimpleLink>),
     TableId(TableId),
 }
 
 impl ChainSearchBase {
+    pub fn len(&self) -> usize {
+        match self {
+            ChainSearchBase::Chain(chain) => chain.len(),
+            ChainSearchBase::TableId(_) => 0,
+        }
+    }
+
     pub fn get_base_table_id(&self) -> TableId {
         match self {
             Self::Chain(chain) => chain.get_ending_table_id(),
             Self::TableId(id) => *id,
+        }
+    }
+
+    pub fn get_ending_table_id(&self) -> Option<usize> {
+        match self {
+            Self::Chain(chain) => Some(chain.get_ending_table_id()),
+            Self::TableId(_) => None,
         }
     }
 
