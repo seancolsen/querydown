@@ -2,7 +2,7 @@ use crate::{
     dialects::dialect::Dialect,
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
-        chain::Chain,
+        chain::{Chain, ChainIntersecting},
         links::{ForwardLinkToOne, GenericLink, Link, LinkToOne},
         schema::{ChainSearchBase, Table},
     },
@@ -263,8 +263,8 @@ mod msg {
         format!("Column {column_name} not found within table {table_name}.")
     }
 
-    pub fn missing_tail() -> String {
-        "Scalar path expressions must specify a column name at the end.".to_string()
+    pub fn no_path_parts() -> String {
+        "Cannot build a LinkedPath without any PathParts".to_string()
     }
 }
 
@@ -272,24 +272,39 @@ fn clarify_path<D: Dialect>(
     parts: Vec<PathPart>,
     cx: &RenderingContext<D>,
 ) -> Result<ClarifiedPath, String> {
+    let linked_path = build_linked_path(parts, cx)?;
+    println!("linked_path: {:#?}", linked_path);
+    todo!()
+}
+
+#[derive(Debug)]
+enum LinkedPath {
+    Column(String),
+    Chain(Chain<GenericLink>),
+    ChainWithColumn(Chain<GenericLink>, String),
+}
+
+fn build_linked_path<D: Dialect>(
+    parts: Vec<PathPart>,
+    cx: &RenderingContext<D>,
+) -> Result<LinkedPath, String> {
     let mut is_first = true;
     let mut current_table_opt: Option<&Table> = Some(cx.get_base_table());
-    let mut head: Option<Chain<LinkToOne>> = None;
-    let mut tail_opt: Option<ClarifiedPathTail> = None;
     let mut prev_fw_link_to_one: Option<ForwardLinkToOne> = None;
+    let mut chain_opt: Option<Chain<GenericLink>> = None;
+    let mut final_column_name: Option<String> = None;
     for part in parts {
         if !is_first {
             if let Some(link) = prev_fw_link_to_one {
-                let link_to_one = LinkToOne::ForwardLinkToOne(link);
-                match head {
-                    Some(ref mut c) => c.try_append(link_to_one)?,
-                    None => head = Some(Chain::try_new(link_to_one)?),
-                }
+                let link_to_one = GenericLink::ForwardLinkToOne(link);
+                chain_opt = match chain_opt {
+                    Some(mut c) => {
+                        c.try_append(link_to_one)?;
+                        Some(c)
+                    }
+                    None => Some(Chain::try_new(link_to_one, ChainIntersecting::Allowed)?),
+                };
                 current_table_opt = cx.schema.tables.get(&link.get_end().table_id);
-            } else {
-                // If the current column is not an FK column, then we need to ensure
-                // that no more columns can be used in the path expression.
-                current_table_opt = None;
             }
         }
         let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
@@ -301,28 +316,36 @@ fn clarify_path<D: Dialect>(
                     .copied()
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &current_table.name))?;
                 prev_fw_link_to_one = current_table.forward_links_to_one.get(&column_id).copied();
-                tail_opt = Some(tail_opt.map_or_else(
-                    || ClarifiedPathTail::Column(column_name.clone()),
-                    |tail| tail.with_column(column_name.clone()),
-                ));
+                final_column_name = Some(column_name);
             }
             PathPart::TableWithOne(table_name) => {
                 todo!()
             }
             PathPart::TableWithMany(table_with_many) => {
                 let base = ChainSearchBase::TableId(current_table.id);
-                let chain = cx
-                    .schema
-                    .get_chain_to_table_with_many(base, &table_with_many, None);
-                println!("chain: {:#?}", chain);
-                todo!()
+                let mut new_chain =
+                    cx.schema
+                        .get_chain_to_table_with_many(base, &table_with_many, None)?;
+                new_chain.allow_intersecting();
+                current_table_opt = cx.schema.tables.get(&new_chain.get_ending_table_id());
+                chain_opt = match chain_opt {
+                    Some(mut chain) => {
+                        chain.try_connect(new_chain)?;
+                        Some(chain)
+                    }
+                    None => Some(new_chain),
+                };
+                final_column_name = None;
             }
-        }
+        };
         is_first = false;
     }
-    tail_opt
-        .ok_or_else(msg::missing_tail)
-        .map(|tail| ClarifiedPath { head, tail })
+    match (chain_opt, final_column_name) {
+        (Some(chain), Some(column_name)) => Ok(LinkedPath::ChainWithColumn(chain, column_name)),
+        (Some(chain), None) => Ok(LinkedPath::Chain(chain)),
+        (None, Some(column_name)) => Ok(LinkedPath::Column(column_name)),
+        (None, None) => Err(msg::no_path_parts()),
+    }
 }
 
 pub fn convert_join_tree<D: Dialect>(tree: &JoinTree, cx: &RenderingContext<D>) -> Vec<Join> {

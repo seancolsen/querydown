@@ -11,7 +11,7 @@ use itertools::Itertools;
 use crate::syntax_tree::TableWithMany;
 
 use super::{
-    chain::Chain,
+    chain::{Chain, ChainIntersecting},
     links::{
         FilteredReverseLinkToMany, ForeignKey, ForwardLinkToOne, GenericLink, Link, LinkToOne,
         Reference, ReverseLinkToMany, ReverseLinkToOne, SimpleLink,
@@ -193,7 +193,7 @@ impl ChainSearchBase {
                 if table_id != link.get_start().table_id {
                     return Err("Link does not connect to starting table");
                 }
-                Chain::try_new(link)
+                Chain::try_new(link, ChainIntersecting::Disallowed)
             }
         }
     }

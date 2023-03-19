@@ -11,12 +11,19 @@ struct ChainStats {
     table_ids: HashSet<TableId>,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ChainIntersecting {
+    Allowed,
+    Disallowed,
+}
+
 #[derive(Debug)]
 /// A series of zero or more connected links, along with cached information about that series
 /// for the purpose of easy analysis.
 pub struct Chain<L: Link> {
     links: Vec<L>,
     stats: ChainStats,
+    intersecting: ChainIntersecting,
 }
 
 impl<L: Link> Chain<L> {
@@ -24,17 +31,20 @@ impl<L: Link> Chain<L> {
         self.links.len()
     }
 
-    pub fn validate_link(link: &L) -> Result<(), &'static str> {
+    fn validate_link(link: &L, intersecting: &ChainIntersecting) -> Result<(), &'static str> {
+        if *intersecting == ChainIntersecting::Allowed {
+            return Ok(());
+        }
         let starting_table_id = link.get_start().table_id;
         let ending_table_id = link.get_end().table_id;
         if starting_table_id == ending_table_id {
-            return Err("Self-referential links cannot be part of a chain");
+            return Err("Self-referential links cannot be part of a non-intersecting chain");
         }
         Ok(())
     }
 
-    pub fn try_new(link: L) -> Result<Self, &'static str> {
-        Self::validate_link(&link)?;
+    pub fn try_new(link: L, intersecting: ChainIntersecting) -> Result<Self, &'static str> {
+        Self::validate_link(&link, &intersecting)?;
         let starting_table_id = link.get_start().table_id;
         let ending_table_id = link.get_end().table_id;
         Ok(Self {
@@ -44,6 +54,7 @@ impl<L: Link> Chain<L> {
                 ending_table_id,
                 table_ids: HashSet::from([starting_table_id, ending_table_id]),
             },
+            intersecting,
         })
     }
 
@@ -63,10 +74,18 @@ impl<L: Link> Chain<L> {
         self.stats.table_ids.contains(&table_id)
     }
 
+    pub fn allow_intersecting(&mut self) {
+        self.intersecting = ChainIntersecting::Allowed
+    }
+
+    pub fn disallow_intersecting(&mut self) {
+        self.intersecting = ChainIntersecting::Disallowed
+    }
+
     /// Try to add a link to the end of this chain. If it was successfully added, then return
     /// `Ok(())`. If it can't be added, then return an error message.
     pub fn try_append(&mut self, link: L) -> Result<(), &'static str> {
-        Self::validate_link(&link)?;
+        Self::validate_link(&link, &self.intersecting)?;
         let link_starting_table_id = link.get_start().table_id;
         let link_ending_table_id = link.get_end().table_id;
         if self.stats.ending_table_id != link_starting_table_id {
@@ -78,6 +97,31 @@ impl<L: Link> Chain<L> {
         self.links.push(link);
         self.stats.ending_table_id = link_ending_table_id;
         self.stats.table_ids.insert(link_ending_table_id);
+        Ok(())
+    }
+
+    pub fn try_connect(&mut self, chain: Chain<L>) -> Result<(), &'static str> {
+        if self.intersecting != chain.intersecting {
+            return Err("Cannot connect chains with different intersecting settings.");
+        }
+        if self.stats.ending_table_id != chain.stats.starting_table_id {
+            return Err("Chains do not connect.");
+        }
+        // This is compared to 1 because intersection will always contain the shared table id
+        if self
+            .stats
+            .table_ids
+            .intersection(&chain.stats.table_ids)
+            .count()
+            > 1
+        {
+            if self.intersecting == ChainIntersecting::Disallowed {
+                return Err("Chains would intersect.");
+            }
+        }
+        self.links.extend(chain.links);
+        self.stats.ending_table_id = chain.stats.ending_table_id;
+        self.stats.table_ids.extend(chain.stats.table_ids);
         Ok(())
     }
 }
@@ -98,28 +142,10 @@ impl<L: Link + Copy> Chain<L> {
                     ending_table_id: self.get_ending_table_id(),
                     table_ids,
                 },
+                intersecting: self.intersecting,
             }
         });
         (first_link, new_chain)
-    }
-}
-
-impl<L: Link + Clone> TryFrom<Vec<L>> for Chain<L> {
-    type Error = &'static str;
-
-    fn try_from(links: Vec<L>) -> Result<Self, &'static str> {
-        let mut iter = links.into_iter();
-        let first_link_option = iter.next();
-        match first_link_option {
-            Some(first_link) => {
-                let mut chain = Chain::try_new(first_link)?;
-                for link in iter {
-                    chain.try_append(link)?;
-                }
-                Ok(chain)
-            }
-            None => Err("A chain cannot be created from an empty list of links"),
-        }
     }
 }
 
@@ -128,6 +154,7 @@ impl<L: Link + Clone> Clone for Chain<L> {
         Self {
             links: self.links.clone(),
             stats: self.stats.clone(),
+            intersecting: self.intersecting,
         }
     }
 }
@@ -137,6 +164,7 @@ impl From<Chain<SimpleLink>> for Chain<GenericLink> {
         Self {
             links: chain.links.into_iter().map(|link| link.into()).collect(),
             stats: chain.stats,
+            intersecting: chain.intersecting,
         }
     }
 }
