@@ -244,21 +244,6 @@ enum ClarifiedPathTail {
     ChainToMany(Chain<GenericLink>),
 }
 
-/// Error messages
-mod msg {
-    pub fn no_current_table() -> String {
-        "Non-FK columns can only appear at the end of a path.".to_string()
-    }
-
-    pub fn col_not_in_table(column_name: &str, table_name: &str) -> String {
-        format!("Column {column_name} not found within table {table_name}.")
-    }
-
-    pub fn no_path_parts() -> String {
-        "Cannot build a LinkedPath without any PathParts".to_string()
-    }
-}
-
 fn clarify_path<D: Dialect>(
     parts: Vec<PathPart>,
     cx: &RenderingContext<D>,
@@ -383,4 +368,19 @@ pub fn convert_join_tree<D: Dialect>(tree: &JoinTree, cx: &RenderingContext<D>) 
         joins.extend(convert_join_tree(subtree, cx));
     }
     joins
+}
+
+/// Error messages
+mod msg {
+    pub fn no_current_table() -> String {
+        "Non-FK columns can only appear at the end of a path.".to_string()
+    }
+
+    pub fn col_not_in_table(column_name: &str, table_name: &str) -> String {
+        format!("Column {column_name} not found within table {table_name}.")
+    }
+
+    pub fn no_path_parts() -> String {
+        "Cannot build a LinkedPath without any PathParts".to_string()
+    }
 }
