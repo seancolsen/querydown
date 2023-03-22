@@ -2,7 +2,7 @@ use std::ops::BitAnd;
 
 use crate::syntax_tree::ConditionSet;
 
-use super::schema::{ColumnId, TableId};
+use super::schema::{ColumnId, Schema, TableId};
 use JoinQuantity::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -414,4 +414,11 @@ impl From<SimpleLink> for GenericLink {
             SimpleLink::ReverseLinkToMany(link) => Self::to_many(link),
         }
     }
+}
+
+pub fn get_fk_column_name(link: &impl Link, schema: &Schema) -> String {
+    let base = link.get_base();
+    let base_table = schema.tables.get(&base.table_id).unwrap();
+    let base_column = base_table.columns.get(&base.column_id).unwrap();
+    base_column.name.clone()
 }

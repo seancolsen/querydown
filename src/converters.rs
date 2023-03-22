@@ -3,7 +3,7 @@ use crate::{
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
         chain::{Chain, ChainIntersecting},
-        links::{ForwardLinkToOne, GenericLink, Link, LinkToOne},
+        links::{get_fk_column_name, ForwardLinkToOne, GenericLink, Link, LinkToOne},
         schema::{ChainSearchBase, Table},
     },
     sql_tree::*,
@@ -244,15 +244,6 @@ enum ClarifiedPathTail {
     ChainToMany(Chain<GenericLink>),
 }
 
-impl ClarifiedPathTail {
-    fn with_column(&self, column: String) -> Self {
-        match self {
-            Self::Column(_) => Self::Column(column),
-            Self::ChainToMany(_) => todo!(),
-        }
-    }
-}
-
 /// Error messages
 mod msg {
     pub fn no_current_table() -> String {
@@ -288,25 +279,10 @@ fn build_linked_path<D: Dialect>(
     parts: Vec<PathPart>,
     cx: &RenderingContext<D>,
 ) -> Result<LinkedPath, String> {
-    let mut is_first = true;
     let mut current_table_opt: Option<&Table> = Some(cx.get_base_table());
-    let mut prev_fw_link_to_one: Option<ForwardLinkToOne> = None;
     let mut chain_opt: Option<Chain<GenericLink>> = None;
     let mut final_column_name: Option<String> = None;
     for part in parts {
-        if !is_first {
-            if let Some(link) = prev_fw_link_to_one {
-                let link_to_one = GenericLink::ForwardLinkToOne(link);
-                chain_opt = match chain_opt {
-                    Some(mut c) => {
-                        c.try_append(link_to_one)?;
-                        Some(c)
-                    }
-                    None => Some(Chain::try_new(link_to_one, ChainIntersecting::Allowed)?),
-                };
-                current_table_opt = cx.schema.tables.get(&link.get_end().table_id);
-            }
-        }
         let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
         match part {
             PathPart::Column(column_name) => {
@@ -315,8 +291,20 @@ fn build_linked_path<D: Dialect>(
                     .get(&column_name)
                     .copied()
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &current_table.name))?;
-                prev_fw_link_to_one = current_table.forward_links_to_one.get(&column_id).copied();
-                final_column_name = Some(column_name);
+                if let Some(link) = current_table.forward_links_to_one.get(&column_id).copied() {
+                    current_table_opt = cx.schema.tables.get(&link.get_end().table_id);
+                    let generic_link = GenericLink::ForwardLinkToOne(link);
+                    chain_opt = match chain_opt {
+                        Some(mut chain) => {
+                            chain.try_append(generic_link)?;
+                            Some(chain)
+                        }
+                        None => Some(Chain::try_new(generic_link, ChainIntersecting::Allowed)?),
+                    };
+                } else {
+                    current_table_opt = None;
+                    final_column_name = Some(column_name);
+                }
             }
             PathPart::TableWithOne(table_name) => {
                 todo!()
@@ -338,11 +326,24 @@ fn build_linked_path<D: Dialect>(
                 final_column_name = None;
             }
         };
-        is_first = false;
     }
     match (chain_opt, final_column_name) {
         (Some(chain), Some(column_name)) => Ok(LinkedPath::ChainWithColumn(chain, column_name)),
-        (Some(chain), None) => Ok(LinkedPath::Chain(chain)),
+        (Some(mut chain), None) => {
+            // If the last link is a forward link to one, then we can remove it and use the column
+            // name as the final column name instead. This saves us from having to do a
+            // unnecessary join.
+            if let Some(GenericLink::ForwardLinkToOne(last_link)) = chain.get_links().last() {
+                let column_name = get_fk_column_name(last_link, cx.schema);
+                if chain.pop_last().is_some() {
+                    Ok(LinkedPath::ChainWithColumn(chain, column_name))
+                } else {
+                    Ok(LinkedPath::Column(column_name))
+                }
+            } else {
+                Ok(LinkedPath::Chain(chain))
+            }
+        }
         (None, Some(column_name)) => Ok(LinkedPath::Column(column_name)),
         (None, None) => Err(msg::no_path_parts()),
     }
