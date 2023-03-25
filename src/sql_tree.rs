@@ -47,6 +47,13 @@ pub struct Join {
     pub table: String,
     pub alias: String,
     pub condition_set: SqlConditionSet,
+    pub join_type: JoinType,
+}
+
+#[derive(Debug)]
+pub enum JoinType {
+    Inner,
+    LeftOuter,
 }
 
 #[derive(Debug, Default)]
@@ -122,7 +129,11 @@ impl Render for Join {
             format!("{} AS {}", quoted_table, quoted_alias)
         };
         let condition_set = self.condition_set.render(cx);
-        format!("LEFT JOIN {} ON {}", table_expr, condition_set)
+        let join_type = match self.join_type {
+            JoinType::Inner => "JOIN",
+            JoinType::LeftOuter => "LEFT JOIN",
+        };
+        format!("{join_type} {table_expr} ON {condition_set}")
     }
 }
 

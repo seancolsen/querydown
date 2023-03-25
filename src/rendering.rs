@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    converters::simplify_expression,
+    converters::{build_cte_select, simplify_expression},
     dialects::dialect::Dialect,
     schema::{
         chain::Chain,
-        links::LinkToOne,
+        links::{GenericLink, LinkToOne},
         schema::{Schema, Table},
     },
-    sql_tree::Cte,
+    sql_tree::{Cte, CtePurpose},
     syntax_tree::{Composition, Conjunction, Expression, Literal, Operator},
 };
 
@@ -67,8 +67,6 @@ impl JoinTree {
             // We have one more new link to add to the tree and then we're done. We add an empty
             // subtree and return its alias.
             (None, None) => {
-                // TODO It seems like we can probably merge the code in the match arm with the
-                // code in the next match arm
                 let alias = get_alias(next_link);
                 let subtree = JoinTree::new(alias.clone());
                 self.dependents.insert(*next_link, subtree);
@@ -120,6 +118,7 @@ pub struct RenderingContext<'a, D: Dialect> {
     indentation_level: usize,
     join_tree: JoinTree,
     aliases: HashSet<String>,
+    cte_naming_index: usize,
 }
 
 impl<'a, D: Dialect> RenderingContext<'a, D> {
@@ -138,6 +137,7 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
             indentation_level: 0,
             join_tree: JoinTree::new(base_table.name.to_owned()),
             aliases: HashSet::new(),
+            cte_naming_index: 0,
         })
     }
 
@@ -153,6 +153,10 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         INDENT_SPACER.repeat(self.indentation_level)
     }
 
+    pub fn get_indentation_level(&self) -> usize {
+        self.indentation_level
+    }
+
     pub fn indented<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         self.indentation_level = self.indentation_level.saturating_add(1);
         let result = f(self);
@@ -160,6 +164,19 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         result
     }
 
+    pub fn spawn(&self, base_table: &'a Table) -> Self {
+        RenderingContext {
+            dialect: self.dialect,
+            schema: self.schema,
+            base_table,
+            indentation_level: self.get_indentation_level() + 1,
+            join_tree: JoinTree::new(base_table.name.to_owned()),
+            aliases: HashSet::new(),
+            cte_naming_index: 0,
+        }
+    }
+
+    /// Returns a table alias that is unique within the context of the query.
     pub fn join_chain_to_one(&mut self, chain: &Chain<LinkToOne>) -> String {
         let mut aliases = std::mem::take(&mut self.aliases);
         let mut try_alias = |alias: &str| -> bool {
@@ -186,6 +203,32 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         let alias = self.join_tree.integrate_chain(chain, get_alias);
         self.aliases = aliases;
         alias
+    }
+
+    pub fn join_chain_to_many(
+        &mut self,
+        head: &Option<Chain<LinkToOne>>,
+        chain: Chain<GenericLink>,
+        final_column_name: Option<String>,
+        compositions: Vec<Composition>,
+    ) -> SimpleExpression {
+        let cte = self.build_cte(chain, final_column_name, compositions);
+        println!("{:#?}", cte);
+        todo!()
+    }
+
+    fn build_cte(
+        &mut self,
+        chain: Chain<GenericLink>,
+        final_column_name: Option<String>,
+        compositions: Vec<Composition>,
+    ) -> Cte {
+        let select = build_cte_select(chain, final_column_name, compositions, self);
+        Cte {
+            select,
+            name: "TODO".to_string(),
+            purpose: CtePurpose::AggregateValue, // TODO handle dynamically
+        }
     }
 }
 

@@ -1,9 +1,10 @@
 use crate::{
+    constants::CTE_PK_COLUMN_ALIAS,
     dialects::dialect::Dialect,
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
         chain::{Chain, ChainIntersecting},
-        links::{get_fk_column_name, ForwardLinkToOne, GenericLink, Link, LinkToOne},
+        links::{get_fk_column_name, GenericLink, Link, LinkToOne},
         schema::{ChainSearchBase, Table},
     },
     sql_tree::*,
@@ -220,28 +221,38 @@ fn simplify_path_expression<D: Dialect>(
     cx: &mut RenderingContext<D>,
 ) -> Result<SimpleExpression, String> {
     let clarified_path = clarify_path(parts, cx)?;
-    let table_name = if let Some(chain_to_one) = clarified_path.head {
-        cx.join_chain_to_one(&chain_to_one)
-    } else {
-        cx.get_base_table().name.clone()
-    };
-    match clarified_path.tail {
-        ClarifiedPathTail::Column(column_name) => Ok(SimpleExpression {
-            base: Literal::TableColumnReference(table_name, column_name),
-            compositions,
-        }),
-        ClarifiedPathTail::ChainToMany(_) => todo!(),
+    match (clarified_path.head, clarified_path.tail) {
+        (None, ClarifiedPathTail::Column(column_name)) => {
+            let table_name = cx.get_base_table().name.clone();
+            Ok(SimpleExpression {
+                base: Literal::TableColumnReference(table_name, column_name),
+                compositions,
+            })
+        }
+        (Some(chain_to_one), ClarifiedPathTail::Column(column_name)) => {
+            let table_name = cx.join_chain_to_one(&chain_to_one);
+            Ok(SimpleExpression {
+                base: Literal::TableColumnReference(table_name, column_name),
+                compositions,
+            })
+        }
+        (head, ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) => {
+            Ok(cx.join_chain_to_many(&head, chain_to_many, column_name_opt, compositions))
+        }
     }
 }
 
+#[derive(Debug)]
 struct ClarifiedPath {
     head: Option<Chain<LinkToOne>>,
     tail: ClarifiedPathTail,
 }
 
+#[derive(Debug)]
 enum ClarifiedPathTail {
     Column(String),
-    ChainToMany(Chain<GenericLink>),
+    /// chain, column_name
+    ChainToMany((Chain<GenericLink>, Option<String>)),
 }
 
 fn clarify_path<D: Dialect>(
@@ -249,15 +260,53 @@ fn clarify_path<D: Dialect>(
     cx: &RenderingContext<D>,
 ) -> Result<ClarifiedPath, String> {
     let linked_path = build_linked_path(parts, cx)?;
-    println!("linked_path: {:#?}", linked_path);
-    todo!()
+    let chain_opt = linked_path.chain;
+    let column_name_opt = linked_path.column;
+    let Some(chain) = chain_opt else {
+        return column_name_opt.map(|column_name| ClarifiedPath {
+            head: None,
+            tail: ClarifiedPathTail::Column(column_name),
+        }).ok_or_else(msg::no_path_parts)
+    };
+    let mut head: Option<Chain<LinkToOne>> = None;
+    let mut chain_to_many_opt: Option<Chain<GenericLink>> = None;
+    for generic_link in chain {
+        if let Some(chain_to_many) = &mut chain_to_many_opt {
+            // This unwrap is safe because we know that the chain has already been constructed.
+            // We're just re-constructing part of it.
+            chain_to_many.try_append(generic_link).unwrap();
+        } else {
+            match LinkToOne::try_from(generic_link) {
+                Ok(link_to_one) => {
+                    if let Some(chain) = &mut head {
+                        // This unwrap is safe because we know that the chain has already been
+                        // constructed using GenericLink links. All we're doing here is
+                        // re-constructing it with LinkToOne links.
+                        chain.try_append(link_to_one).unwrap();
+                    } else {
+                        head =
+                            Some(Chain::try_new(link_to_one, ChainIntersecting::Allowed).unwrap());
+                    }
+                }
+                Err(generic_link) => {
+                    chain_to_many_opt =
+                        Some(Chain::try_new(generic_link, ChainIntersecting::Allowed).unwrap());
+                }
+            }
+        }
+    }
+    let tail = if let Some(chain_to_many) = chain_to_many_opt {
+        ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))
+    } else {
+        ClarifiedPathTail::Column(column_name_opt.ok_or_else(msg::no_column_name_or_chain)?)
+    };
+    Ok(ClarifiedPath { head, tail })
 }
 
 #[derive(Debug)]
-enum LinkedPath {
-    Column(String),
-    Chain(Chain<GenericLink>),
-    ChainWithColumn(Chain<GenericLink>, String),
+struct LinkedPath {
+    pub chain: Option<Chain<GenericLink>>,
+    pub column: Option<String>,
 }
 
 fn build_linked_path<D: Dialect>(
@@ -312,62 +361,120 @@ fn build_linked_path<D: Dialect>(
             }
         };
     }
-    match (chain_opt, final_column_name) {
-        (Some(chain), Some(column_name)) => Ok(LinkedPath::ChainWithColumn(chain, column_name)),
-        (Some(mut chain), None) => {
-            // If the last link is a forward link to one, then we can remove it and use the column
-            // name as the final column name instead. This saves us from having to do a
-            // unnecessary join.
-            if let Some(GenericLink::ForwardLinkToOne(last_link)) = chain.get_links().last() {
-                let column_name = get_fk_column_name(last_link, cx.schema);
-                if chain.pop_last().is_some() {
-                    Ok(LinkedPath::ChainWithColumn(chain, column_name))
-                } else {
-                    Ok(LinkedPath::Column(column_name))
-                }
+    chain_opt = if let Some(mut chain) = chain_opt {
+        // If the last link is a forward link to one, then we can remove it and use the column
+        // name as the final column name instead. This saves us from having to do a
+        // unnecessary join.
+        if let Some(GenericLink::ForwardLinkToOne(last_link)) = chain.get_links().last() {
+            let column_name = get_fk_column_name(last_link, cx.schema);
+            final_column_name = Some(column_name);
+            if chain.pop_last().is_none() {
+                None
             } else {
-                Ok(LinkedPath::Chain(chain))
+                Some(chain)
             }
+        } else {
+            final_column_name = None;
+            Some(chain)
         }
-        (None, Some(column_name)) => Ok(LinkedPath::Column(column_name)),
-        (None, None) => Err(msg::no_path_parts()),
-    }
+    } else {
+        chain_opt
+    };
+    Ok(LinkedPath {
+        chain: chain_opt,
+        column: final_column_name,
+    })
 }
 
 pub fn convert_join_tree<D: Dialect>(tree: &JoinTree, cx: &RenderingContext<D>) -> Vec<Join> {
     let mut joins: Vec<Join> = vec![];
     for (link, subtree) in tree.get_dependents().iter() {
-        let start = link.get_start();
-        let starting_table_id = start.table_id;
-        let starting_table = cx.schema.tables.get(&starting_table_id).unwrap();
-        let starting_column_id = start.column_id;
-        let starting_column = starting_table.columns.get(&starting_column_id).unwrap();
         let starting_alias = tree.get_alias();
-
-        let end = link.get_end();
-        let ending_table_id = end.table_id;
-        let ending_table = cx.schema.tables.get(&ending_table_id).unwrap();
-        let ending_column_id = end.column_id;
-        let ending_column = ending_table.columns.get(&ending_column_id).unwrap();
         let ending_alias = subtree.get_alias();
-
-        let condition = format!(
-            "{} = {}",
-            cx.dialect
-                .table_column(starting_alias, &starting_column.name),
-            cx.dialect.table_column(&ending_alias, &ending_column.name),
-        );
-        joins.push(Join {
-            table: cx.schema.tables.get(&ending_table_id).unwrap().name.clone(),
-            alias: ending_alias.to_owned(),
-            condition_set: SqlConditionSet {
-                conjunction: Conjunction::And,
-                entries: vec![SqlConditionSetEntry::Expression(condition)],
-            },
-        });
+        let join_type = JoinType::LeftOuter;
+        let join = make_join_from_link(link, starting_alias, ending_alias, join_type, cx);
+        joins.push(join);
         joins.extend(convert_join_tree(subtree, cx));
     }
     joins
+}
+
+pub fn build_cte_select<D: Dialect>(
+    chain: Chain<GenericLink>,
+    final_column_name: Option<String>,
+    compositions: Vec<Composition>,
+    context_of_parent_query: &RenderingContext<D>,
+) -> Select {
+    let mut links_iter = chain.into_iter();
+    // Unwrap is safe because we know a chain will contain at least one link.
+    let generic_first_link = links_iter.next().unwrap();
+    let GenericLink::FilteredReverseLinkToMany(first_link) = generic_first_link else {
+        // This should never happen because we've already split the chain into a tail which begins
+        // FilteredReverseLinkToMany link.
+        panic!("Bug: Tried to build a CTE but the first link was a link to one.");
+    };
+    let base = first_link.link.base;
+    let base_table = context_of_parent_query
+        .schema
+        .tables
+        .get(&base.table_id)
+        // Unwrap is safe because we know schema only has valid links.
+        .unwrap();
+    // Unwrap is safe because we know schema only has valid links.
+    let base_column = base_table.columns.get(&base.column_id).unwrap();
+    let mut cx = context_of_parent_query.spawn(&base_table);
+    let mut select = Select::from(cx.get_base_table().name.clone());
+    let pk_expr = Literal::TableColumnReference(base_table.name.clone(), base_column.name.clone())
+        .render(&mut cx);
+    select.grouping.push(pk_expr.clone());
+    select.columns.push(Column {
+        expression: pk_expr,
+        alias: Some(CTE_PK_COLUMN_ALIAS.to_owned()),
+    });
+    for link in links_iter {
+        let starting_alias = "TODO";
+        let ending_alias = "TODO";
+        let join_type = JoinType::Inner;
+        let join = make_join_from_link(&link, starting_alias, ending_alias, join_type, &cx);
+        select.joins.push(join);
+    }
+    select
+}
+
+fn make_join_from_link<D: Dialect>(
+    link: &impl Link,
+    starting_alias: &str,
+    ending_alias: &str,
+    join_type: JoinType,
+    cx: &RenderingContext<D>,
+) -> Join {
+    let start = link.get_start();
+    let starting_table_id = start.table_id;
+    let starting_table = cx.schema.tables.get(&starting_table_id).unwrap();
+    let starting_column_id = start.column_id;
+    let starting_column = starting_table.columns.get(&starting_column_id).unwrap();
+
+    let end = link.get_end();
+    let ending_table_id = end.table_id;
+    let ending_table = cx.schema.tables.get(&ending_table_id).unwrap();
+    let ending_column_id = end.column_id;
+    let ending_column = ending_table.columns.get(&ending_column_id).unwrap();
+
+    let condition = format!(
+        "{} = {}",
+        cx.dialect
+            .table_column(starting_alias, &starting_column.name),
+        cx.dialect.table_column(ending_alias, &ending_column.name),
+    );
+    Join {
+        table: cx.schema.tables.get(&ending_table_id).unwrap().name.clone(),
+        alias: ending_alias.to_owned(),
+        condition_set: SqlConditionSet {
+            conjunction: Conjunction::And,
+            entries: vec![SqlConditionSetEntry::Expression(condition)],
+        },
+        join_type,
+    }
 }
 
 /// Error messages
@@ -381,6 +488,18 @@ mod msg {
     }
 
     pub fn no_path_parts() -> String {
-        "Cannot build a LinkedPath without any PathParts".to_string()
+        "Cannot build a ClarifiedPath without any path parts".to_string()
+    }
+
+    pub fn no_column_name_or_chain() -> String {
+        "Cannot build a ClarifiedPathTail without a column name or chain".to_string()
+    }
+
+    pub fn spawn_context_with_invalid_table_id() -> String {
+        "Attempted to spawn a child rendering context using an invalid table ID.".to_string()
+    }
+
+    pub fn cte_from_chain_that_does_not_start_with_link_to_many() -> String {
+        "Cannot spawn CTE context for chain that does not start with a link to many.".to_string()
     }
 }

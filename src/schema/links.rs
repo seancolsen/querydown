@@ -234,6 +234,18 @@ impl Link for LinkToOne {
     }
 }
 
+impl TryFrom<GenericLink> for LinkToOne {
+    type Error = GenericLink;
+
+    fn try_from(link: GenericLink) -> Result<Self, Self::Error> {
+        match link {
+            GenericLink::ForwardLinkToOne(link) => Ok(LinkToOne::ForwardLinkToOne(link)),
+            GenericLink::ReverseLinkToOne(link) => Ok(LinkToOne::ReverseLinkToOne(link)),
+            _ => Err(link),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum SimpleLink {
     ForwardLinkToOne(ForwardLinkToOne),

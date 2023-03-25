@@ -71,6 +71,16 @@ impl<L: Link> Chain<L> {
         &self.links
     }
 
+    pub fn get_first_link(&self) -> &L {
+        // This unwrap is safe because we know that a chain will have at least one link
+        self.links.first().unwrap()
+    }
+
+    pub fn get_last_link(&self) -> &L {
+        // This unwrap is safe because we know that a chain will have at least one link
+        self.links.last().unwrap()
+    }
+
     pub fn has_table_id(&self, table_id: TableId) -> bool {
         self.stats.table_ids.contains(&table_id)
     }
@@ -138,6 +148,15 @@ impl<L: Link> Chain<L> {
         self.stats.ending_table_id = chain.stats.ending_table_id;
         self.stats.table_ids.extend(chain.stats.table_ids);
         Ok(())
+    }
+}
+
+impl<L: Link> IntoIterator for Chain<L> {
+    type Item = L;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.links.into_iter()
     }
 }
 
