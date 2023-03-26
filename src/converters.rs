@@ -431,12 +431,20 @@ pub fn build_cte_select<D: Dialect>(
         expression: pk_expr,
         alias: Some(CTE_PK_COLUMN_ALIAS.to_owned()),
     });
+    let mut starting_alias = base_table.name.clone();
     for link in links_iter {
-        let starting_alias = "TODO";
-        let ending_alias = "TODO";
+        let ideal_ending_alias = cx
+            .schema
+            .tables
+            .get(&link.get_end().table_id)
+            .unwrap()
+            .name
+            .as_str();
+        let ending_alias = cx.get_alias(ideal_ending_alias);
         let join_type = JoinType::Inner;
-        let join = make_join_from_link(&link, starting_alias, ending_alias, join_type, &cx);
+        let join = make_join_from_link(&link, &starting_alias, &ending_alias, join_type, &cx);
         select.joins.push(join);
+        starting_alias = ending_alias;
     }
     select
 }
@@ -493,13 +501,5 @@ mod msg {
 
     pub fn no_column_name_or_chain() -> String {
         "Cannot build a ClarifiedPathTail without a column name or chain".to_string()
-    }
-
-    pub fn spawn_context_with_invalid_table_id() -> String {
-        "Attempted to spawn a child rendering context using an invalid table ID.".to_string()
-    }
-
-    pub fn cte_from_chain_that_does_not_start_with_link_to_many() -> String {
-        "Cannot spawn CTE context for chain that does not start with a link to many.".to_string()
     }
 }

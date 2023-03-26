@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    constants::CTE_ALIAS_PREFIX,
     converters::{build_cte_select, simplify_expression},
     dialects::dialect::Dialect,
     schema::{
@@ -178,6 +179,10 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
 
     /// Returns a table alias that is unique within the context of the query.
     pub fn join_chain_to_one(&mut self, chain: &Chain<LinkToOne>) -> String {
+        // TODO figure out how to reduce code duplication between the logic here and
+        // RenderingContext.get_alias. There are some borrowing issues with using the get_alias
+        // method here. Need to find a way to structure this code so that both use-cases can share
+        // it.
         let mut aliases = std::mem::take(&mut self.aliases);
         let mut try_alias = |alias: &str| -> bool {
             if !aliases.contains(alias) {
@@ -205,6 +210,22 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         alias
     }
 
+    pub fn get_alias(&mut self, ideal_alias: &str) -> String {
+        let mut suffix_index: usize = 0;
+        loop {
+            let alias = if suffix_index == 0 {
+                ideal_alias.to_owned()
+            } else {
+                format!("{}_{}", ideal_alias, suffix_index)
+            };
+            if !self.aliases.contains(&alias) {
+                self.aliases.insert(alias.clone());
+                return alias;
+            }
+            suffix_index += 1;
+        }
+    }
+
     pub fn join_chain_to_many(
         &mut self,
         head: &Option<Chain<LinkToOne>>,
@@ -217,6 +238,17 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         todo!()
     }
 
+    fn get_cte_alias(&mut self) -> String {
+        loop {
+            let alias = format!("{}{}", CTE_ALIAS_PREFIX, self.cte_naming_index);
+            self.cte_naming_index += 1;
+            if !self.aliases.contains(&alias) {
+                self.aliases.insert(alias.clone());
+                return alias;
+            }
+        }
+    }
+
     fn build_cte(
         &mut self,
         chain: Chain<GenericLink>,
@@ -226,7 +258,7 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         let select = build_cte_select(chain, final_column_name, compositions, self);
         Cte {
             select,
-            name: "TODO".to_string(),
+            name: self.get_cte_alias(),
             purpose: CtePurpose::AggregateValue, // TODO handle dynamically
         }
     }
