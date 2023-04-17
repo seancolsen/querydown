@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn test_column_spec() {
         assert_eq!(
-            column_spec().parse("|8"),
+            column_spec().parse("$8"),
             Ok(ColumnSpec {
                 column_control: ColumnControl::default(),
                 expression: Expression {
@@ -157,7 +157,7 @@ mod tests {
             })
         );
         assert_eq!(
-            column_spec().parse(r"|foo->bar\s1d"),
+            column_spec().parse(r"$foo->bar\s1d"),
             Ok(ColumnSpec {
                 column_control: ColumnControl {
                     sort: Some(SortSpec {
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_column_layout() {
         assert_eq!(
-            column_layout().parse(r"|foo |bar->B \g"),
+            column_layout().parse(r"$foo $bar->B \g"),
             Ok(ColumnLayout {
                 column_specs: vec![
                     ColumnSpec {

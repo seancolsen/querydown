@@ -25,7 +25,7 @@ mod tests {
     #[test]
     fn test_transformation() {
         assert_eq!(
-            transformation().then_ignore(end()).parse("{a=8} |foo"),
+            transformation().then_ignore(end()).parse("{a:8} $foo"),
             Ok(Transformation {
                 condition_set: ConditionSet {
                     conjunction: Conjunction::And,

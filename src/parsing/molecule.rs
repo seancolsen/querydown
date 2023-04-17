@@ -86,7 +86,7 @@ mod tests {
             })
         );
         assert_eq!(
-            discerned_expression().parse("foo:bar(2)%baz"),
+            discerned_expression().parse("foo|bar(2)%baz"),
             Ok(Expression {
                 base: Value::Path(vec![PathPart::Column("foo".to_string())]),
                 compositions: vec![
@@ -132,7 +132,7 @@ mod tests {
             })
         );
         assert_eq!(
-            discerned_expression().parse("#foo(bar){a=1}"),
+            discerned_expression().parse("#foo(bar){a:1}"),
             Ok(Expression {
                 base: Value::Path(vec![PathPart::TableWithMany(TableWithMany {
                     table: "foo".to_string(),
@@ -156,13 +156,13 @@ mod tests {
             })
         );
 
-        assert!(discerned_expression().parse("{a=1}").is_err());
+        assert!(discerned_expression().parse("{a:1}").is_err());
     }
 
     #[test]
     fn test_discerned_condition_set() {
         assert_eq!(
-            discerned_condition_set().parse("{a=1}"),
+            discerned_condition_set().parse("{a:1}"),
             Ok(ConditionSet {
                 conjunction: Conjunction::And,
                 entries: vec![ConditionSetEntry::Comparison(Comparison {

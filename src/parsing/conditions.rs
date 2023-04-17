@@ -81,7 +81,7 @@ fn operator() -> impl QdParser<Operator> {
         exactly(OPERATOR_LIKE).to(Operator::Like),
         exactly(OPERATOR_NEQ).to(Operator::Neq),
         exactly(OPERATOR_MATCH).to(Operator::Match),
-        exactly(OPERATOR_NOT_R_LIKE).to(Operator::NRLike),
+        exactly(OPERATOR_NOT_MATCH).to(Operator::NRLike),
         // One character
         exactly(OPERATOR_EQ).to(Operator::Eq),
         exactly(OPERATOR_GT).to(Operator::Gt),
