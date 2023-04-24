@@ -446,6 +446,8 @@ pub fn build_cte_select<D: Dialect>(
         select.joins.push(join);
         starting_alias = ending_alias;
     }
+    // TODO_NEXT: we also need to add another column to the SELECT statement to yield the data
+    // referenced by the path.
     select
 }
 
