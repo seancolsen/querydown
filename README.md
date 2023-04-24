@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./branding/logo-src.svg" width="120" style="margin: 0 auto;">
+  <img src="./branding/logo-optimized.svg" width="120" style="margin: 0 auto;">
 </p>
 
 # Querydown

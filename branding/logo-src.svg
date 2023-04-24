@@ -24,15 +24,19 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      showgrid="false"
-     inkscape:zoom="0.65186406"
-     inkscape:cx="-0.76703108"
-     inkscape:cy="-268.46088"
-     inkscape:window-width="1920"
-     inkscape:window-height="1080"
+     inkscape:zoom="5.2149125"
+     inkscape:cx="130.29941"
+     inkscape:cy="87.345665"
+     inkscape:window-width="2216"
+     inkscape:window-height="1397"
      inkscape:window-x="0"
      inkscape:window-y="0"
      inkscape:window-maximized="0"
-     inkscape:current-layer="g1159" />
+     inkscape:current-layer="svg8" />
+  <path
+     style="fill:#ffffff;fill-opacity:1"
+     d="m 15,10 c -2.7614,0 -5,2.2386 -5,5 v 98 c 0,2.761 2.2386,5 5,5 h 178 c 2.761,0 5,-2.239 5,-5 V 15 c 0,-2.7614 -2.239,-5 -5,-5 z"
+     id="path338" />
   <path
      clip-rule="evenodd"
      d="m 15,10 c -2.7614,0 -5,2.2386 -5,5 v 98 c 0,2.761 2.2386,5 5,5 h 178 c 2.761,0 5,-2.239 5,-5 V 15 c 0,-2.7614 -2.239,-5 -5,-5 z M 0,15 C 0,6.71573 6.71573,0 15,0 h 178 c 8.284,0 15,6.71573 15,15 v 98 c 0,8.284 -6.716,15 -15,15 H 15 C 6.71573,128 0,121.284 0,113 Z"
