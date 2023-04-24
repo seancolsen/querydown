@@ -1,8 +1,10 @@
-# Querydown Design
+# Querydown Language Design
+
+_See also: **[Syntax Cheat Sheet](./syntax-cheat-sheet.md)**_
 
 ## Example schemas
 
-💡 Most examples in this document are based on a **[issue-tracker sample schema](./example-schemas/issue-tracker.yaml)**. It has an [ER diagram](../resources/test/issue_schema.diagram.pdf) too. Understanding the schema will be important to understand some of the examples.
+💡 Most examples in this document are based on a **[issue-tracker sample schema](./example-schemas/issue-tracker.yaml)**. It has an [ER diagram](../resources/test/issue_schema.diagram.png) too. Understanding the schema will be important to understand some of the examples.
 
 _Some other examples near the end are based on a [library schema](./example-schemas/library.yaml) and [logistics schema](./example-schemas/logistics.yaml)._
 

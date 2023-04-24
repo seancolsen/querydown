@@ -1,5 +1,7 @@
 # Syntax cheat sheet
 
+_See also: **[Language Design](./design.md)**_
+
 ## Literals
 
 | Code                    | Usage |
