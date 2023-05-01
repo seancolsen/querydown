@@ -23,6 +23,8 @@ mod functions {
     pub const PLUS: &str = "plus";
     pub const TIMES: &str = "times";
     pub const DIVIDE: &str = "divide";
+    pub const MAX: &str = "max";
+    pub const MIN: &str = "min";
 }
 
 use functions::*;
@@ -232,9 +234,16 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         chain: Chain<GenericLink>,
         final_column_name: Option<String>,
         compositions: Vec<Composition>,
-    ) -> SimpleExpression {
-        let cte = self.build_cte(chain, final_column_name, compositions);
+    ) -> Result<SimpleExpression, String> {
+        let (select, post_aggregate_compositions) =
+            build_cte_select(chain, final_column_name, compositions, self)?;
+        let cte = Cte {
+            select,
+            name: self.get_cte_alias(),
+            purpose: CtePurpose::AggregateValue, // TODO handle dynamically
+        };
         println!("{:#?}", cte);
+        // TODO_NEXT: add the CTE to the join tree. Then get the CTE to render in the SQL output.
         todo!()
     }
 
@@ -246,20 +255,6 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
                 self.aliases.insert(alias.clone());
                 return alias;
             }
-        }
-    }
-
-    fn build_cte(
-        &mut self,
-        chain: Chain<GenericLink>,
-        final_column_name: Option<String>,
-        compositions: Vec<Composition>,
-    ) -> Cte {
-        let select = build_cte_select(chain, final_column_name, compositions, self);
-        Cte {
-            select,
-            name: self.get_cte_alias(),
-            purpose: CtePurpose::AggregateValue, // TODO handle dynamically
         }
     }
 }
@@ -297,13 +292,20 @@ fn render_composition<D: Dialect>(
         None => base.to_owned(),
         Some(a) => format!("{} {} {}", base, o, a),
     };
+    let sql_fn = |f: &'static str| match &arg {
+        None => format!("{}({})", f, base),
+        Some(a) => format!("{}({}, {})", f, base, a),
+    };
     match function_name {
         PLUS => operator("+"),
         MINUS => operator("-"),
         TIMES => operator("*"),
         DIVIDE => operator("/"),
-        AGO => format!("{} - {}", SQL_NOW.to_string(), base),
-        FROM_NOW => format!("{} + {}", SQL_NOW.to_string(), base),
+        AGO => format!("({} - {})", SQL_NOW.to_string(), base),
+        FROM_NOW => format!("({} + {})", SQL_NOW.to_string(), base),
+        MAX => sql_fn("MAX"),
+        MIN => sql_fn("MIN"),
+        // TODO give error here instead of falling through
         _ => base.to_owned(),
     }
 }

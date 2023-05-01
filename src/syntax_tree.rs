@@ -240,6 +240,18 @@ pub struct Composition {
     pub argument: Option<Expression>,
 }
 
+impl Composition {
+    pub fn count() -> Self {
+        Composition {
+            function: Function {
+                name: "count".to_string(),
+                dimension: FunctionDimension::Aggregate,
+            },
+            argument: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: String,

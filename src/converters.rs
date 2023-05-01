@@ -1,5 +1,5 @@
 use crate::{
-    constants::CTE_PK_COLUMN_ALIAS,
+    constants::{CTE_PK_COLUMN_ALIAS, CTE_VALUE_COLUMN_PREFIX},
     dialects::dialect::Dialect,
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
@@ -237,7 +237,7 @@ fn simplify_path_expression<D: Dialect>(
             })
         }
         (head, ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) => {
-            Ok(cx.join_chain_to_many(&head, chain_to_many, column_name_opt, compositions))
+            cx.join_chain_to_many(&head, chain_to_many, column_name_opt, compositions)
         }
     }
 }
@@ -374,7 +374,6 @@ fn build_linked_path<D: Dialect>(
                 Some(chain)
             }
         } else {
-            final_column_name = None;
             Some(chain)
         }
     } else {
@@ -404,51 +403,100 @@ pub fn build_cte_select<D: Dialect>(
     final_column_name: Option<String>,
     compositions: Vec<Composition>,
     context_of_parent_query: &RenderingContext<D>,
-) -> Select {
+) -> Result<(Select, Vec<Composition>), String> {
+    use Literal::TableColumnReference;
+    let schema = context_of_parent_query.schema;
     let mut links_iter = chain.into_iter();
-    // Unwrap is safe because we know a chain will contain at least one link.
-    let generic_first_link = links_iter.next().unwrap();
-    let GenericLink::FilteredReverseLinkToMany(first_link) = generic_first_link else {
-        // This should never happen because we've already split the chain into a tail which begins
-        // FilteredReverseLinkToMany link.
-        panic!("Bug: Tried to build a CTE but the first link was a link to one.");
-    };
-    let base = first_link.link.base;
-    let base_table = context_of_parent_query
-        .schema
-        .tables
-        .get(&base.table_id)
-        // Unwrap is safe because we know schema only has valid links.
-        .unwrap();
-    // Unwrap is safe because we know schema only has valid links.
+    let first_link = links_iter.next().unwrap();
+    let base = first_link.get_base();
+    let base_table = schema.tables.get(&base.table_id).unwrap();
     let base_column = base_table.columns.get(&base.column_id).unwrap();
     let mut cx = context_of_parent_query.spawn(&base_table);
     let mut select = Select::from(cx.get_base_table().name.clone());
-    let pk_expr = Literal::TableColumnReference(base_table.name.clone(), base_column.name.clone())
-        .render(&mut cx);
+    let pk_expr =
+        TableColumnReference(base_table.name.clone(), base_column.name.clone()).render(&mut cx);
     select.grouping.push(pk_expr.clone());
-    select.columns.push(Column {
-        expression: pk_expr,
-        alias: Some(CTE_PK_COLUMN_ALIAS.to_owned()),
-    });
+    select
+        .columns
+        .push(Column::new(pk_expr, Some(CTE_PK_COLUMN_ALIAS.to_owned())));
     let mut starting_alias = base_table.name.clone();
+    let mut ending_table = schema.tables.get(&first_link.get_end().table_id).unwrap();
     for link in links_iter {
-        let ideal_ending_alias = cx
-            .schema
-            .tables
-            .get(&link.get_end().table_id)
-            .unwrap()
-            .name
-            .as_str();
+        ending_table = schema.tables.get(&link.get_end().table_id).unwrap();
+        let ideal_ending_alias = ending_table.name.as_str();
         let ending_alias = cx.get_alias(ideal_ending_alias);
         let join_type = JoinType::Inner;
         let join = make_join_from_link(&link, &starting_alias, &ending_alias, join_type, &cx);
         select.joins.push(join);
         starting_alias = ending_alias;
     }
-    // TODO_NEXT: we also need to add another column to the SELECT statement to yield the data
-    // referenced by the path.
+    let (aggregating_compositions, post_aggregate_compositions) =
+        prepare_compositions_for_aggregation(compositions)?;
+
+    let value_expr = match final_column_name {
+        Some(column_name) => {
+            let column_id = ending_table
+                .column_lookup
+                .get(&column_name)
+                .ok_or_else(|| msg::col_not_in_table(&column_name, &ending_table.name))?;
+            let column = ending_table.columns.get(column_id).unwrap();
+            let expr = Expression {
+                base: Value::Literal(TableColumnReference(
+                    ending_table.name.clone(),
+                    column.name.clone(),
+                )),
+                compositions: aggregating_compositions,
+            };
+            expr.render(&mut cx)
+        }
+        None => {
+            // Need to handle case where we don't have an explicit column name from the user. If
+            // we have one and only one aggregating composition, and that composition is `COUNT`,
+            // then we apply `COUNT(*)`. Otherwise, I think we probably want to return an error,
+            // though it could be worth considering other behavior here.
+            todo!()
+        }
+    };
+    let value_alias = format!("{}{}", CTE_VALUE_COLUMN_PREFIX.to_owned(), 1);
     select
+        .columns
+        .push(Column::new(value_expr, Some(value_alias)));
+    Ok((select, post_aggregate_compositions))
+}
+
+/// Returns a tuple of `(aggregating_compositions, post_aggregate_compositions)` where:
+///
+/// - `aggregating_compositions` are the compositions that should be applied within the CTE. This
+///  vec is guaranteed to have at least one composition, with the last composition always being
+///  the only aggregate composition.
+///
+/// - `post_aggregate_compositions` are the compositions that should be applied after the CTE.
+/// This vec might be empty. It will not contain any aggregate compositions.
+fn prepare_compositions_for_aggregation(
+    compositions: Vec<Composition>,
+) -> Result<(Vec<Composition>, Vec<Composition>), String> {
+    let mut pre_aggregate_compositions = vec![];
+    let mut aggregate_composition = None;
+    let mut post_aggregate_compositions = vec![];
+    for composition in compositions {
+        if composition.function.dimension == FunctionDimension::Aggregate {
+            if aggregate_composition.is_some() {
+                return Err(msg::multiple_agg_fns());
+            }
+            aggregate_composition = Some(composition);
+        } else if aggregate_composition.is_none() {
+            pre_aggregate_compositions.push(composition);
+        } else {
+            post_aggregate_compositions.push(composition);
+        }
+    }
+    match aggregate_composition {
+        Some(a) => {
+            pre_aggregate_compositions.push(a);
+            Ok((pre_aggregate_compositions, post_aggregate_compositions))
+        }
+        None => Ok((vec![Composition::count()], pre_aggregate_compositions)),
+    }
 }
 
 fn make_join_from_link<D: Dialect>(
@@ -494,7 +542,7 @@ mod msg {
     }
 
     pub fn col_not_in_table(column_name: &str, table_name: &str) -> String {
-        format!("Column {column_name} not found within table {table_name}.")
+        format!("Column `{column_name}` not found within table `{table_name}`.")
     }
 
     pub fn no_path_parts() -> String {
@@ -503,5 +551,9 @@ mod msg {
 
     pub fn no_column_name_or_chain() -> String {
         "Cannot build a ClarifiedPathTail without a column name or chain".to_string()
+    }
+
+    pub fn multiple_agg_fns() -> String {
+        "Cannot apply more than one aggregate function to the same expression.".to_string()
     }
 }

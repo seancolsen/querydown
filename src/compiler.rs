@@ -52,3 +52,51 @@ impl<D: Dialect> Compiler<D> {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::dialects::postgres::Postgres;
+    use crate::tests::test_utils::get_test_resource;
+
+    use super::*;
+
+    fn compile(input: &str) -> Result<String, String> {
+        let schema_json = &get_test_resource("issue_schema.json");
+        let compiler = Compiler::new(&schema_json, Postgres()).unwrap();
+        compiler.compile(input.to_owned())
+    }
+
+    /// Removes spaces so that it's easy to compare two SQL strings without worrying about
+    /// whitespace
+    fn clean(s: String) -> String {
+        s.replace("\n", "").replace("\t", "").replace(" ", "")
+    }
+
+    /// Run a full test case, expecting success
+    fn run(input: &str, expected_result: &str) {
+        assert_eq!(
+            clean(compile(input).unwrap()),
+            clean(expected_result.to_owned())
+        );
+    }
+
+    #[test]
+    fn test_issues_id() {
+        run(
+            "issues $id->id",
+            r#"
+            SELECT "issues"."id" AS "id" FROM "issues";
+            "#,
+        );
+    }
+
+    // #[test]
+    // fn test_most_recent_date_of_comment_on_issue_authored_by_user() {
+    //     run(
+    //         "users $id->id $#issues.#comments.created_at%max->d",
+    //         r#"
+    //         TODO
+    //         "#,
+    //     );
+    // }
+}

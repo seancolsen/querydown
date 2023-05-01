@@ -21,6 +21,12 @@ pub struct Column {
     pub alias: Option<String>,
 }
 
+impl Column {
+    pub fn new(expression: SqlExpression, alias: Option<String>) -> Self {
+        Self { expression, alias }
+    }
+}
+
 #[derive(Debug)]
 pub struct Cte {
     pub name: String,
