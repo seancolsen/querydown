@@ -1,6 +1,8 @@
+use itertools::Itertools;
+
 use crate::{
     constants::{CTE_PK_COLUMN_ALIAS, CTE_VALUE_COLUMN_PREFIX},
-    dialects::dialect::Dialect,
+    dialects::{dialect::Dialect, sql},
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
         chain::{Chain, ChainIntersecting},
@@ -430,7 +432,6 @@ pub struct ValueViaCte {
     pub compositions: Vec<Composition>,
 }
 
-/// Returns `(select, value_alias, compositions)`.
 pub fn build_cte_select<D: Dialect>(
     chain: Chain<GenericLink>,
     final_column_name: Option<String>,
@@ -483,11 +484,17 @@ pub fn build_cte_select<D: Dialect>(
             expr.render(&mut cx)
         }
         None => {
-            // Need to handle case where we don't have an explicit column name from the user. If
-            // we have one and only one aggregating composition, and that composition is `COUNT`,
-            // then we apply `COUNT(*)`. Otherwise, I think we probably want to return an error,
-            // though it could be worth considering other behavior here.
-            todo!()
+            let singular_composition = aggregating_compositions
+                .into_iter()
+                .exactly_one()
+                .map_err(|_| msg::pre_aggregate_composition_without_column())?;
+            let function_name = singular_composition.function.name;
+            if function_name != "count" {
+                return Err(msg::special_aggregate_composition_applied_without_column(
+                    function_name,
+                ));
+            }
+            sql::COUNT_STAR.to_owned()
         }
     };
     let value_alias = format!("{}{}", CTE_VALUE_COLUMN_PREFIX.to_owned(), 1);
@@ -592,5 +599,16 @@ mod msg {
 
     pub fn multiple_agg_fns() -> String {
         "Cannot apply more than one aggregate function to the same expression.".to_string()
+    }
+
+    pub fn pre_aggregate_composition_without_column() -> String {
+        "Functions can only be applied before aggregation when a column is specified.".to_string()
+    }
+
+    pub fn special_aggregate_composition_applied_without_column(function_name: String) -> String {
+        format!(
+            "Aggregate function `{}` can only be applied to a column.",
+            function_name
+        )
     }
 }
