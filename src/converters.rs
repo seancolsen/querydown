@@ -385,25 +385,58 @@ fn build_linked_path<D: Dialect>(
     })
 }
 
-pub fn convert_join_tree<D: Dialect>(tree: &JoinTree, cx: &RenderingContext<D>) -> Vec<Join> {
-    let mut joins: Vec<Join> = vec![];
-    for (link, subtree) in tree.get_dependents().iter() {
+pub fn convert_join_tree<D: Dialect>(
+    mut tree: JoinTree,
+    cx: &RenderingContext<D>,
+) -> (Vec<Join>, Vec<Cte>) {
+    let mut ctes = tree.take_ctes();
+    let mut joins: Vec<Join> = ctes
+        .iter()
+        .map(|cte| build_join_for_cte(cte, tree.get_alias().to_owned(), cx))
+        .collect();
+    for (link, subtree) in tree.take_dependents() {
         let starting_alias = tree.get_alias();
         let ending_alias = subtree.get_alias();
         let join_type = JoinType::LeftOuter;
-        let join = make_join_from_link(link, starting_alias, ending_alias, join_type, cx);
+        let join = make_join_from_link(&link, starting_alias, ending_alias, join_type, cx);
         joins.push(join);
-        joins.extend(convert_join_tree(subtree, cx));
+        let (new_joins, new_ctes) = convert_join_tree(subtree, cx);
+        joins.extend(new_joins);
+        ctes.extend(new_ctes);
     }
-    joins
+    (joins, ctes)
 }
 
+fn build_join_for_cte<D: Dialect>(cte: &Cte, table: String, cx: &RenderingContext<D>) -> Join {
+    let condition = format!(
+        "{} = {}",
+        cx.dialect.table_column(&table, &cte.join_column_name),
+        cx.dialect.table_column(&cte.alias, CTE_PK_COLUMN_ALIAS),
+    );
+    Join {
+        table: cte.alias.clone(),
+        alias: cte.alias.clone(),
+        condition_set: SqlConditionSet {
+            conjunction: Conjunction::And,
+            entries: vec![SqlConditionSetEntry::Expression(condition)],
+        },
+        join_type: JoinType::LeftOuter, // TODO set based on CTE purpose
+    }
+}
+
+pub struct ValueViaCte {
+    pub select: Select,
+    pub value_alias: String,
+    pub compositions: Vec<Composition>,
+}
+
+/// Returns `(select, value_alias, compositions)`.
 pub fn build_cte_select<D: Dialect>(
     chain: Chain<GenericLink>,
     final_column_name: Option<String>,
     compositions: Vec<Composition>,
     context_of_parent_query: &RenderingContext<D>,
-) -> Result<(Select, Vec<Composition>), String> {
+) -> Result<ValueViaCte, String> {
     use Literal::TableColumnReference;
     let schema = context_of_parent_query.schema;
     let mut links_iter = chain.into_iter();
@@ -460,8 +493,12 @@ pub fn build_cte_select<D: Dialect>(
     let value_alias = format!("{}{}", CTE_VALUE_COLUMN_PREFIX.to_owned(), 1);
     select
         .columns
-        .push(Column::new(value_expr, Some(value_alias)));
-    Ok((select, post_aggregate_compositions))
+        .push(Column::new(value_expr, Some(value_alias.clone())));
+    Ok(ValueViaCte {
+        select,
+        value_alias,
+        compositions: post_aggregate_compositions,
+    })
 }
 
 /// Returns a tuple of `(aggregating_compositions, post_aggregate_compositions)` where:

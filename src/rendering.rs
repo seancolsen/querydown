@@ -2,11 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     constants::CTE_ALIAS_PREFIX,
-    converters::{build_cte_select, simplify_expression},
+    converters::{build_cte_select, simplify_expression, ValueViaCte},
     dialects::dialect::Dialect,
     schema::{
         chain::Chain,
-        links::{GenericLink, LinkToOne},
+        links::{GenericLink, Link, LinkToOne},
         schema::{Schema, Table},
     },
     sql_tree::{Cte, CtePurpose},
@@ -55,15 +55,24 @@ impl JoinTree {
         &self.alias
     }
 
-    pub fn get_dependents(&self) -> &HashMap<LinkToOne, JoinTree> {
-        &self.dependents
+    pub fn take_dependents(&mut self) -> HashMap<LinkToOne, JoinTree> {
+        std::mem::take(&mut self.dependents)
+    }
+
+    pub fn take_ctes(&mut self) -> Vec<Cte> {
+        std::mem::take(&mut self.ctes)
     }
 
     pub fn integrate_chain(
         &mut self,
-        chain_to_one: &Chain<LinkToOne>,
+        chain_to_one_opt: Option<&Chain<LinkToOne>>,
         mut get_alias: impl FnMut(&LinkToOne) -> String,
+        mut cte_to_add: Option<Cte>,
     ) -> String {
+        let Some(chain_to_one) = chain_to_one_opt else {
+            self.ctes.extend(cte_to_add);
+            return self.alias.clone();
+        };
         let (next_link, remainder_chain_opt) = chain_to_one.with_first_link_broken_off();
         let subtree_opt = self.dependents.get_mut(next_link);
         match (subtree_opt, remainder_chain_opt) {
@@ -71,7 +80,8 @@ impl JoinTree {
             // subtree and return its alias.
             (None, None) => {
                 let alias = get_alias(next_link);
-                let subtree = JoinTree::new(alias.clone());
+                let mut subtree = JoinTree::new(alias.clone());
+                subtree.ctes.extend(cte_to_add);
                 self.dependents.insert(*next_link, subtree);
                 alias
             }
@@ -79,19 +89,25 @@ impl JoinTree {
             // We have multiple new links to add to the tree. We build a full subtree and return
             // the alias of its furthest child.
             (None, Some(remainder_chain)) => {
-                let mut final_alias = String::new();
+                let mut alias_of_furthest_subtree = String::new();
                 let mut dependents = HashMap::<LinkToOne, JoinTree>::new();
                 let links = remainder_chain.get_links().to_vec();
                 for (index, link) in links.into_iter().rev().enumerate() {
                     let alias = get_alias(&link);
                     if index == 0 {
-                        final_alias = alias.clone();
+                        alias_of_furthest_subtree = alias.clone();
                     }
-                    let subtree = JoinTree {
+                    let mut subtree = JoinTree {
                         alias,
                         dependents: std::mem::take(&mut dependents),
                         ctes: Vec::new(),
                     };
+                    if let Some(cte) = std::mem::take(&mut cte_to_add) {
+                        // Take the CTE out of `cte_to_add` and add it to the subtree. This will
+                        // only succeed on the first iteration of the loop, similar to the logic
+                        // for `alias_of_furthest_subtree`.
+                        subtree.ctes.push(cte);
+                    }
                     dependents.insert(link, subtree);
                 }
                 let subtree = JoinTree {
@@ -100,15 +116,18 @@ impl JoinTree {
                     ctes: Vec::new(),
                 };
                 self.dependents.insert(*next_link, subtree);
-                final_alias
+                alias_of_furthest_subtree
             }
 
             // We have a complete match for all links. We return the alias of the matching tree.
-            (Some(subtree), None) => subtree.alias.clone(),
+            (Some(subtree), None) => {
+                subtree.ctes.extend(cte_to_add);
+                subtree.alias.clone()
+            }
 
             // We need to continue matching the chain to the tree
             (Some(subtree), Some(remainder_chain)) => {
-                subtree.integrate_chain(&remainder_chain, get_alias)
+                subtree.integrate_chain(Some(&remainder_chain), get_alias, cte_to_add)
             }
         }
     }
@@ -148,8 +167,11 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         self.base_table
     }
 
-    pub fn get_join_tree(&self) -> &JoinTree {
-        &self.join_tree
+    pub fn take_join_tree(&mut self) -> JoinTree {
+        std::mem::replace(
+            &mut self.join_tree,
+            JoinTree::new(self.base_table.name.to_owned()),
+        )
     }
 
     pub fn get_indentation(&self) -> String {
@@ -180,7 +202,7 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
     }
 
     /// Returns a table alias that is unique within the context of the query.
-    pub fn join_chain_to_one(&mut self, chain: &Chain<LinkToOne>) -> String {
+    fn integrate_chain(&mut self, chain: Option<&Chain<LinkToOne>>, cte: Option<Cte>) -> String {
         // TODO figure out how to reduce code duplication between the logic here and
         // RenderingContext.get_alias. There are some borrowing issues with using the get_alias
         // method here. Need to find a way to structure this code so that both use-cases can share
@@ -207,9 +229,13 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
                 }
             }
         };
-        let alias = self.join_tree.integrate_chain(chain, get_alias);
+        let alias = self.join_tree.integrate_chain(chain, get_alias, cte);
         self.aliases = aliases;
         alias
+    }
+
+    pub fn join_chain_to_one(&mut self, chain: &Chain<LinkToOne>) -> String {
+        self.integrate_chain(Some(chain), None)
     }
 
     pub fn get_alias(&mut self, ideal_alias: &str) -> String {
@@ -235,16 +261,28 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         final_column_name: Option<String>,
         compositions: Vec<Composition>,
     ) -> Result<SimpleExpression, String> {
-        let (select, post_aggregate_compositions) =
-            build_cte_select(chain, final_column_name, compositions, self)?;
+        let starting_reference = chain.get_first_link().get_start();
+        let starting_table_id = starting_reference.table_id;
+        let starting_column_id = starting_reference.column_id;
+        let starting_table = self.schema.tables.get(&starting_table_id).unwrap();
+        let starting_column = starting_table.columns.get(&starting_column_id).unwrap();
+        let ValueViaCte {
+            select,
+            value_alias,
+            compositions: leftover_compositions,
+        } = build_cte_select(chain, final_column_name, compositions, self)?;
+        let cte_alias = self.get_cte_alias();
         let cte = Cte {
             select,
-            name: self.get_cte_alias(),
+            alias: cte_alias.clone(),
             purpose: CtePurpose::AggregateValue, // TODO handle dynamically
+            join_column_name: starting_column.name.clone(),
         };
-        println!("{:#?}", cte);
-        // TODO_NEXT: add the CTE to the join tree. Then get the CTE to render in the SQL output.
-        todo!()
+        self.integrate_chain(head.as_ref(), Some(cte));
+        Ok(SimpleExpression {
+            base: Literal::TableColumnReference(cte_alias, value_alias),
+            compositions: leftover_compositions,
+        })
     }
 
     fn get_cte_alias(&mut self) -> String {

@@ -45,7 +45,7 @@ impl<D: Dialect> Compiler<D> {
             select.columns.push(Column { expression, alias });
         }
 
-        select.joins = convert_join_tree(cx.get_join_tree(), &cx);
+        (select.joins, select.ctes) = convert_join_tree(cx.take_join_tree(), &cx);
 
         let mut result = select.render(&mut cx);
         result.push(';');
@@ -89,14 +89,4 @@ mod tests {
             "#,
         );
     }
-
-    // #[test]
-    // fn test_most_recent_date_of_comment_on_issue_authored_by_user() {
-    //     run(
-    //         "users $id->id $#issues.#comments.created_at%max->d",
-    //         r#"
-    //         TODO
-    //         "#,
-    //     );
-    // }
 }

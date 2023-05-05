@@ -29,9 +29,13 @@ impl Column {
 
 #[derive(Debug)]
 pub struct Cte {
-    pub name: String,
+    pub alias: String,
     pub select: Select,
     pub purpose: CtePurpose,
+    /// The name of the column in the other table to which this CTE is joined. We don't need the
+    /// table name because we already have that from the JoinTree. This column name is usually the
+    /// primary key of that table.
+    pub join_column_name: String,
 }
 
 #[derive(Debug)]
@@ -99,15 +103,51 @@ impl From<String> for Select {
 
 impl Render for Select {
     fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let indentation = cx.get_indentation();
         let mut rendered = String::new();
+        rendered.push_str(&self.ctes.render(cx));
+        rendered.push_str(&indentation);
         rendered.push_str("SELECT\n");
         cx.indented(|cx| rendered.push_str(&self.columns.render(cx)));
+        rendered.push_str(&indentation);
         rendered.push_str("FROM ");
         rendered.push_str(cx.dialect.quote_identifier(&self.base_table).as_str());
         rendered.push_str(&self.joins.render(cx));
         if self.condition_set.entries.len() > 0 {
-            rendered.push_str("\nWHERE\n");
+            rendered.push_str("\n");
+            rendered.push_str(&indentation);
+            rendered.push_str("WHERE\n");
             cx.indented(|cx| rendered.push_str(&self.condition_set.render(cx)))
+        }
+        if self.grouping.len() > 0 {
+            rendered.push_str("\n");
+            rendered.push_str(&indentation);
+            rendered.push_str("GROUP BY ");
+            rendered.push_str(&self.grouping.join(", "));
+        }
+        rendered
+    }
+}
+
+impl Render for Vec<Cte> {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let mut rendered = String::new();
+        if self.len() == 0 {
+            return rendered;
+        }
+        rendered.push_str("WITH ");
+        let mut is_first = true;
+        for cte in self {
+            rendered.push_str(&cx.dialect.quote_identifier(&cte.alias));
+            rendered.push_str(" AS (\n");
+            cx.indented(|cx| rendered.push_str(&cte.select.render(cx)));
+            rendered.push_str("\n");
+            rendered.push_str(")");
+            if !is_first {
+                rendered.push_str(",");
+            }
+            rendered.push_str("\n");
+            is_first = false;
         }
         rendered
     }
@@ -134,12 +174,12 @@ impl Render for Join {
             let quoted_alias = cx.dialect.quote_identifier(&self.alias);
             format!("{} AS {}", quoted_table, quoted_alias)
         };
-        let condition_set = self.condition_set.render(cx);
+        let condition_set = cx.indented(|cx| self.condition_set.render(cx));
         let join_type = match self.join_type {
             JoinType::Inner => "JOIN",
             JoinType::LeftOuter => "LEFT JOIN",
         };
-        format!("{join_type} {table_expr} ON {condition_set}")
+        format!("{join_type} {table_expr} ON\n{condition_set}")
     }
 }
 
