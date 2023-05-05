@@ -75,17 +75,17 @@ fn operator() -> impl QdParser<Operator> {
     choice((
         // Three character
         exactly(OPERATOR_NOT_LIKE).to(Operator::NLike),
-        // Two character
         exactly(OPERATOR_GTE).to(Operator::Gte),
         exactly(OPERATOR_LTE).to(Operator::Lte),
         exactly(OPERATOR_LIKE).to(Operator::Like),
-        exactly(OPERATOR_NEQ).to(Operator::Neq),
+        // Two character
         exactly(OPERATOR_MATCH).to(Operator::Match),
         exactly(OPERATOR_NOT_MATCH).to(Operator::NRLike),
-        // One character
-        exactly(OPERATOR_EQ).to(Operator::Eq),
         exactly(OPERATOR_GT).to(Operator::Gt),
         exactly(OPERATOR_LT).to(Operator::Lt),
+        // One character
+        exactly(OPERATOR_EQ).to(Operator::Eq),
+        exactly(OPERATOR_NEQ).to(Operator::Neq),
     ))
 }
 
