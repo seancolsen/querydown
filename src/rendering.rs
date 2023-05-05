@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     constants::CTE_ALIAS_PREFIX,
     converters::{build_cte_select, simplify_expression, ValueViaCte},
-    dialects::dialect::Dialect,
+    dialects::{dialect::Dialect, sql},
     schema::{
         chain::Chain,
         links::{GenericLink, Link, LinkToOne},
@@ -297,8 +297,6 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
     }
 }
 
-const SQL_NOW: &str = "NOW()";
-
 pub trait Render {
     fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String;
 }
@@ -308,13 +306,13 @@ impl Render for Literal {
         match self {
             Literal::Date(d) => cx.dialect.date(d),
             Literal::Duration(d) => cx.dialect.duration(d),
-            Literal::False => "FALSE".to_string(),
-            Literal::Infinity => "INFINITY".to_string(),
-            Literal::Now => SQL_NOW.to_string(),
-            Literal::Null => "NULL".to_string(),
+            Literal::False => sql::FALSE.to_string(),
+            Literal::Infinity => sql::INFINITY.to_string(),
+            Literal::Now => sql::NOW.to_string(),
+            Literal::Null => sql::NULL.to_string(),
             Literal::Number(n) => n.clone(),
             Literal::String(s) => cx.dialect.quote_string(s),
-            Literal::True => "TRUE".to_string(),
+            Literal::True => sql::TRUE.to_string(),
             Literal::TableColumnReference(t, c) => cx.dialect.table_column(t, c),
         }
     }
@@ -335,14 +333,14 @@ fn render_composition<D: Dialect>(
         Some(a) => format!("{}({}, {})", f, base, a),
     };
     match function_name {
-        PLUS => operator("+"),
-        MINUS => operator("-"),
-        TIMES => operator("*"),
-        DIVIDE => operator("/"),
-        AGO => format!("({} - {})", SQL_NOW.to_string(), base),
-        FROM_NOW => format!("({} + {})", SQL_NOW.to_string(), base),
-        MAX => sql_fn("MAX"),
-        MIN => sql_fn("MIN"),
+        PLUS => operator(sql::PLUS),
+        MINUS => operator(sql::MINUS),
+        TIMES => operator(sql::TIMES),
+        DIVIDE => operator(sql::DIVIDE),
+        AGO => format!("({} {} {})", sql::NOW, sql::MINUS, base),
+        FROM_NOW => format!("({} {} {})", sql::NOW, sql::PLUS, base),
+        MAX => sql_fn(sql::MAX),
+        MIN => sql_fn(sql::MIN),
         // TODO give error here instead of falling through
         _ => base.to_owned(),
     }
@@ -398,16 +396,16 @@ impl Render for Expression {
 impl Render for Operator {
     fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
         match self {
-            Operator::Eq => "=".to_string(),
-            Operator::Gt => ">".to_string(),
-            Operator::Gte => ">=".to_string(),
-            Operator::Lt => "<".to_string(),
-            Operator::Lte => "<=".to_string(),
-            Operator::Like => "LIKE".to_string(),
-            Operator::Neq => "<>".to_string(),
-            Operator::NLike => "NOT LIKE".to_string(),
-            Operator::Match => "RLIKE".to_string(),
-            Operator::NRLike => "NOT RLIKE".to_string(),
+            Operator::Eq => sql::EQ.to_string(),
+            Operator::Gt => sql::GT.to_string(),
+            Operator::Gte => sql::GTE.to_string(),
+            Operator::Lt => sql::LT.to_string(),
+            Operator::Lte => sql::LTE.to_string(),
+            Operator::Like => sql::LIKE.to_string(),
+            Operator::Neq => sql::NEQ.to_string(),
+            Operator::NLike => sql::NOT_LIKE.to_string(),
+            Operator::Match => sql::RLIKE.to_string(),
+            Operator::NRLike => sql::NOT_RLIKE.to_string(),
         }
     }
 }
@@ -415,8 +413,8 @@ impl Render for Operator {
 impl Render for Conjunction {
     fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
         match self {
-            Conjunction::And => "AND".to_string(),
-            Conjunction::Or => "OR".to_string(),
+            Conjunction::And => sql::AND.to_string(),
+            Conjunction::Or => sql::OR.to_string(),
         }
     }
 }
