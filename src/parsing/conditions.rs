@@ -46,8 +46,35 @@ fn condition_set_entry(
     use ConditionSetEntry::*;
     choice((
         condition_set.clone().map(ConditionSet),
-        comparison(expression).map(Comparison),
+        comparison(expression.clone()).map(Comparison),
+        has_quantity(expression).map(Comparison),
     ))
+}
+
+fn has_quantity(expression: impl QdParser<Expression>) -> impl QdParser<Comparison> {
+    #[derive(Clone, Copy)]
+    enum Quantity {
+        AtLeastOne,
+        Zero,
+    }
+    let quantity = choice((
+        exactly(HAS_QUANTITY_AT_LEAST_ONE).to(Quantity::AtLeastOne),
+        exactly(HAS_QUANTITY_ZERO).to(Quantity::Zero),
+    ));
+    quantity
+        .then_ignore(whitespace())
+        .then(expression)
+        .map(|(quantity, expression)| Comparison {
+            left: ComparisonPart::Expression(expression),
+            operator: match quantity {
+                Quantity::AtLeastOne => Operator::Gt,
+                Quantity::Zero => Operator::Eq,
+            },
+            right: ComparisonPart::Expression(Expression {
+                base: Value::Literal(Literal::Number("0".to_string())),
+                compositions: vec![],
+            }),
+        })
 }
 
 fn comparison(expression: impl QdParser<Expression>) -> impl QdParser<Comparison> {
