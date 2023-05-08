@@ -203,6 +203,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
 
 [[package]]
+name = "markdown"
+version = "1.0.0-alpha.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c45dae11dd8af468c41201ace44dbbb3b1148215ac593cb8f0967b8d8d4b66c"
+dependencies = [
+ "unicode-id",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -262,6 +271,7 @@ dependencies = [
  "itertools",
  "serde",
  "serde_json",
+ "testcase-markdown",
 ]
 
 [[package]]
@@ -351,6 +361,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "testcase-markdown"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9b5fbd4b611853baf4ff23c384ea53902b01e6859a11b8ce380a8424efd7dc3"
+dependencies = [
+ "markdown",
+]
+
+[[package]]
 name = "tiny-keccak"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -358,6 +377,12 @@ checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
 dependencies = [
  "crunchy",
 ]
+
+[[package]]
+name = "unicode-id"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d70b6494226b36008c8366c288d77190b3fad2eb4c10533139c1c1f461127f1a"
 
 [[package]]
 name = "unicode-ident"

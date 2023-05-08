@@ -57,6 +57,8 @@ impl<D: Dialect> Compiler<D> {
 mod tests {
     use crate::dialects::postgres::Postgres;
     use crate::tests::test_utils::get_test_resource;
+    use std::path::PathBuf;
+    use testcase_markdown::*;
 
     use super::*;
 
@@ -74,10 +76,9 @@ mod tests {
 
     /// Run a full test case, expecting success
     fn run(input: &str, expected_result: &str) {
-        assert_eq!(
-            clean(compile(input).unwrap()),
-            clean(expected_result.to_owned())
-        );
+        let result = compile(input).unwrap();
+        println!("{}", result);
+        assert_eq!(clean(result), clean(expected_result.to_owned()));
     }
 
     #[test]
@@ -88,5 +89,26 @@ mod tests {
             SELECT "issues"."id" AS "id" FROM "issues";
             "#,
         );
+    }
+
+    #[derive(Default, Clone)]
+    struct Options();
+
+    impl MergeSerialized for Options {
+        fn merge_serialized(&self, source: String) -> Result<Self, String> {
+            Ok(Options())
+        }
+    }
+
+    #[test]
+    fn test_corpus() {
+        let path = PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "src", "tests", "corpus.md"]);
+        let content = std::fs::read_to_string(path).unwrap();
+        let test_cases = get_test_cases(content, Options::default());
+        for test_case in test_cases {
+            println!("{}", test_case.args[0]);
+            println!("{}", test_case.args[1]);
+            run(&test_case.args[0], &test_case.args[1]);
+        }
     }
 }
