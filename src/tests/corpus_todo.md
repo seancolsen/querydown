@@ -1,5 +1,27 @@
 # E2E tests to incorporate
 
+
+## Bugs TODO
+
+```qd
+users team.name:"foo"
+```
+
+
+## Filtered paths
+
+### A filter that aligns with the join
+
+> Issues, showing the total number of comments made by the issue's author
+
+```qd
+issues $#comments{user:issue.author}
+```
+
+```sql
+TODO
+```
+
 ## ⛔ Variables
 
 ### Search points

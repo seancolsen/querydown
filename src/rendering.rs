@@ -260,6 +260,7 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
         chain: Chain<GenericLink>,
         final_column_name: Option<String>,
         compositions: Vec<Composition>,
+        purpose: CtePurpose,
     ) -> Result<SimpleExpression, String> {
         let starting_reference = chain.get_first_link().get_start();
         let starting_table_id = starting_reference.table_id;
@@ -270,12 +271,12 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
             select,
             value_alias,
             compositions: leftover_compositions,
-        } = build_cte_select(chain, final_column_name, compositions, self)?;
+        } = build_cte_select(chain, final_column_name, compositions, self, purpose)?;
         let cte_alias = self.get_cte_alias();
         let cte = Cte {
             select,
             alias: cte_alias.clone(),
-            purpose: CtePurpose::AggregateValue, // TODO handle dynamically
+            purpose,
             join_column_name: starting_column.name.clone(),
         };
         self.integrate_chain(head.as_ref(), Some(cte));

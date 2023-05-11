@@ -250,7 +250,7 @@ issues $[created_at \sd]
 
 ## Joining related data
 
-You can refer to data from related tables -- but joins don't work quite like in SQL. In querydown, the number of rows in the results will never be more than the number of rows in the base table.
+You can refer to data from related tables &mdash; but joins don't work quite like in SQL. In querydown, the number of rows in the results will never be more than the number of rows in the base table.
 
 
 ### Referring to _single related records_
@@ -305,7 +305,7 @@ users $username $#issues
 
 In our schema, each user has multiple issues. We use `#` to refer to a related table which has multiple records for each record in the base table.
 
-The rows returned from the query still correspond directly to the rows in the base table -- all data joined with `#` will be aggregated vs the base table. The default aggregation is to _count_ the related records.
+The rows returned from the query still correspond directly to the rows in the base table &mdash; all data joined with `#` will be aggregated vs the base table. The default aggregation is to _count_ the related records.
 
 ---
 
@@ -324,7 +324,7 @@ You can use the `++` and `--` shorthand syntax to construct conditions based on 
 > Users that have created at least one issue
 
 ```
-users ++issues
+users ++#issues
 ```
 
 This expands to 
@@ -336,7 +336,7 @@ users #issues:>0
 > Users that have not created any issues
 
 ```
-users --issues
+users --#issues
 ```
 
 This expands to 
@@ -352,7 +352,7 @@ You can add a condition block after any aggregated table
 > Users who have not created any issues within the past year
 
 ```
-users --issues{created_at:>@1y|ago}
+users --#issues{created_at:>@1y|ago}
 ```
 
 ---
@@ -400,13 +400,13 @@ If one table directly links to another table multiple times, then parentheses mu
 > Issues that are blocking other issues
 
 ```
-issues ++blocks(blocker)
+issues ++#blocks(blocker)
 ```
 
 > Issues that are not blocked by any other issues
 
 ```
-issues --blocks(blocking)
+issues --#blocks(blocking)
 ```
 
 ### Multi-column foreign keys

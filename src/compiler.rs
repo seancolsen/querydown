@@ -6,7 +6,7 @@ use crate::{
     parsing::query::query,
     rendering::{Render, RenderingContext},
     schema::{primitive_schema::PrimitiveSchema, schema::Schema},
-    sql_tree::{Column, Select},
+    sql_tree::{Column, Select, Simplify},
 };
 
 pub struct Compiler<D: Dialect> {
@@ -28,8 +28,8 @@ impl<D: Dialect> Compiler<D> {
             // TODO_ERR improve error handling
             .map_err(|_| "Invalid querydown code".to_string())?;
         let base_table_name = std::mem::take(&mut query.base_table);
-        let mut select = Select::from(base_table_name);
-        let mut cx = RenderingContext::build(&self.dialect, &self.schema, &select.base_table)?;
+        let mut select = Select::from(base_table_name.clone());
+        let mut cx = RenderingContext::build(&self.dialect, &self.schema, &base_table_name)?;
         let mut transformations_iter = query.transformations.into_iter();
         let first_transformation = transformations_iter.next().unwrap_or_default();
         let second_transformation = transformations_iter.next();
@@ -47,6 +47,7 @@ impl<D: Dialect> Compiler<D> {
 
         (select.joins, select.ctes) = convert_join_tree(cx.take_join_tree(), &cx);
 
+        select.simplify();
         let mut result = select.render(&mut cx);
         result.push(';');
         Ok(result)

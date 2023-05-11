@@ -22,3 +22,7 @@ pub const PLUS: &str = "+";
 pub const RLIKE: &str = "RLIKE";
 pub const TIMES: &str = "*";
 pub const TRUE: &str = "TRUE";
+
+pub fn value_is_null(expr: String) -> String {
+    format!("{expr} IS NULL")
+}

@@ -7,6 +7,8 @@
 
 ### Path to many with column at end
 
+> Issues, showing the date of their most recent comment.
+
 ```qd
 issues $id $#comments.created_at%max->most_recent_comment
 ```
@@ -28,6 +30,8 @@ LEFT JOIN "cte0" ON
 ```
 
 ### Path through one, many
+
+> Issues, showing the total number of comments that the issue's author has made across all issues
 
 ```qd
 issues $id->id $author.#comments->total_comments_by_author
@@ -53,6 +57,8 @@ LEFT JOIN "cte0" ON
 
 ### Path through many, many
 
+> Users, showing the date of the most recent comment made across all the tickets the user has created.
+
 ```qd
 users $id->id $#issues.#comments.created_at%max->v
 ```
@@ -77,6 +83,8 @@ LEFT JOIN "cte0" ON
 
 ### Path through many, one, many
 
+> Projects, showing the date of the most recent comment made by users who have ever created tickets associated with the project.
+
 ```qd
 projects $id->id $#issues.author.#comments.created_at%max->v
 ```
@@ -99,4 +107,105 @@ SELECT
 FROM "projects"
 LEFT JOIN "cte0" ON
   "projects"."id" = "cte0"."pk";
+```
+
+## "Has" conditions
+
+### Basic has some
+
+> Issues that have comments
+
+```qd
+issues ++#comments
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "comments"."issue" AS "pk"
+  FROM "comments"
+  GROUP BY "comments"."issue"
+)
+SELECT
+  *
+FROM "issues"
+JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Basic has none
+
+> Users who have not authored any issues
+
+```qd
+users --#issues
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "issues"."author" AS "pk"
+  FROM "issues"
+  GROUP BY "issues"."author"
+)
+SELECT
+  *
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
+```
+
+### Double has none
+
+> Users who have not created any tickets which have comments
+
+
+```qd
+users --#issues.#comments
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "issues"."author" AS "pk"
+  FROM "issues"
+  JOIN "comments" ON
+    "issues"."id" = "comments"."issue"
+  GROUP BY "issues"."author"
+)
+SELECT
+  *
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
+```
+
+
+### Double has some
+
+> Users who have created at least one ticket which has at least one comment
+
+
+```qd
+users ++#issues.#comments
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "issues"."author" AS "pk"
+  FROM "issues"
+  JOIN "comments" ON
+    "issues"."id" = "comments"."issue"
+  GROUP BY "issues"."author"
+)
+SELECT
+  *
+FROM "users"
+JOIN "cte0" ON
+  "users"."id" = "cte0"."pk";
 ```

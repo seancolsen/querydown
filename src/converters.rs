@@ -121,16 +121,16 @@ fn convert_simple_comparison<D: Dialect>(
     // may choose to handle this condition via a join instead of a condition set entry. In that
     // case we'll receive an empty SqlConditionSet back, and that will get filtered out later on.
     if s.left.is_zero() && s.operator == Operator::Eq {
-        return convert_expression_eq_0(&s.right, cx);
+        return convert_expression_vs_zero(&s.right, ComparisonVsZero::Eq, cx);
     }
     if s.left.is_zero() && s.operator == Operator::Lt {
-        return convert_expression_gt_0(&s.right, cx);
+        return convert_expression_vs_zero(&s.right, ComparisonVsZero::Gt, cx);
     }
     if s.right.is_zero() && s.operator == Operator::Eq {
-        return convert_expression_eq_0(&s.left, cx);
+        return convert_expression_vs_zero(&s.left, ComparisonVsZero::Eq, cx);
     }
     if s.right.is_zero() && s.operator == Operator::Gt {
-        return convert_expression_gt_0(&s.left, cx);
+        return convert_expression_vs_zero(&s.left, ComparisonVsZero::Gt, cx);
     }
     SqlConditionSetEntry::Expression(format!(
         "{} {} {}",
@@ -140,20 +140,59 @@ fn convert_simple_comparison<D: Dialect>(
     ))
 }
 
-fn convert_expression_gt_0<D: Dialect>(
-    expr: &Expression,
-    cx: &mut RenderingContext<D>,
-) -> SqlConditionSetEntry {
-    // TODO_CODE
-    todo!()
+#[derive(Clone, Copy)]
+enum ComparisonVsZero {
+    Eq,
+    Gt,
 }
 
-fn convert_expression_eq_0<D: Dialect>(
+impl From<ComparisonVsZero> for Operator {
+    fn from(cmp: ComparisonVsZero) -> Self {
+        match cmp {
+            ComparisonVsZero::Eq => Operator::Eq,
+            ComparisonVsZero::Gt => Operator::Gt,
+        }
+    }
+}
+
+impl From<ComparisonVsZero> for CtePurpose {
+    fn from(cmp: ComparisonVsZero) -> Self {
+        match cmp {
+            ComparisonVsZero::Eq => CtePurpose::Exclusion,
+            ComparisonVsZero::Gt => CtePurpose::Inclusion,
+        }
+    }
+}
+
+fn convert_expression_vs_zero<D: Dialect>(
     expr: &Expression,
+    cmp: ComparisonVsZero,
     cx: &mut RenderingContext<D>,
 ) -> SqlConditionSetEntry {
-    // TODO_CODE
-    todo!()
+    let fallback = |cx: &mut RenderingContext<D>| {
+        let rendered_expr = expr.render(cx);
+        let op = Operator::from(cmp).render(cx);
+        SqlConditionSetEntry::Expression(format!("{} {} {}", rendered_expr, op, 0))
+    };
+    if expr.compositions.len() > 0 {
+        return fallback(cx);
+    }
+    let Value::Path(path_parts) = &expr.base else { return fallback(cx) };
+    let Ok(clarified_path) = clarify_path(path_parts.clone(), cx) else { return fallback(cx) };
+    let ClarifiedPathTail::ChainToMany((chain, None)) = clarified_path.tail else {
+        return fallback(cx)
+    };
+    let join_result = cx.join_chain_to_many(&clarified_path.head, chain, None, vec![], cmp.into());
+    let Ok(simple_expr) = join_result else { return fallback(cx) };
+    match cmp {
+        ComparisonVsZero::Eq => {
+            // We're confident that `simple_expr` doesn't have any compositions because we
+            // checked that `expr` doesn't have any above.
+            let rendered_expr = simple_expr.base.render(cx);
+            SqlConditionSetEntry::Expression(sql::value_is_null(rendered_expr))
+        }
+        ComparisonVsZero::Gt => SqlConditionSetEntry::empty(),
+    }
 }
 
 fn expand_comparison(comparison: &Comparison) -> SimpleConditionSetEntry {
@@ -238,9 +277,14 @@ fn simplify_path_expression<D: Dialect>(
                 compositions,
             })
         }
-        (head, ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) => {
-            cx.join_chain_to_many(&head, chain_to_many, column_name_opt, compositions)
-        }
+        (head, ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) => cx
+            .join_chain_to_many(
+                &head,
+                chain_to_many,
+                column_name_opt,
+                compositions,
+                CtePurpose::AggregateValue,
+            ),
     }
 }
 
@@ -415,6 +459,11 @@ fn build_join_for_cte<D: Dialect>(cte: &Cte, table: String, cx: &RenderingContex
         cx.dialect.table_column(&table, &cte.join_column_name),
         cx.dialect.table_column(&cte.alias, CTE_PK_COLUMN_ALIAS),
     );
+    let join_type = match cte.purpose {
+        CtePurpose::Inclusion => JoinType::Inner,
+        CtePurpose::Exclusion => JoinType::LeftOuter,
+        CtePurpose::AggregateValue => JoinType::LeftOuter,
+    };
     Join {
         table: cte.alias.clone(),
         alias: cte.alias.clone(),
@@ -422,7 +471,7 @@ fn build_join_for_cte<D: Dialect>(cte: &Cte, table: String, cx: &RenderingContex
             conjunction: Conjunction::And,
             entries: vec![SqlConditionSetEntry::Expression(condition)],
         },
-        join_type: JoinType::LeftOuter, // TODO set based on CTE purpose
+        join_type,
     }
 }
 
@@ -437,6 +486,7 @@ pub fn build_cte_select<D: Dialect>(
     final_column_name: Option<String>,
     compositions: Vec<Composition>,
     context_of_parent_query: &RenderingContext<D>,
+    purpose: CtePurpose,
 ) -> Result<ValueViaCte, String> {
     use Literal::TableColumnReference;
     let schema = context_of_parent_query.schema;
@@ -467,43 +517,50 @@ pub fn build_cte_select<D: Dialect>(
     let (aggregating_compositions, post_aggregate_compositions) =
         prepare_compositions_for_aggregation(compositions)?;
 
-    let value_expr = match final_column_name {
-        Some(column_name) => {
-            let column_id = ending_table
-                .column_lookup
-                .get(&column_name)
-                .ok_or_else(|| msg::col_not_in_table(&column_name, &ending_table.name))?;
-            let column = ending_table.columns.get(column_id).unwrap();
-            let expr = Expression {
-                base: Value::Literal(TableColumnReference(
-                    ending_table.name.clone(),
-                    column.name.clone(),
-                )),
-                compositions: aggregating_compositions,
-            };
-            expr.render(&mut cx)
-        }
-        None => {
-            let singular_composition = aggregating_compositions
-                .into_iter()
-                .exactly_one()
-                .map_err(|_| msg::pre_aggregate_composition_without_column())?;
-            let function_name = singular_composition.function.name;
-            if function_name != "count" {
-                return Err(msg::special_aggregate_composition_applied_without_column(
-                    function_name,
-                ));
+    if purpose == CtePurpose::AggregateValue {
+        let value_expr = match final_column_name {
+            Some(column_name) => {
+                let column_id = ending_table
+                    .column_lookup
+                    .get(&column_name)
+                    .ok_or_else(|| msg::col_not_in_table(&column_name, &ending_table.name))?;
+                let column = ending_table.columns.get(column_id).unwrap();
+                let expr = Expression {
+                    base: Value::Literal(TableColumnReference(
+                        ending_table.name.clone(),
+                        column.name.clone(),
+                    )),
+                    compositions: aggregating_compositions,
+                };
+                expr.render(&mut cx)
             }
-            sql::COUNT_STAR.to_owned()
-        }
-    };
-    let value_alias = format!("{}{}", CTE_VALUE_COLUMN_PREFIX.to_owned(), 1);
-    select
-        .columns
-        .push(Column::new(value_expr, Some(value_alias.clone())));
+            None => {
+                let singular_composition = aggregating_compositions
+                    .into_iter()
+                    .exactly_one()
+                    .map_err(|_| msg::pre_aggregate_composition_without_column())?;
+                let function_name = singular_composition.function.name;
+                if function_name != "count" {
+                    return Err(msg::special_aggregate_composition_applied_without_column(
+                        function_name,
+                    ));
+                }
+                sql::COUNT_STAR.to_owned()
+            }
+        };
+        let value_alias = format!("{}{}", CTE_VALUE_COLUMN_PREFIX.to_owned(), 1);
+        select
+            .columns
+            .push(Column::new(value_expr, Some(value_alias.clone())));
+        return Ok(ValueViaCte {
+            select,
+            value_alias,
+            compositions: post_aggregate_compositions,
+        });
+    }
     Ok(ValueViaCte {
         select,
-        value_alias,
+        value_alias: CTE_PK_COLUMN_ALIAS.to_owned(),
         compositions: post_aggregate_compositions,
     })
 }

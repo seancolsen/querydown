@@ -1,8 +1,12 @@
 use crate::{
     dialects::dialect::Dialect,
     rendering::{Render, RenderingContext},
-    syntax_tree::{ConditionSet, Conjunction, NullsSort, SortDirection},
+    syntax_tree::{Conjunction, NullsSort, SortDirection},
 };
+
+pub trait Simplify {
+    fn simplify(&mut self);
+}
 
 #[derive(Debug)]
 pub struct Select {
@@ -13,6 +17,12 @@ pub struct Select {
     pub condition_set: SqlConditionSet,
     pub sorting: Vec<SortEntry>,
     pub grouping: Vec<SqlExpression>,
+}
+
+impl Simplify for Select {
+    fn simplify(&mut self) {
+        self.condition_set.simplify();
+    }
 }
 
 #[derive(Debug)]
@@ -38,7 +48,7 @@ pub struct Cte {
     pub join_column_name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CtePurpose {
     /// A CTE that is used to filter the base table on the presence of related records. It will be
     /// joined via an inner join to accomplish the filtering.
@@ -71,11 +81,47 @@ pub struct SqlConditionSet {
     pub conjunction: Conjunction,
     pub entries: Vec<SqlConditionSetEntry>,
 }
+impl Simplify for SqlConditionSet {
+    fn simplify(&mut self) {
+        let mut new_entries = Vec::new();
+        for mut entry in std::mem::take(&mut self.entries) {
+            entry.simplify();
+            if !entry.is_empty() {
+                new_entries.push(entry);
+            }
+        }
+        self.entries = new_entries;
+    }
+}
 
 #[derive(Debug)]
 pub enum SqlConditionSetEntry {
     Expression(SqlExpression),
     ConditionSet(SqlConditionSet),
+}
+
+impl Simplify for SqlConditionSetEntry {
+    fn simplify(&mut self) {
+        match self {
+            SqlConditionSetEntry::Expression(_) => {}
+            SqlConditionSetEntry::ConditionSet(condition_set) => {
+                condition_set.simplify();
+            }
+        }
+    }
+}
+
+impl SqlConditionSetEntry {
+    pub fn empty() -> Self {
+        Self::ConditionSet(SqlConditionSet::default())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Expression(_) => false,
+            Self::ConditionSet(condition_set) => condition_set.entries.len() == 0,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -25,16 +25,27 @@ Querydown is intended to be a general-purpose, schema agnostic library that _app
 
 ## Example
 
-> _Given an example [issue-tracker schema](./resources/test/issue_schema.diagram.png)_, find issues that were created in the past 6 months, and are not assigned to anyone, and are labelled regression or bug, and have between 10 and 20 comments by users who are not on the backend team, and are transitively linked to one client named "Foo". Show all columns in the issues table. Also show the author's username, and the date of the first comment by anyone, and sort the results on that date with the most recent values shown first.
+> _Given an example [issue-tracker schema](./resources/test/issue_schema.diagram.png)_...<br/>
+> - Find **issues**
+> - that were created in the past 6 months,
+> - and have no assignments,
+> - and have at least one label which is named "regression" or named "bug",
+> - and have between 10 and 20 comments by users whose team is not named "backend".
+> - Show all columns in the issues table.
+> - Show the author's username,
+> - Show the date of the first comment by anyone &mdash; while also sorting the results on that date (with the most recent values shown first).
+
+_(The bullet points above correspond, line for line, with the querydown code below)_
 
 ```text
 issues
 created_at:>@6M|ago
---assignments
-++labels{name:["Regression" "Bug"]}
-#comments{user.team.name!"Backend"}:~10..20
->>clients.name:"Foo"
-$[] $author.username $#comments.created_at%min \sd
+--#assignments
+++#labels{name:["Regression" "Bug"]}
+~10..20:#comments{user.team.name!"Backend"}
+$[]
+$author.username
+$#comments.created_at%min \sd
 ```
 
 
