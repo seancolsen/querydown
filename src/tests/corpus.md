@@ -1,9 +1,76 @@
 # E2E test corpus
 
 ⛔ = skip
-✅ = solo
+🔦 = solo
 
-## Paths
+## Simple
+
+> Show all issue ids
+
+```qd
+issues $id->id
+```
+
+```sql
+SELECT "issues"."id" AS "id" FROM "issues";
+```
+
+## Large examples
+
+### ⛔ Main README
+
+Not yet working
+
+```qd
+issues
+created_at:>@6M|ago
+--#assignments
+++#labels{name:["Regression" "Bug"]}
+#comments{user.team.name!"Backend"}:~10..20
+$[]
+$author.username
+$#comments.created_at%min \sd
+```
+
+## Paths to one
+
+### ⛔ Joined column in related table
+
+> Issues under project named "foo".
+
+```qd
+issues project.title:"foo" $id->id
+```
+
+```sql
+SELECT
+  "issues"."id" AS "id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+WHERE
+  "project"."title" = 'foo';
+```
+
+### Referenced column in related table not joined
+
+> Issues under project with id 1.
+
+This test case ensures that we don't have an unnecessary join on `projects` when the `projects.id` value can already be found within `issues.project`.
+
+```qd
+issues project.id:1 $id->id
+```
+
+```sql
+SELECT
+  "issues"."id" AS "id"
+FROM "issues"
+WHERE
+  "issues"."project" = 1;
+```
+
+## Paths to many
 
 ### Path to many with column at end
 
@@ -161,7 +228,6 @@ WHERE
 
 > Users who have not created any tickets which have comments
 
-
 ```qd
 users --#issues.#comments
 ```
@@ -184,11 +250,9 @@ WHERE
   "cte0"."pk" IS NULL;
 ```
 
-
 ### Double has some
 
 > Users who have created at least one ticket which has at least one comment
-
 
 ```qd
 users ++#issues.#comments
@@ -208,4 +272,85 @@ SELECT
 FROM "users"
 JOIN "cte0" ON
   "users"."id" = "cte0"."pk";
+```
+
+### ⛔ Has through inferred intermediate
+
+FIXME there is a bug here
+
+
+```qd
+issues ++#labels
+```
+
+```sql
+TODO
+```
+
+
+## ⛔ Filtered paths
+
+Not yet implemented
+
+### A filter that aligns with the join
+
+> Issues, showing the total number of comments made by the issue's author
+
+```qd
+issues $#comments{user:issue.author}
+```
+
+```sql
+TODO
+```
+
+## ⛔ Variables
+
+None of this is implemented yet
+
+### Search points
+
+```qd
+@@search_points = field_value search_value; ?
+  field_value:search_value => 2
+  field_value:~search_value => 1
+  *=> 0
+@search = "foo"
+@@points = field; field|search_points(@search)
+people.points = @@max(first_name|points last_name|points)
+people $[] $points \sd :::limit(10)
+```
+
+### Drinking age
+
+```qd
+@drinking_age = 21
+users.age = birth_date|age|years
+users.can_purchase_alcohol = age:>=@drinking_age
+users $can_purchase_alcohol \g $%count
+```
+
+### Generation
+
+```qd
+@@generation = birth_date; birth_date|year|(birth_year; ?
+  birth_year:>=2010 => "Alpha"
+  birth_year:>=1997 => "Z"
+  birth_year:>=1981 => "Millennial"
+  birth_year:>=1965 => "X"
+  birth_year:>=1946 => "Boomer"
+  birth_year:>=1928 => "Silent"
+  birth_year:>=1901 => "Greatest"
+  birth_year:>=1883 => "Lost"
+  * => @null)
+people.generation = birth_date|generation
+```
+
+### Completion ratio by client
+
+```qd
+clients.open_count = #issues{status:"open"}
+clients.closed_count = #issues{status:"closed"}
+clients.completion = closed_count/(closed_issues+open_count)
+clients $[] $completion \s
 ```
