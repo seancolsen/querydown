@@ -407,24 +407,6 @@ fn build_linked_path<D: Dialect>(
             }
         };
     }
-    chain_opt = if let Some(mut chain) = chain_opt {
-        // If the last link is a forward link to one, then we can remove it and use the column
-        // name as the final column name instead. This saves us from having to do a
-        // unnecessary join.
-        if let Some(GenericLink::ForwardLinkToOne(last_link)) = chain.get_links().last() {
-            let column_name = get_fk_column_name(last_link, cx.schema);
-            final_column_name = Some(column_name);
-            if chain.pop_last().is_none() {
-                None
-            } else {
-                Some(chain)
-            }
-        } else {
-            Some(chain)
-        }
-    } else {
-        chain_opt
-    };
     Ok(LinkedPath {
         chain: chain_opt,
         column: final_column_name,

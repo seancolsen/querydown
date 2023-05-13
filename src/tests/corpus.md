@@ -34,7 +34,7 @@ $#comments.created_at%min \sd
 
 ## Paths to one
 
-### ⛔ Joined column in related table
+### Joined column in related table
 
 > Issues under project named "foo".
 
@@ -49,14 +49,17 @@ FROM "issues"
 LEFT JOIN "projects" ON
   "issues"."project" = "projects"."id"
 WHERE
-  "project"."title" = 'foo';
+  "projects"."title" = 'foo';
 ```
 
-### Referenced column in related table not joined
+### ⛔ Referenced column in related table not joined
+
+This test case ensures that we don't have an unnecessary join on `projects` when the `projects.id` value can already be found within `issues.project`.
+
+**TODO** This is not yet implemented. We need to make some changes within `build_linked_path` to optimize for this case. The SQL we're producing still works even though this test case is not satisfied. We're just producing SQL that has a superfluous join.
 
 > Issues under project with id 1.
 
-This test case ensures that we don't have an unnecessary join on `projects` when the `projects.id` value can already be found within `issues.project`.
 
 ```qd
 issues project.id:1 $id->id
