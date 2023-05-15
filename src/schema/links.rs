@@ -366,6 +366,14 @@ impl GenericLink {
             }
         }
     }
+
+    pub fn get_condition_set(&self) -> Option<&ConditionSet> {
+        match self {
+            GenericLink::ForwardLinkToOne(_) => None,
+            GenericLink::ReverseLinkToOne(_) => None,
+            GenericLink::FilteredReverseLinkToMany(link) => Some(&link.condition_set),
+        }
+    }
 }
 
 impl Link for GenericLink {

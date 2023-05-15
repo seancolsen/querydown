@@ -467,32 +467,39 @@ pub fn build_cte_select<D: Dialect>(
     chain: Chain<GenericLink>,
     final_column_name: Option<String>,
     compositions: Vec<Composition>,
-    context_of_parent_query: &RenderingContext<D>,
+    parent_cx: &RenderingContext<D>,
     purpose: CtePurpose,
 ) -> Result<ValueViaCte, String> {
     use Literal::TableColumnReference;
-    let schema = context_of_parent_query.schema;
+    let schema = parent_cx.schema;
     let mut links_iter = chain.into_iter();
     let first_link = links_iter.next().unwrap();
-    let base = first_link.get_base();
+    let base = first_link.get_end();
     let base_table = schema.tables.get(&base.table_id).unwrap();
     let base_column = base_table.columns.get(&base.column_id).unwrap();
-    let mut cx = context_of_parent_query.spawn(&base_table);
-    let mut select = Select::from(cx.get_base_table().name.clone());
+    let mut cte_cx = parent_cx.spawn(&base_table);
+    let mut select = Select::from(cte_cx.get_base_table().name.clone());
     let pk_expr =
-        TableColumnReference(base_table.name.clone(), base_column.name.clone()).render(&mut cx);
+        TableColumnReference(base_table.name.clone(), base_column.name.clone()).render(&mut cte_cx);
     select.grouping.push(pk_expr.clone());
-    select
-        .columns
-        .push(Column::new(pk_expr, Some(CTE_PK_COLUMN_ALIAS.to_owned())));
+    let pr_expr_col = Column::new(pk_expr, Some(CTE_PK_COLUMN_ALIAS.to_owned()));
+    select.columns.push(pr_expr_col);
+    if let Some(first_link_condition_set) = first_link.get_condition_set() {
+        select.condition_set = convert_condition_set(first_link_condition_set, &mut cte_cx);
+    }
     let mut starting_alias = base_table.name.clone();
     let mut ending_table = schema.tables.get(&first_link.get_end().table_id).unwrap();
     for link in links_iter {
         ending_table = schema.tables.get(&link.get_end().table_id).unwrap();
         let ideal_ending_alias = ending_table.name.as_str();
-        let ending_alias = cx.get_alias(ideal_ending_alias);
+        let ending_alias = cte_cx.get_alias(ideal_ending_alias);
         let join_type = JoinType::Inner;
-        let join = make_join_from_link(&link, &starting_alias, &ending_alias, join_type, &cx);
+        if let Some(condition_set) = link.get_condition_set() {
+            // let link_cx = 'TODO_NEXT';
+            let converted = convert_condition_set(condition_set, &mut cte_cx);
+            select.condition_set.merge(converted);
+        }
+        let join = make_join_from_link(&link, &starting_alias, &ending_alias, join_type, &cte_cx);
         select.joins.push(join);
         starting_alias = ending_alias;
     }
@@ -514,7 +521,7 @@ pub fn build_cte_select<D: Dialect>(
                     )),
                     compositions: aggregating_compositions,
                 };
-                expr.render(&mut cx)
+                expr.render(&mut cte_cx)
             }
             None => {
                 let singular_composition = aggregating_compositions

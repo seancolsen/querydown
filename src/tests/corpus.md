@@ -1,7 +1,7 @@
 # E2E test corpus
 
-⛔ = skip
-🔦 = solo
+- ⛔ = skip
+- 🔦 = solo
 
 ## Simple
 
@@ -291,13 +291,74 @@ TODO
 ```
 
 
-## ⛔ Filtered paths
+## Filtered paths
 
-Not yet implemented
+### Simple filtered path in has none
 
-### A filter that aligns with the join
+> Users who have not created any issues in the past year
 
-> Issues, showing the total number of comments made by the issue's author
+```qd
+users --#issues{created_at:>@1Y|ago}
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "issues"."author" AS "pk"
+  FROM "issues"
+  WHERE
+    "issues"."created_at" > (NOW() - INTERVAL '1Y')
+  GROUP BY "issues"."author"
+)
+SELECT
+  *
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
+```
+
+### Simple filtered path for value
+
+> Users, showing the number of issues created in the past year
+
+```qd
+users $#issues{created_at:>@1Y|ago}
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "issues"."author" AS "pk",
+    COUNT(*) AS "v1"
+  FROM "issues"
+  WHERE
+    "issues"."created_at" > (NOW() - INTERVAL '1Y')
+  GROUP BY "issues"."author"
+)
+SELECT
+  "cte0"."v1"
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk";
+```
+
+### 🔦Filtered path through inferred intermediate
+
+> Issues that are not labeled bug
+
+```qd
+issues --#labels{name:"bug"}
+```
+
+```sql
+TODO
+```
+
+### ⛔A filter that aligns with the join
+
+> Issues, showing the total number of comments made on the issue by the issue's author
 
 ```qd
 issues $#comments{user:issue.author}

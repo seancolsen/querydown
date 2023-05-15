@@ -81,6 +81,25 @@ pub struct SqlConditionSet {
     pub conjunction: Conjunction,
     pub entries: Vec<SqlConditionSetEntry>,
 }
+
+impl SqlConditionSet {
+    pub fn merge(&mut self, mut new: Self) {
+        use Conjunction::*;
+        if new.entries.len() == 0 {
+            return;
+        }
+        match (self.conjunction, new.conjunction) {
+            (And, And) => self.entries.extend(new.entries),
+            (Or, Or) => self.entries.extend(new.entries),
+            (And, Or) => self.entries.push(SqlConditionSetEntry::ConditionSet(new)),
+            (Or, And) => {
+                std::mem::swap(self, &mut new);
+                self.entries.push(SqlConditionSetEntry::ConditionSet(new));
+            }
+        }
+    }
+}
+
 impl Simplify for SqlConditionSet {
     fn simplify(&mut self) {
         let mut new_entries = Vec::new();
