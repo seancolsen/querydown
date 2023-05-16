@@ -39,7 +39,7 @@ $#comments.created_at%min \sd
 > Issues under project named "foo".
 
 ```qd
-issues project.title:"foo" $id->id
+issues project.name:"foo" $id->id
 ```
 
 ```sql
@@ -49,7 +49,7 @@ FROM "issues"
 LEFT JOIN "projects" ON
   "issues"."project" = "projects"."id"
 WHERE
-  "projects"."title" = 'foo';
+  "projects"."name" = 'foo';
 ```
 
 ### ⛔ Referenced column in related table not joined

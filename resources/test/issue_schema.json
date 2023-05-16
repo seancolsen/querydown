@@ -84,7 +84,7 @@
                     "name": "id"
                 },
                 {
-                    "name": "title"
+                    "name": "name"
                 },
                 {
                     "name": "product"
@@ -98,7 +98,7 @@
                     "name": "id"
                 },
                 {
-                    "name": "title"
+                    "name": "name"
                 }
             ]
         },
