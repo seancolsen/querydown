@@ -25,28 +25,27 @@ fn test_corpus() {
         s.replace("\n", "").replace("\t", "").replace(" ", "")
     }
 
-    fn get_output(case: &TestCase<Options>, expected: &str, actual: &str) -> String {
+    fn get_output(case: &TestCase<Options>, input: &str, expected: &str, actual: &str) -> String {
         [
             "",
-            " ╭───────────╮",
-            "─┤ Test path ├──────────────────────────────",
-            " ╰───────────╯",
-            "",
+            " ╭────────────╮",
+            "─┤ Test path: ├──────────────────────────────",
+            " ╰────────────╯",
             &case.headings.join("\n"),
             &case.name,
-            "",
-            " ╭────────────────╮",
-            "─┤ Expected value ├─────────────────────────",
-            " ╰────────────────╯",
-            "",
+            format!("  (Line: {})", case.line_number).as_str(),
+            " ╭────────╮",
+            "─┤ Input: ├──────────────────────────────",
+            " ╰────────╯",
+            &input,
+            " ╭─────────────────╮",
+            "─┤ Expected value: ├─────────────────────────",
+            " ╰─────────────────╯",
             expected,
-            "",
-            " ╭──────────────╮",
-            "─┤ Actual value ├───────────────────────────",
-            " ╰──────────────╯",
-            "",
+            " ╭───────────────╮",
+            "─┤ Actual value: ├───────────────────────────",
+            " ╰───────────────╯",
             actual,
-            "",
             "────────────────────────────────────────────",
         ]
         .join("\n")
@@ -61,7 +60,7 @@ fn test_corpus() {
         if clean(actual.clone()) == clean(expected.clone()) {
             return;
         }
-        println!("{}", get_output(&case, &expected, &actual));
+        println!("{}", get_output(&case, &input, &expected, &actual));
         panic!("Test corpus failure");
     }
 

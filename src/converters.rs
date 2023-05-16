@@ -6,7 +6,7 @@ use crate::{
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
         chain::{Chain, ChainIntersecting},
-        links::{get_fk_column_name, GenericLink, Link, LinkToOne},
+        links::{FilteredLink, Link, LinkToOne, MultiLink},
         schema::{ChainSearchBase, Table},
     },
     sql_tree::*,
@@ -298,7 +298,7 @@ struct ClarifiedPath {
 enum ClarifiedPathTail {
     Column(String),
     /// chain, column_name
-    ChainToMany((Chain<GenericLink>, Option<String>)),
+    ChainToMany((Chain<FilteredLink>, Option<String>)),
 }
 
 fn clarify_path<D: Dialect>(
@@ -315,18 +315,18 @@ fn clarify_path<D: Dialect>(
         }).ok_or_else(msg::no_path_parts)
     };
     let mut head: Option<Chain<LinkToOne>> = None;
-    let mut chain_to_many_opt: Option<Chain<GenericLink>> = None;
-    for generic_link in chain {
+    let mut chain_to_many_opt: Option<Chain<FilteredLink>> = None;
+    for filtered_link in chain {
         if let Some(chain_to_many) = &mut chain_to_many_opt {
             // This unwrap is safe because we know that the chain has already been constructed.
             // We're just re-constructing part of it.
-            chain_to_many.try_append(generic_link).unwrap();
+            chain_to_many.try_append(filtered_link).unwrap();
         } else {
-            match LinkToOne::try_from(generic_link) {
+            match LinkToOne::try_from(filtered_link) {
                 Ok(link_to_one) => {
                     if let Some(chain) = &mut head {
                         // This unwrap is safe because we know that the chain has already been
-                        // constructed using GenericLink links. All we're doing here is
+                        // constructed using FilteredLink links. All we're doing here is
                         // re-constructing it with LinkToOne links.
                         chain.try_append(link_to_one).unwrap();
                     } else {
@@ -351,7 +351,7 @@ fn clarify_path<D: Dialect>(
 
 #[derive(Debug)]
 struct LinkedPath {
-    pub chain: Option<Chain<GenericLink>>,
+    pub chain: Option<Chain<FilteredLink>>,
     pub column: Option<String>,
 }
 
@@ -360,7 +360,7 @@ fn build_linked_path<D: Dialect>(
     cx: &RenderingContext<D>,
 ) -> Result<LinkedPath, String> {
     let mut current_table_opt: Option<&Table> = Some(cx.get_base_table());
-    let mut chain_opt: Option<Chain<GenericLink>> = None;
+    let mut chain_opt: Option<Chain<FilteredLink>> = None;
     let mut final_column_name: Option<String> = None;
     for part in parts {
         let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
@@ -373,13 +373,16 @@ fn build_linked_path<D: Dialect>(
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &current_table.name))?;
                 if let Some(link) = current_table.forward_links_to_one.get(&column_id).copied() {
                     current_table_opt = cx.schema.tables.get(&link.get_end().table_id);
-                    let generic_link = GenericLink::ForwardLinkToOne(link);
+                    let link = FilteredLink {
+                        link: MultiLink::ForwardLinkToOne(link),
+                        condition_set: ConditionSet::default(),
+                    };
                     chain_opt = match chain_opt {
                         Some(mut chain) => {
-                            chain.try_append(generic_link)?;
+                            chain.try_append(link)?;
                             Some(chain)
                         }
-                        None => Some(Chain::try_new(generic_link, ChainIntersecting::Allowed)?),
+                        None => Some(Chain::try_new(link, ChainIntersecting::Allowed)?),
                     };
                 } else {
                     current_table_opt = None;
@@ -389,11 +392,13 @@ fn build_linked_path<D: Dialect>(
             PathPart::TableWithOne(table_name) => {
                 todo!()
             }
-            PathPart::TableWithMany(table_with_many) => {
+            PathPart::TableWithMany(mut table_with_many) => {
                 let base = ChainSearchBase::TableId(current_table.id);
+                let condition_set = std::mem::take(&mut table_with_many.condition_set);
                 let mut new_chain =
                     cx.schema
                         .get_chain_to_table_with_many(base, &table_with_many, None)?;
+                new_chain.set_final_condition_set(condition_set);
                 new_chain.allow_intersecting();
                 current_table_opt = cx.schema.tables.get(&new_chain.get_ending_table_id());
                 chain_opt = match chain_opt {
@@ -464,7 +469,7 @@ pub struct ValueViaCte {
 }
 
 pub fn build_cte_select<D: Dialect>(
-    chain: Chain<GenericLink>,
+    chain: Chain<FilteredLink>,
     final_column_name: Option<String>,
     compositions: Vec<Composition>,
     parent_cx: &RenderingContext<D>,
@@ -474,9 +479,9 @@ pub fn build_cte_select<D: Dialect>(
     let schema = parent_cx.schema;
     let mut links_iter = chain.into_iter();
     let first_link = links_iter.next().unwrap();
-    let base = first_link.get_end();
-    let base_table = schema.tables.get(&base.table_id).unwrap();
-    let base_column = base_table.columns.get(&base.column_id).unwrap();
+    let end = first_link.get_end();
+    let base_table = schema.tables.get(&end.table_id).unwrap();
+    let base_column = base_table.columns.get(&end.column_id).unwrap();
     let mut cte_cx = parent_cx.spawn(&base_table);
     let mut select = Select::from(cte_cx.get_base_table().name.clone());
     let pk_expr =
@@ -484,9 +489,7 @@ pub fn build_cte_select<D: Dialect>(
     select.grouping.push(pk_expr.clone());
     let pr_expr_col = Column::new(pk_expr, Some(CTE_PK_COLUMN_ALIAS.to_owned()));
     select.columns.push(pr_expr_col);
-    if let Some(first_link_condition_set) = first_link.get_condition_set() {
-        select.condition_set = convert_condition_set(first_link_condition_set, &mut cte_cx);
-    }
+    select.condition_set = convert_condition_set(&first_link.condition_set, &mut cte_cx);
     let mut starting_alias = base_table.name.clone();
     let mut ending_table = schema.tables.get(&first_link.get_end().table_id).unwrap();
     for link in links_iter {
@@ -494,9 +497,10 @@ pub fn build_cte_select<D: Dialect>(
         let ideal_ending_alias = ending_table.name.as_str();
         let ending_alias = cte_cx.get_alias(ideal_ending_alias);
         let join_type = JoinType::Inner;
-        if let Some(condition_set) = link.get_condition_set() {
-            // let link_cx = 'TODO_NEXT';
-            let converted = convert_condition_set(condition_set, &mut cte_cx);
+        if !link.condition_set.is_empty() {
+            let link_table = schema.tables.get(&link.get_end().table_id).unwrap();
+            let mut link_cx = cte_cx.spawn(&link_table);
+            let converted = convert_condition_set(&link.condition_set, &mut link_cx);
             select.condition_set.merge(converted);
         }
         let join = make_join_from_link(&link, &starting_alias, &ending_alias, join_type, &cte_cx);

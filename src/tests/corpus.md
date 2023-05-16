@@ -344,16 +344,32 @@ LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk";
 ```
 
-### 🔦Filtered path through inferred intermediate
+### Filtered path through inferred intermediate
 
 > Issues that are not labeled bug
 
 ```qd
-issues --#labels{name:"bug"}
+issues --#labels{name:"bug"} $id
 ```
 
 ```sql
-TODO
+WITH "cte0" AS (
+  SELECT
+    "issue_labels"."issue" AS "pk"
+  FROM "issue_labels"
+  JOIN "labels" ON
+    "issue_labels"."label" = "labels"."id"
+  WHERE
+    "labels"."name" = 'bug'
+  GROUP BY "issue_labels"."issue"
+)
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
 ```
 
 ### ⛔A filter that aligns with the join
@@ -362,6 +378,18 @@ TODO
 
 ```qd
 issues $#comments{user:issue.author}
+```
+
+```sql
+TODO
+```
+
+### ⛔Nested filter
+
+> Clients that don't have any issues without comments
+
+```qd
+clients --#issues{--#comments}
 ```
 
 ```sql

@@ -1,4 +1,4 @@
-use std::ops::BitAnd;
+use std::ops::{BitAnd, Not};
 
 use crate::syntax_tree::ConditionSet;
 
@@ -234,82 +234,94 @@ impl Link for LinkToOne {
     }
 }
 
-impl TryFrom<GenericLink> for LinkToOne {
-    type Error = GenericLink;
+impl TryFrom<FilteredLink> for LinkToOne {
+    type Error = FilteredLink;
 
-    fn try_from(link: GenericLink) -> Result<Self, Self::Error> {
-        match link {
-            GenericLink::ForwardLinkToOne(link) => Ok(LinkToOne::ForwardLinkToOne(link)),
-            GenericLink::ReverseLinkToOne(link) => Ok(LinkToOne::ReverseLinkToOne(link)),
-            _ => Err(link),
+    fn try_from(filtered_link: FilteredLink) -> Result<Self, Self::Error> {
+        if filtered_link.condition_set.is_empty().not() {
+            return Err(filtered_link);
+        }
+        match filtered_link.link {
+            MultiLink::ForwardLinkToOne(link) => Ok(LinkToOne::ForwardLinkToOne(link)),
+            MultiLink::ReverseLinkToOne(link) => Ok(LinkToOne::ReverseLinkToOne(link)),
+            _ => Err(filtered_link),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SimpleLink {
+pub enum MultiLink {
     ForwardLinkToOne(ForwardLinkToOne),
     ReverseLinkToOne(ReverseLinkToOne),
     ReverseLinkToMany(ReverseLinkToMany),
 }
 
-impl Link for SimpleLink {
+impl Link for MultiLink {
     fn get_direction(&self) -> LinkDirection {
         match self {
-            SimpleLink::ForwardLinkToOne(link) => link.get_direction(),
-            SimpleLink::ReverseLinkToOne(link) => link.get_direction(),
-            SimpleLink::ReverseLinkToMany(link) => link.get_direction(),
+            MultiLink::ForwardLinkToOne(link) => link.get_direction(),
+            MultiLink::ReverseLinkToOne(link) => link.get_direction(),
+            MultiLink::ReverseLinkToMany(link) => link.get_direction(),
         }
     }
 
     fn get_join_quantity(&self) -> JoinQuantity {
         match self {
-            SimpleLink::ForwardLinkToOne(link) => link.get_join_quantity(),
-            SimpleLink::ReverseLinkToOne(link) => link.get_join_quantity(),
-            SimpleLink::ReverseLinkToMany(link) => link.get_join_quantity(),
+            MultiLink::ForwardLinkToOne(link) => link.get_join_quantity(),
+            MultiLink::ReverseLinkToOne(link) => link.get_join_quantity(),
+            MultiLink::ReverseLinkToMany(link) => link.get_join_quantity(),
         }
     }
 
     fn get_start(&self) -> Reference {
         match self {
-            SimpleLink::ForwardLinkToOne(link) => link.get_start(),
-            SimpleLink::ReverseLinkToOne(link) => link.get_start(),
-            SimpleLink::ReverseLinkToMany(link) => link.get_start(),
+            MultiLink::ForwardLinkToOne(link) => link.get_start(),
+            MultiLink::ReverseLinkToOne(link) => link.get_start(),
+            MultiLink::ReverseLinkToMany(link) => link.get_start(),
         }
     }
 
     fn get_end(&self) -> Reference {
         match self {
-            SimpleLink::ForwardLinkToOne(link) => link.get_end(),
-            SimpleLink::ReverseLinkToOne(link) => link.get_end(),
-            SimpleLink::ReverseLinkToMany(link) => link.get_end(),
+            MultiLink::ForwardLinkToOne(link) => link.get_end(),
+            MultiLink::ReverseLinkToOne(link) => link.get_end(),
+            MultiLink::ReverseLinkToMany(link) => link.get_end(),
         }
     }
 
     fn get_base(&self) -> Reference {
         match self {
-            SimpleLink::ForwardLinkToOne(link) => link.get_base(),
-            SimpleLink::ReverseLinkToOne(link) => link.get_base(),
-            SimpleLink::ReverseLinkToMany(link) => link.get_base(),
+            MultiLink::ForwardLinkToOne(link) => link.get_base(),
+            MultiLink::ReverseLinkToOne(link) => link.get_base(),
+            MultiLink::ReverseLinkToMany(link) => link.get_base(),
         }
     }
 
     fn get_target(&self) -> Reference {
         match self {
-            SimpleLink::ForwardLinkToOne(link) => link.get_target(),
-            SimpleLink::ReverseLinkToOne(link) => link.get_target(),
-            SimpleLink::ReverseLinkToMany(link) => link.get_target(),
+            MultiLink::ForwardLinkToOne(link) => link.get_target(),
+            MultiLink::ReverseLinkToOne(link) => link.get_target(),
+            MultiLink::ReverseLinkToMany(link) => link.get_target(),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct FilteredReverseLinkToMany {
-    pub link: ReverseLinkToMany,
+pub struct FilteredLink {
+    pub link: MultiLink,
     pub condition_set: ConditionSet,
 }
 
-impl Link for FilteredReverseLinkToMany {
+impl From<MultiLink> for FilteredLink {
+    fn from(link: MultiLink) -> Self {
+        Self {
+            link,
+            condition_set: ConditionSet::default(),
+        }
+    }
+}
+
+impl Link for FilteredLink {
     fn get_direction(&self) -> LinkDirection {
         self.link.get_direction()
     }
@@ -333,112 +345,4 @@ impl Link for FilteredReverseLinkToMany {
     fn get_target(&self) -> Reference {
         self.link.get_target()
     }
-}
-
-#[derive(Debug)]
-pub enum GenericLink {
-    ForwardLinkToOne(ForwardLinkToOne),
-    ReverseLinkToOne(ReverseLinkToOne),
-    FilteredReverseLinkToMany(FilteredReverseLinkToMany),
-}
-
-impl GenericLink {
-    pub fn to_many(link: ReverseLinkToMany) -> Self {
-        Self::FilteredReverseLinkToMany(FilteredReverseLinkToMany {
-            link,
-            condition_set: ConditionSet::default(),
-        })
-    }
-
-    pub fn filtered_to_many(link: ReverseLinkToMany, condition_set: ConditionSet) -> Self {
-        Self::FilteredReverseLinkToMany(FilteredReverseLinkToMany {
-            link,
-            condition_set,
-        })
-    }
-
-    pub fn set_condition_set(&mut self, condition_set: ConditionSet) {
-        match self {
-            GenericLink::ForwardLinkToOne(_) => {}
-            GenericLink::ReverseLinkToOne(_) => {}
-            GenericLink::FilteredReverseLinkToMany(link) => {
-                link.condition_set = condition_set;
-            }
-        }
-    }
-
-    pub fn get_condition_set(&self) -> Option<&ConditionSet> {
-        match self {
-            GenericLink::ForwardLinkToOne(_) => None,
-            GenericLink::ReverseLinkToOne(_) => None,
-            GenericLink::FilteredReverseLinkToMany(link) => Some(&link.condition_set),
-        }
-    }
-}
-
-impl Link for GenericLink {
-    fn get_direction(&self) -> LinkDirection {
-        match self {
-            GenericLink::ForwardLinkToOne(link) => link.get_direction(),
-            GenericLink::ReverseLinkToOne(link) => link.get_direction(),
-            GenericLink::FilteredReverseLinkToMany(link) => link.get_direction(),
-        }
-    }
-
-    fn get_join_quantity(&self) -> JoinQuantity {
-        match self {
-            GenericLink::ForwardLinkToOne(link) => link.get_join_quantity(),
-            GenericLink::ReverseLinkToOne(link) => link.get_join_quantity(),
-            GenericLink::FilteredReverseLinkToMany(link) => link.get_join_quantity(),
-        }
-    }
-
-    fn get_start(&self) -> Reference {
-        match self {
-            GenericLink::ForwardLinkToOne(link) => link.get_start(),
-            GenericLink::ReverseLinkToOne(link) => link.get_start(),
-            GenericLink::FilteredReverseLinkToMany(link) => link.get_start(),
-        }
-    }
-
-    fn get_end(&self) -> Reference {
-        match self {
-            GenericLink::ForwardLinkToOne(link) => link.get_end(),
-            GenericLink::ReverseLinkToOne(link) => link.get_end(),
-            GenericLink::FilteredReverseLinkToMany(link) => link.get_end(),
-        }
-    }
-
-    fn get_base(&self) -> Reference {
-        match self {
-            GenericLink::ForwardLinkToOne(link) => link.get_base(),
-            GenericLink::ReverseLinkToOne(link) => link.get_base(),
-            GenericLink::FilteredReverseLinkToMany(link) => link.get_base(),
-        }
-    }
-
-    fn get_target(&self) -> Reference {
-        match self {
-            GenericLink::ForwardLinkToOne(link) => link.get_target(),
-            GenericLink::ReverseLinkToOne(link) => link.get_target(),
-            GenericLink::FilteredReverseLinkToMany(link) => link.get_target(),
-        }
-    }
-}
-
-impl From<SimpleLink> for GenericLink {
-    fn from(link: SimpleLink) -> Self {
-        match link {
-            SimpleLink::ForwardLinkToOne(link) => Self::ForwardLinkToOne(link),
-            SimpleLink::ReverseLinkToOne(link) => Self::ReverseLinkToOne(link),
-            SimpleLink::ReverseLinkToMany(link) => Self::to_many(link),
-        }
-    }
-}
-
-pub fn get_fk_column_name(link: &impl Link, schema: &Schema) -> String {
-    let base = link.get_base();
-    let base_table = schema.tables.get(&base.table_id).unwrap();
-    let base_column = base_table.columns.get(&base.column_id).unwrap();
-    base_column.name.clone()
 }

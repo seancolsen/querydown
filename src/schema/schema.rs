@@ -1,9 +1,6 @@
-use std::{
-    collections::{
-        hash_map::Entry::{Occupied, Vacant},
-        HashMap,
-    },
-    convert::identity,
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
 };
 
 use itertools::Itertools;
@@ -13,8 +10,8 @@ use crate::syntax_tree::TableWithMany;
 use super::{
     chain::{Chain, ChainIntersecting},
     links::{
-        FilteredReverseLinkToMany, ForeignKey, ForwardLinkToOne, GenericLink, Link, LinkToOne,
-        Reference, ReverseLinkToMany, ReverseLinkToOne, SimpleLink,
+        FilteredLink, ForeignKey, ForwardLinkToOne, Link, LinkToOne, MultiLink, Reference,
+        ReverseLinkToMany, ReverseLinkToOne,
     },
     primitive_schema::{PrimitiveSchema, PrimitiveTable},
 };
@@ -73,7 +70,7 @@ impl Schema {
         base: ChainSearchBase,
         target: &TableWithMany,
         max_chain_length: Option<usize>,
-    ) -> Result<Chain<GenericLink>, String> {
+    ) -> Result<Chain<FilteredLink>, String> {
         let max_chain_len = max_chain_length.unwrap_or(usize::MAX);
         if base.len() >= max_chain_len {
             // I don't think this should never happen, but I put it here just in case
@@ -82,16 +79,11 @@ impl Schema {
         let target_table = self
             .get_table(&target.table)
             .ok_or("Target table not found.".to_string())?;
-        let make_final_chain = |simple_chain: Chain<SimpleLink>| -> Chain<GenericLink> {
-            let mut chain = Chain::<GenericLink>::from(simple_chain);
-            chain.set_final_condition_set(target.condition_set.clone());
-            chain
-        };
 
         // Success case where the base is already at the target
         if base.get_ending_table_id() == Some(target_table.id) {
-            if let ChainSearchBase::Chain(simple_chain) = base {
-                return Ok(make_final_chain(simple_chain));
+            if let ChainSearchBase::Chain(multi_link_chain) = base {
+                return Ok(Chain::<FilteredLink>::from(multi_link_chain));
             }
         }
 
@@ -103,9 +95,9 @@ impl Schema {
         // Success case where we can directly find the target from the base
         if let Some(links) = base_table.reverse_links_to_many.get(&target_table.id) {
             if let Ok(link) = links.iter().exactly_one() {
-                let simple_link = SimpleLink::ReverseLinkToMany(*link);
-                if let Ok(simple_chain) = base.clone().try_append_into_chain(simple_link) {
-                    return Ok(make_final_chain(simple_chain));
+                let multi_link = MultiLink::ReverseLinkToMany(*link);
+                if let Ok(multi_link_chain) = base.clone().try_append_into_chain(multi_link) {
+                    return Ok(Chain::<FilteredLink>::from(multi_link_chain));
                 }
             }
         }
@@ -114,12 +106,12 @@ impl Schema {
             return Err("Max chain length reached.".to_string());
         }
 
-        let get_transitive_chain = |link: SimpleLink, max: usize| {
+        let get_transitive_chain = |link: MultiLink, max: usize| {
             let chain = base.clone().try_append_into_chain(link)?;
             self.get_chain_to_table_with_many(ChainSearchBase::Chain(chain), target, Some(max))
         };
         enum ChainSearchResult {
-            Winner(Chain<GenericLink>),
+            Winner(Chain<FilteredLink>),
             Tie(usize),
             NoneFound,
         }
@@ -131,7 +123,7 @@ impl Schema {
 
         // Recursive case
         let mut result = ChainSearchResult::NoneFound;
-        for link in base_table.get_simple_links() {
+        for link in base_table.get_links() {
             let max_len = get_max_len(&result);
             let Ok(chain) = get_transitive_chain(link, max_len) else {continue};
             if let ChainSearchResult::Winner(winner) = &result {
@@ -154,7 +146,7 @@ impl Schema {
 
 #[derive(Debug, Clone)]
 pub enum ChainSearchBase {
-    Chain(Chain<SimpleLink>),
+    Chain(Chain<MultiLink>),
     TableId(TableId),
 }
 
@@ -180,10 +172,7 @@ impl ChainSearchBase {
         }
     }
 
-    pub fn try_append_into_chain(
-        self,
-        link: SimpleLink,
-    ) -> Result<Chain<SimpleLink>, &'static str> {
+    pub fn try_append_into_chain(self, link: MultiLink) -> Result<Chain<MultiLink>, &'static str> {
         match self {
             Self::Chain(mut chain) => {
                 chain.try_append(link)?;
@@ -214,24 +203,24 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn get_simple_links(&self) -> impl Iterator<Item = SimpleLink> + '_ {
+    pub fn get_links(&self) -> impl Iterator<Item = MultiLink> + '_ {
         let forward_links_to_one = self
             .forward_links_to_one
             .values()
             .copied()
-            .map(SimpleLink::ForwardLinkToOne);
+            .map(MultiLink::ForwardLinkToOne);
         let reverse_links_to_many = self
             .reverse_links_to_many
             .values()
             .flatten()
             .copied()
-            .map(SimpleLink::ReverseLinkToMany);
+            .map(MultiLink::ReverseLinkToMany);
         let reverse_links_to_one = self
             .reverse_links_to_one
             .values()
             .flatten()
             .copied()
-            .map(SimpleLink::ReverseLinkToOne);
+            .map(MultiLink::ReverseLinkToOne);
         forward_links_to_one
             .chain(reverse_links_to_many)
             .chain(reverse_links_to_one)

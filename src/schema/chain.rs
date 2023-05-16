@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{schema::schema::TableId, syntax_tree::ConditionSet};
 
-use super::links::{GenericLink, Link, SimpleLink};
+use super::links::{FilteredLink, Link, MultiLink};
 
 #[derive(Debug, Clone)]
 struct ChainStats {
@@ -201,8 +201,8 @@ impl<L: Link + Clone> Clone for Chain<L> {
     }
 }
 
-impl From<Chain<SimpleLink>> for Chain<GenericLink> {
-    fn from(chain: Chain<SimpleLink>) -> Self {
+impl From<Chain<MultiLink>> for Chain<FilteredLink> {
+    fn from(chain: Chain<MultiLink>) -> Self {
         Self {
             links: chain.links.into_iter().map(|link| link.into()).collect(),
             stats: chain.stats,
@@ -211,12 +211,10 @@ impl From<Chain<SimpleLink>> for Chain<GenericLink> {
     }
 }
 
-impl Chain<GenericLink> {
+impl Chain<FilteredLink> {
     pub fn set_final_condition_set(&mut self, condition_set: ConditionSet) {
         // unwrap is safe here because we know that a chain will have at least one link
-        self.links
-            .last_mut()
-            .unwrap()
-            .set_condition_set(condition_set);
+        let last_link = self.links.last_mut().unwrap();
+        last_link.condition_set = condition_set;
     }
 }

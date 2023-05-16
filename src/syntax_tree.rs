@@ -16,6 +16,12 @@ pub struct ConditionSet {
     pub entries: Vec<ConditionSetEntry>,
 }
 
+impl ConditionSet {
+    pub fn is_empty(&self) -> bool {
+        self.entries.iter().all(|entry| entry.is_empty())
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ExpressionSet {
     pub conjunction: Conjunction,
@@ -33,6 +39,15 @@ pub enum Conjunction {
 pub enum ConditionSetEntry {
     Comparison(Comparison),
     ConditionSet(ConditionSet),
+}
+
+impl ConditionSetEntry {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            ConditionSetEntry::Comparison(_) => false,
+            ConditionSetEntry::ConditionSet(condition_set) => condition_set.is_empty(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

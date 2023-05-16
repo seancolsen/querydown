@@ -6,7 +6,7 @@ use crate::{
     dialects::{dialect::Dialect, sql},
     schema::{
         chain::Chain,
-        links::{GenericLink, Link, LinkToOne},
+        links::{FilteredLink, Link, LinkToOne},
         schema::{Schema, Table},
     },
     sql_tree::{Cte, CtePurpose},
@@ -257,7 +257,7 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
     pub fn join_chain_to_many(
         &mut self,
         head: &Option<Chain<LinkToOne>>,
-        chain: Chain<GenericLink>,
+        chain: Chain<FilteredLink>,
         final_column_name: Option<String>,
         compositions: Vec<Composition>,
         purpose: CtePurpose,
