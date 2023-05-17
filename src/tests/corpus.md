@@ -396,6 +396,25 @@ clients --#issues{--#comments}
 TODO
 ```
 
+## Column control flags
+
+### Basic sort
+
+> Issues, showing the most recent ones first
+
+```qd
+issues $id $title $created_at \sd
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."created_at"
+FROM "issues"
+ORDER BY "issues"."created_at" DESC NULLS LAST;
+```
+
 ## ⛔ Variables
 
 None of this is implemented yet

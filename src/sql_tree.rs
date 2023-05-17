@@ -1,5 +1,5 @@
 use crate::{
-    dialects::dialect::Dialect,
+    dialects::{dialect::Dialect, sql},
     rendering::{Render, RenderingContext},
     syntax_tree::{Conjunction, NullsSort, SortDirection},
 };
@@ -190,6 +190,12 @@ impl Render for Select {
             rendered.push_str("GROUP BY ");
             rendered.push_str(&self.grouping.join(", "));
         }
+        if self.sorting.len() > 0 {
+            rendered.push_str("\n");
+            rendered.push_str(&indentation);
+            rendered.push_str("ORDER BY ");
+            rendered.push_str(&self.sorting.render(cx));
+        }
         rendered
     }
 }
@@ -319,5 +325,48 @@ impl Render for SqlConditionSetEntry {
             }
         }
         rendered
+    }
+}
+
+impl Render for Vec<SortEntry> {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let mut rendered = String::new();
+        for (i, entry) in self.iter().enumerate() {
+            if i > 0 {
+                rendered.push_str(", ");
+            }
+            rendered.push_str(&entry.render(cx));
+        }
+        rendered
+    }
+}
+
+impl Render for SortEntry {
+    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+        let mut rendered = String::new();
+        rendered.push_str(&self.expression);
+        rendered.push(' ');
+        rendered.push_str(&self.direction.render(cx));
+        rendered.push(' ');
+        rendered.push_str(&self.nulls_sort.render(cx));
+        rendered
+    }
+}
+
+impl Render for SortDirection {
+    fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
+        match self {
+            SortDirection::Asc => sql::ASC.to_string(),
+            SortDirection::Desc => sql::DESC.to_string(),
+        }
+    }
+}
+
+impl Render for NullsSort {
+    fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
+        match self {
+            NullsSort::First => sql::NULLS_FIRST.to_string(),
+            NullsSort::Last => sql::NULLS_LAST.to_string(),
+        }
     }
 }

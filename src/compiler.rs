@@ -1,6 +1,7 @@
 use chumsky::Parser;
 
 use crate::{
+    compiling::sorting::SortingStack,
     converters::{convert_condition_set, convert_join_tree},
     dialects::dialect::Dialect,
     parsing::query::query,
@@ -39,11 +40,22 @@ impl<D: Dialect> Compiler<D> {
 
         select.condition_set = convert_condition_set(&first_transformation.condition_set, &mut cx);
 
+        let mut sorting_stack = SortingStack::new();
+
         for column_spec in first_transformation.column_layout.column_specs {
             let expression = column_spec.expression.render(&mut cx);
             let alias = column_spec.alias;
+            if let Some(sort_spec) = column_spec.column_control.sort {
+                let expr = alias
+                    .as_ref()
+                    .map(|a| cx.dialect.quote_identifier(a))
+                    .unwrap_or_else(|| expression.clone());
+                sorting_stack.push(expr, sort_spec);
+            }
             select.columns.push(Column { expression, alias });
         }
+
+        select.sorting = sorting_stack.into();
 
         (select.joins, select.ctes) = convert_join_tree(cx.take_join_tree(), &cx);
 
