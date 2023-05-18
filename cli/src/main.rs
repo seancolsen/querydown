@@ -1,26 +1,10 @@
 use clap::Parser;
-use dialects::postgres::Postgres;
-
-use crate::compiler::Compiler;
+use querydown::{compiler::Compiler, dialects::postgres::Postgres};
 use std::io::{self, Read};
-
-mod compiler;
-mod compiling;
-mod constants;
-mod converters;
-mod dialects;
-mod error;
-mod parsing;
-mod rendering;
-mod schema;
-mod sql_tree;
-pub mod syntax_tree;
-mod tests;
-mod tokens;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-/// Querydown transpiler
+/// Querydown compiler
 struct Args {
     #[arg(short, long)]
     /// Path to the schema JSON file
