@@ -10,13 +10,13 @@ use crate::{
     sql_tree::{Column, Select, Simplify},
 };
 
-pub struct Compiler<D: Dialect> {
-    dialect: D,
+pub struct Compiler {
+    dialect: Box<dyn Dialect>,
     schema: Schema,
 }
 
-impl<D: Dialect> Compiler<D> {
-    pub fn new(schema_json: &str, dialect: D) -> Result<Self, String> {
+impl Compiler {
+    pub fn new(schema_json: &str, dialect: Box<dyn Dialect>) -> Result<Self, String> {
         let primitive_schema = serde_json::from_str::<PrimitiveSchema>(schema_json)
             .map_err(|_| "Schema input is not valid JSON.")?;
         let schema = Schema::try_from(primitive_schema)?;

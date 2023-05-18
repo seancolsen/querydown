@@ -58,9 +58,9 @@ impl SimpleComparison {
     }
 }
 
-pub fn convert_condition_set<D: Dialect>(
+pub fn convert_condition_set(
     condition_set: &ConditionSet,
-    cx: &mut RenderingContext<D>,
+    cx: &mut RenderingContext,
 ) -> SqlConditionSet {
     SqlConditionSet {
         conjunction: condition_set.conjunction,
@@ -72,9 +72,9 @@ pub fn convert_condition_set<D: Dialect>(
     }
 }
 
-fn convert_condition_set_entry<D: Dialect>(
+fn convert_condition_set_entry(
     condition_set_entry: &ConditionSetEntry,
-    cx: &mut RenderingContext<D>,
+    cx: &mut RenderingContext,
 ) -> SqlConditionSetEntry {
     match condition_set_entry {
         ConditionSetEntry::Comparison(comparison) => convert_comparison(comparison, cx),
@@ -84,16 +84,13 @@ fn convert_condition_set_entry<D: Dialect>(
     }
 }
 
-fn convert_comparison<D: Dialect>(
-    comparison: &Comparison,
-    cx: &mut RenderingContext<D>,
-) -> SqlConditionSetEntry {
+fn convert_comparison(comparison: &Comparison, cx: &mut RenderingContext) -> SqlConditionSetEntry {
     convert_simple_condition_set_entry(&expand_comparison(comparison), cx)
 }
 
-fn convert_simple_condition_set_entry<D: Dialect>(
+fn convert_simple_condition_set_entry(
     entry: &SimpleConditionSetEntry,
-    cx: &mut RenderingContext<D>,
+    cx: &mut RenderingContext,
 ) -> SqlConditionSetEntry {
     match entry {
         SimpleConditionSetEntry::SimpleComparison(comparison) => {
@@ -112,9 +109,9 @@ fn convert_simple_condition_set_entry<D: Dialect>(
     }
 }
 
-fn convert_simple_comparison<D: Dialect>(
+fn convert_simple_comparison(
     s: &SimpleComparison,
-    cx: &mut RenderingContext<D>,
+    cx: &mut RenderingContext,
 ) -> SqlConditionSetEntry {
     // When we see that we're comparing an expression equal to zero or greater to zero, then we
     // hand off the conversion to the context because, depending on the expression, the context
@@ -164,12 +161,12 @@ impl From<ComparisonVsZero> for CtePurpose {
     }
 }
 
-fn convert_expression_vs_zero<D: Dialect>(
+fn convert_expression_vs_zero(
     expr: &Expression,
     cmp: ComparisonVsZero,
-    cx: &mut RenderingContext<D>,
+    cx: &mut RenderingContext,
 ) -> SqlConditionSetEntry {
-    let fallback = |cx: &mut RenderingContext<D>| {
+    let fallback = |cx: &mut RenderingContext| {
         let rendered_expr = expr.render(cx);
         let op = Operator::from(cmp).render(cx);
         SqlConditionSetEntry::Expression(format!("{} {} {}", rendered_expr, op, 0))
@@ -241,10 +238,7 @@ fn expand_comparison(comparison: &Comparison) -> SimpleConditionSetEntry {
     }
 }
 
-pub fn simplify_expression<D: Dialect>(
-    expr: &Expression,
-    cx: &mut RenderingContext<D>,
-) -> SimpleExpression {
+pub fn simplify_expression(expr: &Expression, cx: &mut RenderingContext) -> SimpleExpression {
     let expr = expr.clone();
     match expr.base {
         Value::Literal(literal) => SimpleExpression {
@@ -256,10 +250,10 @@ pub fn simplify_expression<D: Dialect>(
     }
 }
 
-fn simplify_path_expression<D: Dialect>(
+fn simplify_path_expression(
     parts: Vec<PathPart>,
     compositions: Vec<Composition>,
-    cx: &mut RenderingContext<D>,
+    cx: &mut RenderingContext,
 ) -> Result<SimpleExpression, String> {
     let clarified_path = clarify_path(parts, cx)?;
     match (clarified_path.head, clarified_path.tail) {
@@ -301,10 +295,7 @@ enum ClarifiedPathTail {
     ChainToMany((Chain<FilteredLink>, Option<String>)),
 }
 
-fn clarify_path<D: Dialect>(
-    parts: Vec<PathPart>,
-    cx: &RenderingContext<D>,
-) -> Result<ClarifiedPath, String> {
+fn clarify_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<ClarifiedPath, String> {
     let linked_path = build_linked_path(parts, cx)?;
     let chain_opt = linked_path.chain;
     let column_name_opt = linked_path.column;
@@ -355,10 +346,7 @@ struct LinkedPath {
     pub column: Option<String>,
 }
 
-fn build_linked_path<D: Dialect>(
-    parts: Vec<PathPart>,
-    cx: &RenderingContext<D>,
-) -> Result<LinkedPath, String> {
+fn build_linked_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<LinkedPath, String> {
     let mut current_table_opt: Option<&Table> = Some(cx.get_base_table());
     let mut chain_opt: Option<Chain<FilteredLink>> = None;
     let mut final_column_name: Option<String> = None;
@@ -418,10 +406,7 @@ fn build_linked_path<D: Dialect>(
     })
 }
 
-pub fn convert_join_tree<D: Dialect>(
-    mut tree: JoinTree,
-    cx: &RenderingContext<D>,
-) -> (Vec<Join>, Vec<Cte>) {
+pub fn convert_join_tree(mut tree: JoinTree, cx: &RenderingContext) -> (Vec<Join>, Vec<Cte>) {
     let mut ctes = tree.take_ctes();
     let mut joins: Vec<Join> = ctes
         .iter()
@@ -440,7 +425,7 @@ pub fn convert_join_tree<D: Dialect>(
     (joins, ctes)
 }
 
-fn build_join_for_cte<D: Dialect>(cte: &Cte, table: String, cx: &RenderingContext<D>) -> Join {
+fn build_join_for_cte(cte: &Cte, table: String, cx: &RenderingContext) -> Join {
     let condition = format!(
         "{} = {}",
         cx.dialect.table_column(&table, &cte.join_column_name),
@@ -468,11 +453,11 @@ pub struct ValueViaCte {
     pub compositions: Vec<Composition>,
 }
 
-pub fn build_cte_select<D: Dialect>(
+pub fn build_cte_select(
     chain: Chain<FilteredLink>,
     final_column_name: Option<String>,
     compositions: Vec<Composition>,
-    parent_cx: &RenderingContext<D>,
+    parent_cx: &RenderingContext,
     purpose: CtePurpose,
 ) -> Result<ValueViaCte, String> {
     use Literal::TableColumnReference;
@@ -593,12 +578,12 @@ fn prepare_compositions_for_aggregation(
     }
 }
 
-fn make_join_from_link<D: Dialect>(
+fn make_join_from_link(
     link: &impl Link,
     starting_alias: &str,
     ending_alias: &str,
     join_type: JoinType,
-    cx: &RenderingContext<D>,
+    cx: &RenderingContext,
 ) -> Join {
     let start = link.get_start();
     let starting_table_id = start.table_id;

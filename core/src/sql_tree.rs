@@ -167,7 +167,7 @@ impl From<String> for Select {
 }
 
 impl Render for Select {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let indentation = cx.get_indentation();
         let mut rendered = String::new();
         rendered.push_str(&self.ctes.render(cx));
@@ -201,7 +201,7 @@ impl Render for Select {
 }
 
 impl Render for Vec<Cte> {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let mut rendered = String::new();
         if self.len() == 0 {
             return rendered;
@@ -225,7 +225,7 @@ impl Render for Vec<Cte> {
 }
 
 impl Render for Vec<Join> {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let mut rendered = String::new();
         for join in self.iter() {
             rendered.push_str("\n");
@@ -237,7 +237,7 @@ impl Render for Vec<Join> {
 }
 
 impl Render for Join {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let quoted_table = cx.dialect.quote_identifier(&self.table);
         let table_expr = if self.alias == self.table {
             quoted_table
@@ -255,7 +255,7 @@ impl Render for Join {
 }
 
 impl Render for Vec<Column> {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let mut rendered = String::new();
         if self.len() == 0 {
             rendered.push_str(cx.get_indentation().as_str());
@@ -276,7 +276,7 @@ impl Render for Vec<Column> {
 }
 
 impl Render for Column {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let mut rendered = String::new();
         rendered.push_str(&self.expression);
         if let Some(alias) = &self.alias {
@@ -288,7 +288,7 @@ impl Render for Column {
 }
 
 impl Render for SqlConditionSet {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let mut rendered = String::new();
         if self.entries.len() == 0 {
             return rendered;
@@ -307,7 +307,7 @@ impl Render for SqlConditionSet {
 }
 
 impl Render for SqlConditionSetEntry {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let mut rendered = String::new();
         match self {
             SqlConditionSetEntry::Expression(expression) => {
@@ -329,7 +329,7 @@ impl Render for SqlConditionSetEntry {
 }
 
 impl Render for Vec<SortEntry> {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let mut rendered = String::new();
         for (i, entry) in self.iter().enumerate() {
             if i > 0 {
@@ -342,7 +342,7 @@ impl Render for Vec<SortEntry> {
 }
 
 impl Render for SortEntry {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         let mut rendered = String::new();
         rendered.push_str(&self.expression);
         rendered.push(' ');
@@ -354,7 +354,7 @@ impl Render for SortEntry {
 }
 
 impl Render for SortDirection {
-    fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
+    fn render(&self, _: &mut RenderingContext) -> String {
         match self {
             SortDirection::Asc => sql::ASC.to_string(),
             SortDirection::Desc => sql::DESC.to_string(),
@@ -363,7 +363,7 @@ impl Render for SortDirection {
 }
 
 impl Render for NullsSort {
-    fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
+    fn render(&self, _: &mut RenderingContext) -> String {
         match self {
             NullsSort::First => sql::NULLS_FIRST.to_string(),
             NullsSort::Last => sql::NULLS_LAST.to_string(),

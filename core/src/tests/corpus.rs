@@ -55,7 +55,7 @@ fn test_corpus() {
         let expected = case.args.pop().unwrap();
         let input = case.args.pop().unwrap();
         let schema_json = get_test_resource("issue_schema.json");
-        let compiler = Compiler::new(&schema_json, Postgres()).unwrap();
+        let compiler = Compiler::new(&schema_json, Box::new(Postgres())).unwrap();
         let actual = compiler.compile(input.to_owned()).unwrap();
         if clean(actual.clone()) == clean(expected.clone()) {
             return;

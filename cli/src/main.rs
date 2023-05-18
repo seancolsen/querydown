@@ -28,7 +28,7 @@ fn main() -> () {
     let mut args = Args::parse();
     let querydown_code = get_querydown_code(&mut args);
     let schema_json = std::fs::read_to_string(args.schema).unwrap();
-    let compiler = Compiler::new(&schema_json, Postgres()).unwrap();
+    let compiler = Compiler::new(&schema_json, Box::new(Postgres())).unwrap();
     let sql_code = compiler.compile(querydown_code).unwrap();
     println!("{sql_code}");
 }

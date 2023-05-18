@@ -133,8 +133,8 @@ impl JoinTree {
     }
 }
 
-pub struct RenderingContext<'a, D: Dialect> {
-    pub dialect: &'a D,
+pub struct RenderingContext<'a> {
+    pub dialect: &'a Box<dyn Dialect>,
     pub schema: &'a Schema,
     base_table: &'a Table,
     indentation_level: usize,
@@ -143,9 +143,9 @@ pub struct RenderingContext<'a, D: Dialect> {
     cte_naming_index: usize,
 }
 
-impl<'a, D: Dialect> RenderingContext<'a, D> {
+impl<'a> RenderingContext<'a> {
     pub fn build(
-        dialect: &'a D,
+        dialect: &'a Box<dyn Dialect>,
         schema: &'a Schema,
         base_table_name: &'a str,
     ) -> Result<Self, String> {
@@ -299,11 +299,11 @@ impl<'a, D: Dialect> RenderingContext<'a, D> {
 }
 
 pub trait Render {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String;
+    fn render(&self, cx: &mut RenderingContext) -> String;
 }
 
 impl Render for Literal {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         match self {
             Literal::Date(d) => cx.dialect.date(d),
             Literal::Duration(d) => cx.dialect.duration(d),
@@ -319,11 +319,11 @@ impl Render for Literal {
     }
 }
 
-fn render_composition<D: Dialect>(
+fn render_composition(
     function_name: &str,
     base: &str,
     arg: Option<String>,
-    cx: &mut RenderingContext<D>,
+    cx: &mut RenderingContext,
 ) -> String {
     let operator = |o: &'static str| match &arg {
         None => base.to_owned(),
@@ -359,10 +359,7 @@ fn needs_parens(outer_fn: &str, inner_fn: Option<&str>) -> bool {
     }
 }
 
-fn render_expression<D: Dialect>(
-    expr: &Expression,
-    cx: &mut RenderingContext<D>,
-) -> ExpressionRenderingOutput {
+fn render_expression(expr: &Expression, cx: &mut RenderingContext) -> ExpressionRenderingOutput {
     let simple_expr = simplify_expression(expr, cx);
     let mut rendered = simple_expr.base.render(cx);
     let mut last_composition: Option<&Composition> = None;
@@ -389,13 +386,13 @@ fn render_expression<D: Dialect>(
 }
 
 impl Render for Expression {
-    fn render<D: Dialect>(&self, cx: &mut RenderingContext<D>) -> String {
+    fn render(&self, cx: &mut RenderingContext) -> String {
         render_expression(self, cx).rendered
     }
 }
 
 impl Render for Operator {
-    fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
+    fn render(&self, _: &mut RenderingContext) -> String {
         match self {
             Operator::Eq => sql::EQ.to_string(),
             Operator::Gt => sql::GT.to_string(),
@@ -412,7 +409,7 @@ impl Render for Operator {
 }
 
 impl Render for Conjunction {
-    fn render<D: Dialect>(&self, _: &mut RenderingContext<D>) -> String {
+    fn render(&self, _: &mut RenderingContext) -> String {
         match self {
             Conjunction::And => sql::AND.to_string(),
             Conjunction::Or => sql::OR.to_string(),
