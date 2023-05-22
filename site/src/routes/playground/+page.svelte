@@ -11,8 +11,23 @@
     '$author.username',
     '$#comments.created_at%min \\sd',
   ].join('\n');
+  let sql = "";
+  let compile: ((input: string) => string) | undefined;
+
+  function handle_change(input: string) {
+    if (compile) {
+      sql = compile(input);
+    }
+  }
 
   onMount(async () => {
+    const qd = await import('querydown-js');
+
+    // TODO figure out how to store this schema in one place instead of copying it
+    const schema_response = await fetch('/issue_schema.json');
+    const schema_str = await schema_response.text();
+    compile = input => qd.compile(schema_str, "postgres", input);
+    
     const monaco = await import('monaco-editor');
     const editor = monaco.editor.create(editorElement, {
       value: content,
@@ -26,6 +41,7 @@
     editor.onDidChangeModelContent(() => {
       if (model) {
         content = model.getValue();
+        handle_change(content);
       }
     });
   });
@@ -35,4 +51,4 @@
 
 <div style="height: 300px" bind:this={editorElement} />
 
-<pre>{content}</pre>
+<pre>{sql}</pre>

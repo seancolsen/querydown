@@ -1,6 +1,8 @@
+mod compiler;
 mod compiling;
 mod constants;
 mod converters;
+mod dialects;
 mod error;
 mod parsing;
 mod rendering;
@@ -10,5 +12,5 @@ mod syntax_tree;
 mod tests;
 mod tokens;
 
-pub mod compiler;
-pub mod dialects;
+pub use compiler::Compiler;
+pub use dialects::postgres::Postgres;

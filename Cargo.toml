@@ -2,4 +2,12 @@
 members = [
     "cli",
     "core",
+    "bindings/js",
 ]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/seancolsen/querydown"
+version = "0.0.1"
+rust-version = "1.67.0"

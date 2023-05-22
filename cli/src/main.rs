@@ -1,5 +1,5 @@
 use clap::Parser;
-use querydown::{compiler::Compiler, dialects::postgres::Postgres};
+use querydown::{Compiler, Postgres};
 use std::io::{self, Read};
 
 #[derive(Parser, Debug)]

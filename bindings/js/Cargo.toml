@@ -1,0 +1,23 @@
+[package]
+name = "querydown-js"
+description = "Javascript bindings for the Querydown compiler"
+authors = ["Sean Colsen <colsen.sean@gmail.com>"]
+publish = false
+
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+querydown = { path = "../../core" }
+wasm-bindgen = "0.2.86"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.13"
+
+[profile.release]
+lto = true
+opt-level = 'z'
