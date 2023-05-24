@@ -1,0 +1,28 @@
+html {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu,
+    'Helvetica Neue', sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: #eee;
+  margin: 0;
+}
+
+.passthrough {
+  background: none;
+  border-radius: 0;
+  border: none;
+  color: inherit;
+  cursor: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  text-align: inherit;
+  text-decoration: inherit;
+  margin: 0;
+  padding: 0;
+}
