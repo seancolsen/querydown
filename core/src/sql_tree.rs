@@ -259,7 +259,8 @@ impl Render for Vec<Column> {
         let mut rendered = String::new();
         if self.len() == 0 {
             rendered.push_str(cx.get_indentation().as_str());
-            rendered.push('*');
+            rendered.push_str(&cx.dialect.quote_identifier(&cx.get_base_table().name));
+            rendered.push_str(".*");
             rendered.push('\n');
             return rendered;
         }

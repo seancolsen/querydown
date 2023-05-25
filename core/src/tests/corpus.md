@@ -201,7 +201,7 @@ WITH "cte0" AS (
   GROUP BY "assignments"."issue"
 )
 SELECT
-  *
+  "issues".*
 FROM "issues"
 JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
@@ -227,7 +227,7 @@ WITH "cte0" AS (
   GROUP BY "comments"."issue"
 )
 SELECT
-  *
+  "issues".*
 FROM "issues"
 JOIN "cte0" ON
   "issues"."id" = "cte0"."pk";
@@ -249,7 +249,7 @@ WITH "cte0" AS (
   GROUP BY "issues"."author"
 )
 SELECT
-  *
+  "users".*
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -275,7 +275,7 @@ WITH "cte0" AS (
   GROUP BY "issues"."author"
 )
 SELECT
-  *
+  "users".*
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -301,7 +301,7 @@ WITH "cte0" AS (
   GROUP BY "issues"."author"
 )
 SELECT
-  *
+  "users".*
 FROM "users"
 JOIN "cte0" ON
   "users"."id" = "cte0"."pk";
@@ -341,7 +341,7 @@ WITH "cte0" AS (
   GROUP BY "issues"."author"
 )
 SELECT
-  *
+  "users".*
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
