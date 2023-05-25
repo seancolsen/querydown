@@ -80,7 +80,6 @@ fn test_corpus() {
         let path = PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "src", "tests", "corpus.md"]);
         let content = std::fs::read_to_string(path).unwrap();
         let cases = get_test_cases(content, Options::default());
-        // let has_soloed_tests = cases.iter().any(|c| c.name.contains('✅'));
         let has_soloed_tests = cases.iter().any(is_soloed);
         for case in cases {
             if is_skipped(&case) {
