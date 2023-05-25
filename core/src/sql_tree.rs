@@ -209,17 +209,17 @@ impl Render for Vec<Cte> {
         rendered.push_str("WITH ");
         let mut is_first = true;
         for cte in self {
+            if !is_first {
+                rendered.push_str(",\n");
+            }
             rendered.push_str(&cx.dialect.quote_identifier(&cte.alias));
             rendered.push_str(" AS (\n");
             cx.indented(|cx| rendered.push_str(&cte.select.render(cx)));
             rendered.push_str("\n");
             rendered.push_str(")");
-            if !is_first {
-                rendered.push_str(",");
-            }
-            rendered.push_str("\n");
             is_first = false;
         }
+        rendered.push_str("\n");
         rendered
     }
 }

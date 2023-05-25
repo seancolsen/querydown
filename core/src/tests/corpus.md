@@ -179,6 +179,36 @@ LEFT JOIN "cte0" ON
   "projects"."id" = "cte0"."pk";
 ```
 
+### Multiple CTEs
+
+> Issues that have comments and assignments
+
+```qd
+issues ++#comments ++#assignments
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "comments"."issue" AS "pk"
+  FROM "comments"
+  GROUP BY "comments"."issue"
+),
+"cte1" AS (
+  SELECT
+    "assignments"."issue" AS "pk"
+  FROM "assignments"
+  GROUP BY "assignments"."issue"
+)
+SELECT
+  *
+FROM "issues"
+JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk";
+```
+
 ## "Has" conditions
 
 ### Basic has some
