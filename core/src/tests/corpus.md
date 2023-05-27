@@ -32,6 +32,24 @@ $author.username
 $#comments.created_at%min \sd
 ```
 
+## Values
+
+### Date
+
+> Issues created since 2023-01-01
+
+```qd
+issues created_at:>=@2023-01-01
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."created_at" >= DATE '2023-01-01';
+```
+
 ## Paths to one
 
 ### Joined column in related table

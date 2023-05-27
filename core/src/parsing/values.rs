@@ -86,13 +86,15 @@ fn number() -> impl QdParser<String> {
 }
 
 fn date() -> impl QdParser<Date> {
-    usize_with_digit_count(4)
-        .then_ignore(just('-'))
-        .then(usize_with_digit_count(2))
-        .then_ignore(just('-'))
-        .then(usize_with_digit_count(2))
-        .map(|((year, month), day)| Date { year, month, day })
-        .labelled("date")
+    just(LITERAL_DURATION_PREFIX).ignore_then(
+        usize_with_digit_count(4)
+            .then_ignore(just('-'))
+            .then(usize_with_digit_count(2))
+            .then_ignore(just('-'))
+            .then(usize_with_digit_count(2))
+            .map(|((year, month), day)| Date { year, month, day })
+            .labelled("date"),
+    )
 }
 
 #[cfg(test)]
