@@ -30,3 +30,7 @@ pub const NULLS_LAST: &str = "NULLS LAST";
 pub fn value_is_null(expr: String) -> String {
     format!("{expr} IS NULL")
 }
+
+pub fn value_is_not_null(expr: String) -> String {
+    format!("{expr} IS NOT NULL")
+}

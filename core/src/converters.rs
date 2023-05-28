@@ -181,15 +181,14 @@ fn convert_expression_vs_zero(
     };
     let join_result = cx.join_chain_to_many(&clarified_path.head, chain, None, vec![], cmp.into());
     let Ok(simple_expr) = join_result else { return fallback(cx) };
-    match cmp {
-        ComparisonVsZero::Eq => {
-            // We're confident that `simple_expr` doesn't have any compositions because we
-            // checked that `expr` doesn't have any above.
-            let rendered_expr = simple_expr.base.render(cx);
-            SqlConditionSetEntry::Expression(sql::value_is_null(rendered_expr))
-        }
-        ComparisonVsZero::Gt => SqlConditionSetEntry::empty(),
-    }
+    // We're confident that `simple_expr` doesn't have any compositions because we
+    // checked that `expr` doesn't have any above.
+    let rendered_expr = simple_expr.base.render(cx);
+    let rendered_cmp = match cmp {
+        ComparisonVsZero::Eq => sql::value_is_null(rendered_expr),
+        ComparisonVsZero::Gt => sql::value_is_not_null(rendered_expr),
+    };
+    SqlConditionSetEntry::Expression(rendered_cmp)
 }
 
 fn expand_comparison(comparison: &Comparison) -> SimpleConditionSetEntry {
@@ -431,11 +430,6 @@ fn build_join_for_cte(cte: &Cte, table: String, cx: &RenderingContext) -> Join {
         cx.dialect.table_column(&table, &cte.join_column_name),
         cx.dialect.table_column(&cte.alias, CTE_PK_COLUMN_ALIAS),
     );
-    let join_type = match cte.purpose {
-        CtePurpose::Inclusion => JoinType::Inner,
-        CtePurpose::Exclusion => JoinType::LeftOuter,
-        CtePurpose::AggregateValue => JoinType::LeftOuter,
-    };
     Join {
         table: cte.alias.clone(),
         alias: cte.alias.clone(),
@@ -443,7 +437,7 @@ fn build_join_for_cte(cte: &Cte, table: String, cx: &RenderingContext) -> Join {
             conjunction: Conjunction::And,
             entries: vec![SqlConditionSetEntry::Expression(condition)],
         },
-        join_type,
+        join_type: JoinType::LeftOuter,
     }
 }
 

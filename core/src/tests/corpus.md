@@ -50,6 +50,45 @@ WHERE
   "issues"."created_at" >= DATE '2023-01-01';
 ```
 
+## Condition sets
+
+### "Has some" with "OR"
+
+This test is part of a bug fix. Previously, we were using `JOIN` instead of `LEFT JOIN` when joining "has some" related tables because that produced simpler SQL. But that didn't work when the condition was nested inside an `OR` condition set. We use `LEFT JOIN` plus a `WHERE` condition because it seems less prone to bugs.
+
+> Issues that have labels or comments
+
+```qd
+issues [++#labels ++#comments]
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "issue_labels"."issue" AS "pk"
+  FROM "issue_labels"
+  JOIN "labels" ON
+    "issue_labels"."label" = "labels"."id"
+  GROUP BY "issue_labels"."issue"
+),
+"cte1" AS (
+  SELECT
+    "comments"."issue" AS "pk"
+  FROM "comments"
+  GROUP BY "comments"."issue"
+)
+SELECT
+  "issues".*
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL OR
+  "cte1"."pk" IS NOT NULL;
+```
+
 ## Paths to one
 
 ### Joined column in related table
@@ -221,10 +260,13 @@ WITH "cte0" AS (
 SELECT
   "issues".*
 FROM "issues"
-JOIN "cte0" ON
+LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
-JOIN "cte1" ON
-  "issues"."id" = "cte1"."pk";
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL AND
+  "cte1"."pk" IS NOT NULL;
 ```
 
 ## "Has" conditions
@@ -247,8 +289,10 @@ WITH "cte0" AS (
 SELECT
   "issues".*
 FROM "issues"
-JOIN "cte0" ON
-  "issues"."id" = "cte0"."pk";
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
 ```
 
 ### Basic has none
@@ -321,8 +365,10 @@ WITH "cte0" AS (
 SELECT
   "users".*
 FROM "users"
-JOIN "cte0" ON
-  "users"."id" = "cte0"."pk";
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
 ```
 
 ### ⛔ Has through inferred intermediate
