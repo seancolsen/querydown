@@ -66,11 +66,11 @@ _See also: **[Language Design](./design.md)**_
 
 ## If/else
 
-| Code  | Usage |
-| --    | -- |
-| `?`   | if |
-| `=>`  | then (can occur many times without nesting) |
-| `*=>` | else |
+| Code | Usage |
+| --   | -- |
+| `?`  | if |
+| `~`  | then (can occur many times without nesting) |
+| `~~` | else |
 
 ## Functions
 

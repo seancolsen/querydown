@@ -522,7 +522,7 @@ Union has higher precedence than pipeline (the union will be performed before th
 
 Pipeline within a union
 
-```
+``` 
 @location_id = 7
 #a = (
   shipment origin:@location_id  departure_datetime!@null
@@ -559,8 +559,8 @@ $time \s $action $tracking_number
 - Patrons who currently have the highest late fee
 
     ```
-    checkout.days_overdue = ? in_date:@null=>@null *=>due_date|ago|days|max(0)|ceil
-    checkout.late_fee = days_overdue|else(0)|times(2) // $2.00 per day
+    checkout.days_overdue = ? in_date:@null ~ 0 ~~ due_date|ago|days|max(0)|ceil
+    checkout.late_fee = days_overdue|times(2) // $2.00 per day
     patron.late_fee = #checkouts.late_fee%sum
     patron $[] $late_fee \sd $#email.email%list
     ```
@@ -572,10 +572,7 @@ $time \s $action $tracking_number
 - Average days overdue, by month
 
     ```
-    checkout.days_overdue = ?
-      in_date:@null => @null
-      * => due_date|ago|days|max(0)|ceil
-    
+    checkout.days_overdue = ? in_date:@null ~ 0 ~~ due_date|ago|days|max(0)|ceil
     checkout
     $days_overdue:>0
     $out_date|year_month \gs
