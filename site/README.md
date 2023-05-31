@@ -4,9 +4,7 @@ This directory holds the code for https://querydown.org
 
 It is built with [SvelteKit](https://kit.svelte.dev/) using
 
-## Developing
-
-⚠️ **TODO** ⚠️ currently `npm install` has a preinstall command which installs the stable rust toolchain and the wasm-pack command. I did this to make the build step work with Netlify deploy. We need to fix this.
+## Local development
 
 ```
 npm install
@@ -15,6 +13,18 @@ npm install
 ```
 npm run dev
 ```
+
+## Refreshing changes from Rust
+
+When you modify some rust code, you'll need to re-generate the wasm files used by the front end.
+
+1. Run:
+
+   ```
+   npm install
+   ```
+
+1. If your dev server is still running, that's fine. Hard-refresh your browser.
 
 ## Building
 
