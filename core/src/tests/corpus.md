@@ -559,3 +559,16 @@ clients.closed_count = #issues{status:"closed"}
 clients.completion = closed_count/(closed_issues+open_count)
 clients $[] $completion \s
 ```
+
+### Table-level functions
+
+```qd
+issues.@@involves = u; [
+  ++#assignments{user.username:u}
+  ++#comments{author.username:u}
+  author.username:u
+]
+issues.@@labeled = l; ++labels{name:l}
+---
+issues @@involves("dave") @@labeled("bug")
+```
