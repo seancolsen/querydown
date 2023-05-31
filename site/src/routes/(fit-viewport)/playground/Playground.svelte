@@ -37,7 +37,7 @@
     const qd_editor = monaco_editor_create(qd_editor_element, {
       ...common_options,
       value: starting_querydown,
-      language: 'text',
+      language: 'qd',
     });
     const sql_editor = monaco_editor_create(sql_editor_element, {
       ...common_options,
