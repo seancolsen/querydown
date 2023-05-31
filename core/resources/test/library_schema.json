@@ -1,0 +1,209 @@
+{
+  "tables": [
+    {
+      "name": "Authors",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "First Name"
+        },
+        {
+          "name": "Last Name"
+        },
+        {
+          "name": "Website"
+        }
+      ]
+    },
+    {
+      "name": "Books",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "Title"
+        },
+        {
+          "name": "Publication Year"
+        },
+        {
+          "name": "Media"
+        },
+        {
+          "name": "Page Count"
+        },
+        {
+          "name": "LC Classification"
+        },
+        {
+          "name": "ISBN"
+        },
+        {
+          "name": "Dewey Decimal"
+        },
+        {
+          "name": "Dewey Wording"
+        },
+        {
+          "name": "Author"
+        },
+        {
+          "name": "Publisher"
+        }
+      ]
+    },
+    {
+      "name": "Checkouts",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "Item"
+        },
+        {
+          "name": "Patron"
+        },
+        {
+          "name": "Checkout Time"
+        },
+        {
+          "name": "Due Date"
+        },
+        {
+          "name": "Check In Time"
+        }
+      ]
+    },
+    {
+      "name": "Items",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "Barcode"
+        },
+        {
+          "name": "Acquisition Date"
+        },
+        {
+          "name": "Acquisition Price"
+        },
+        {
+          "name": "Book"
+        }
+      ]
+    },
+    {
+      "name": "Media",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "Type"
+        }
+      ]
+    },
+    {
+      "name": "Patrons",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "First Name"
+        },
+        {
+          "name": "Last Name"
+        },
+        {
+          "name": "Email"
+        }
+      ]
+    },
+    {
+      "name": "Publishers",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "Name"
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": {
+        "table": "Books",
+        "column": "Publisher"
+      },
+      "to": {
+        "table": "Publishers",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "Books",
+        "column": "Author"
+      },
+      "to": {
+        "table": "Authors",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "Checkouts",
+        "column": "Patron"
+      },
+      "to": {
+        "table": "Patrons",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "Checkouts",
+        "column": "Item"
+      },
+      "to": {
+        "table": "Items",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "Items",
+        "column": "Book"
+      },
+      "to": {
+        "table": "Books",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "Books",
+        "column": "Media"
+      },
+      "to": {
+        "table": "Media",
+        "column": "id"
+      },
+      "unique": false
+    }
+  ]
+}

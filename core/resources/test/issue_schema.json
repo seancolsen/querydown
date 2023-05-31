@@ -1,332 +1,332 @@
 {
-    "tables": [
+  "tables": [
+    {
+      "name": "users",
+      "columns": [
         {
-            "name": "users",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "username"
-                },
-                {
-                    "name": "email"
-                },
-                {
-                    "name": "team"
-                }
-            ]
+          "name": "id"
         },
         {
-            "name": "issues",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "title"
-                },
-                {
-                    "name": "description"
-                },
-                {
-                    "name": "created_at"
-                },
-                {
-                    "name": "author"
-                },
-                {
-                    "name": "status"
-                },
-                {
-                    "name": "project"
-                },
-                {
-                    "name": "duplicate_of"
-                },
-                {
-                    "name": "due_date"
-                }
-            ]
+          "name": "username"
         },
         {
-            "name": "assignments",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "issue"
-                },
-                {
-                    "name": "user"
-                }
-            ]
+          "name": "email"
         },
         {
-            "name": "blocks",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "blocker"
-                },
-                {
-                    "name": "blocking"
-                }
-            ]
-        },
-        {
-            "name": "projects",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "name"
-                },
-                {
-                    "name": "product"
-                }
-            ]
-        },
-        {
-            "name": "labels",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "name"
-                }
-            ]
-        },
-        {
-            "name": "issue_labels",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "issue"
-                },
-                {
-                    "name": "label"
-                }
-            ]
-        },
-        {
-            "name": "comments",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "issue"
-                },
-                {
-                    "name": "user"
-                },
-                {
-                    "name": "body"
-                },
-                {
-                    "name": "created_at"
-                }
-            ]
-        },
-        {
-            "name": "teams",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "name"
-                }
-            ]
-        },
-        {
-            "name": "products",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "name"
-                },
-                {
-                    "name": "client"
-                }
-            ]
-        },
-        {
-            "name": "clients",
-            "columns": [
-                {
-                    "name": "id"
-                },
-                {
-                    "name": "name"
-                }
-            ]
+          "name": "team"
         }
-    ],
-    "links": [
+      ]
+    },
+    {
+      "name": "issues",
+      "columns": [
         {
-            "from": {
-                "table": "issues",
-                "column": "project"
-            },
-            "to": {
-                "table": "projects",
-                "column": "id"
-            },
-            "unique": false
+          "name": "id"
         },
         {
-            "from": {
-                "table": "issues",
-                "column": "author"
-            },
-            "to": {
-                "table": "users",
-                "column": "id"
-            },
-            "unique": false
+          "name": "title"
         },
         {
-            "from": {
-                "table": "issues",
-                "column": "duplicate_of"
-            },
-            "to": {
-                "table": "issues",
-                "column": "id"
-            },
-            "unique": false
+          "name": "description"
         },
         {
-            "from": {
-                "table": "assignments",
-                "column": "issue"
-            },
-            "to": {
-                "table": "issues",
-                "column": "id"
-            },
-            "unique": false
+          "name": "created_at"
         },
         {
-            "from": {
-                "table": "assignments",
-                "column": "user"
-            },
-            "to": {
-                "table": "users",
-                "column": "id"
-            },
-            "unique": false
+          "name": "author"
         },
         {
-            "from": {
-                "table": "blocks",
-                "column": "blocker"
-            },
-            "to": {
-                "table": "issues",
-                "column": "id"
-            },
-            "unique": false
+          "name": "status"
         },
         {
-            "from": {
-                "table": "blocks",
-                "column": "blocking"
-            },
-            "to": {
-                "table": "issues",
-                "column": "id"
-            },
-            "unique": false
+          "name": "project"
         },
         {
-            "from": {
-                "table": "issue_labels",
-                "column": "issue"
-            },
-            "to": {
-                "table": "issues",
-                "column": "id"
-            },
-            "unique": false
+          "name": "duplicate_of"
         },
         {
-            "from": {
-                "table": "issue_labels",
-                "column": "label"
-            },
-            "to": {
-                "table": "labels",
-                "column": "id"
-            },
-            "unique": false
-        },
-        {
-            "from": {
-                "table": "comments",
-                "column": "issue"
-            },
-            "to": {
-                "table": "issues",
-                "column": "id"
-            },
-            "unique": false
-        },
-        {
-            "from": {
-                "table": "comments",
-                "column": "user"
-            },
-            "to": {
-                "table": "users",
-                "column": "id"
-            },
-            "unique": false
-        },
-        {
-            "from": {
-                "table": "users",
-                "column": "team"
-            },
-            "to": {
-                "table": "teams",
-                "column": "id"
-            },
-            "unique": false
-        },
-        {
-            "from": {
-                "table": "projects",
-                "column": "product"
-            },
-            "to": {
-                "table": "products",
-                "column": "id"
-            },
-            "unique": false
-        },
-        {
-            "from": {
-                "table": "products",
-                "column": "client"
-            },
-            "to": {
-                "table": "clients",
-                "column": "id"
-            },
-            "unique": false
+          "name": "due_date"
         }
-    ]
+      ]
+    },
+    {
+      "name": "assignments",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "issue"
+        },
+        {
+          "name": "user"
+        }
+      ]
+    },
+    {
+      "name": "blocks",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "blocker"
+        },
+        {
+          "name": "blocking"
+        }
+      ]
+    },
+    {
+      "name": "projects",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "name"
+        },
+        {
+          "name": "product"
+        }
+      ]
+    },
+    {
+      "name": "labels",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "name"
+        }
+      ]
+    },
+    {
+      "name": "issue_labels",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "issue"
+        },
+        {
+          "name": "label"
+        }
+      ]
+    },
+    {
+      "name": "comments",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "issue"
+        },
+        {
+          "name": "user"
+        },
+        {
+          "name": "body"
+        },
+        {
+          "name": "created_at"
+        }
+      ]
+    },
+    {
+      "name": "teams",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "name"
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "name"
+        },
+        {
+          "name": "client"
+        }
+      ]
+    },
+    {
+      "name": "clients",
+      "columns": [
+        {
+          "name": "id"
+        },
+        {
+          "name": "name"
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": {
+        "table": "issues",
+        "column": "project"
+      },
+      "to": {
+        "table": "projects",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "issues",
+        "column": "author"
+      },
+      "to": {
+        "table": "users",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "issues",
+        "column": "duplicate_of"
+      },
+      "to": {
+        "table": "issues",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "assignments",
+        "column": "issue"
+      },
+      "to": {
+        "table": "issues",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "assignments",
+        "column": "user"
+      },
+      "to": {
+        "table": "users",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "blocks",
+        "column": "blocker"
+      },
+      "to": {
+        "table": "issues",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "blocks",
+        "column": "blocking"
+      },
+      "to": {
+        "table": "issues",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "issue_labels",
+        "column": "issue"
+      },
+      "to": {
+        "table": "issues",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "issue_labels",
+        "column": "label"
+      },
+      "to": {
+        "table": "labels",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "comments",
+        "column": "issue"
+      },
+      "to": {
+        "table": "issues",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "comments",
+        "column": "user"
+      },
+      "to": {
+        "table": "users",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "users",
+        "column": "team"
+      },
+      "to": {
+        "table": "teams",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "projects",
+        "column": "product"
+      },
+      "to": {
+        "table": "products",
+        "column": "id"
+      },
+      "unique": false
+    },
+    {
+      "from": {
+        "table": "products",
+        "column": "client"
+      },
+      "to": {
+        "table": "clients",
+        "column": "id"
+      },
+      "unique": false
+    }
+  ]
 }
