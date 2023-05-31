@@ -12,15 +12,18 @@
 set -u
 set -e
 
-if ! command -v rustc &>/dev/null; then
-    if ! command -v rustup &>/dev/null; then
+echo "Checking for cargo"
+if ! cargo --version; then
+    echo "Checking for rustup"
+    if ! command -v rustup; then
         echo "ERROR: You need to have rustup installed first."
         echo "See https://www.rust-lang.org/tools/install"
         echo ""
         exit 1
     fi
-    echo "rustc is not installed. Installing..."
-    rustup toolchain install stable
+    echo "cargo is not installed. Installing..."
+    rustup install stable
+    rustup default stable
     install_status=$?
     if [ $install_status -ne 0 ]; then
         echo "Failed to install rustc."
@@ -28,7 +31,8 @@ if ! command -v rustc &>/dev/null; then
     fi
 fi
 
-if ! command -v wasm-pack &>/dev/null; then
+echo "Checking for wasm-pack"
+if ! command -v wasm-pack; then
     echo "wasm-pack is not installed. Installing..."
     npm i -g wasm-pack
     install_status=$?
