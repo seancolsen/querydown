@@ -8,6 +8,10 @@
   import EditorGroup from './EditorGroup.svelte';
 
   export let compile: (schema_json: string, dialect: string, input: string) => string;
+  /**
+   * Note: This component does not react to changes to this prop from the
+   * parent after mount. With more work, we could improve this if needed.
+   */
   export let default_schema_json: string;
   export let monaco_editor_create: typeof MonacoEditor.create;
 
@@ -31,8 +35,6 @@
       value: default_schema_json,
       // TODO: figure out how to enable 'json' without getting errors.
       language: 'text',
-      // TODO allow reactive modification
-      readOnly: true,
     });
     const qd_editor = monaco_editor_create(qd_editor_element, {
       ...common_options,
@@ -46,23 +48,34 @@
       language: 'sql',
     });
 
-    function handle_change(input: string) {
+    let qd_code = starting_querydown;
+    let schema_code = default_schema_json;
+
+    function handle_change() {
       let sql = '';
       try {
-        sql = compile(default_schema_json, 'postgres', input);
+        sql = compile(schema_code, 'postgres', qd_code);
       } catch (e) {
         sql = `-- ${String(e)}`;
       }
       sql_editor.getModel()?.setValue(sql);
     }
 
-    handle_change(starting_querydown);
+    handle_change();
 
-    const model = qd_editor.getModel();
+    const qd_model = qd_editor.getModel();
     qd_editor.onDidChangeModelContent(() => {
-      if (model) {
-        const content = model.getValue();
-        handle_change(content);
+      if (qd_model) {
+        qd_code = qd_model.getValue();
+        handle_change();
+      }
+    });
+
+    const schema_model = schema_editor.getModel();
+    schema_editor.onDidChangeModelContent(() => {
+      if (schema_model) {
+        schema_code = schema_model.getValue();
+        handle_change();
       }
     });
   });
