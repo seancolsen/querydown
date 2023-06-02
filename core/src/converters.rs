@@ -382,9 +382,7 @@ fn build_linked_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<Link
             PathPart::TableWithMany(mut table_with_many) => {
                 let base = ChainSearchBase::TableId(current_table.id);
                 let condition_set = std::mem::take(&mut table_with_many.condition_set);
-                let mut new_chain =
-                    cx.schema
-                        .get_chain_to_table_with_many(base, &table_with_many, None)?;
+                let mut new_chain = get_chain_to_table_with_many(base, &table_with_many, None, cx)?;
                 new_chain.set_final_condition_set(condition_set);
                 new_chain.allow_intersecting();
                 current_table_opt = cx.schema.tables.get(&new_chain.get_ending_table_id());
@@ -403,6 +401,86 @@ fn build_linked_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<Link
         chain: chain_opt,
         column: final_column_name,
     })
+}
+
+pub fn get_chain_to_table_with_many(
+    base: ChainSearchBase,
+    target: &TableWithMany,
+    max_chain_length: Option<usize>,
+    cx: &RenderingContext,
+) -> Result<Chain<FilteredLink>, String> {
+    let max_chain_len = max_chain_length.unwrap_or(usize::MAX);
+    if base.len() >= max_chain_len {
+        // I don't think this should never happen, but I put it here just in case
+        return Err("Chain search base already too long before searching.".to_string());
+    }
+    let target_table = cx
+        .schema
+        .get_table(&target.table)
+        .ok_or("Target table not found.".to_string())?;
+
+    // Success case where the base is already at the target
+    if base.get_ending_table_id() == Some(target_table.id) {
+        if let ChainSearchBase::Chain(multi_link_chain) = base {
+            return Ok(Chain::<FilteredLink>::from(multi_link_chain));
+        }
+    }
+
+    let base_table = cx
+        .schema
+        .tables
+        .get(&base.get_base_table_id())
+        .ok_or("Base table not found.".to_string())?;
+
+    // Success case where we can directly find the target from the base
+    if let Some(links) = base_table.reverse_links_to_many.get(&target_table.id) {
+        if let Ok(link) = links.iter().exactly_one() {
+            let multi_link = MultiLink::ReverseLinkToMany(*link);
+            if let Ok(multi_link_chain) = base.clone().try_append_into_chain(multi_link) {
+                return Ok(Chain::<FilteredLink>::from(multi_link_chain));
+            }
+        }
+    }
+
+    if base.len() + 1 >= max_chain_len {
+        return Err("Max chain length reached.".to_string());
+    }
+
+    let get_transitive_chain = |link: MultiLink, max: usize| {
+        let chain = base.clone().try_append_into_chain(link)?;
+        get_chain_to_table_with_many(ChainSearchBase::Chain(chain), target, Some(max), cx)
+    };
+    enum ChainSearchResult {
+        Winner(Chain<FilteredLink>),
+        Tie(usize),
+        NoneFound,
+    }
+    let get_max_len = |result: &ChainSearchResult| match result {
+        ChainSearchResult::Winner(chain) => chain.len(),
+        ChainSearchResult::Tie(len) => *len,
+        ChainSearchResult::NoneFound => max_chain_len,
+    };
+
+    // Recursive case
+    let mut result = ChainSearchResult::NoneFound;
+    for link in base_table.get_links() {
+        let max_len = get_max_len(&result);
+        let Ok(chain) = get_transitive_chain(link, max_len) else {continue};
+        if let ChainSearchResult::Winner(winner) = &result {
+            if chain.len() == winner.len() {
+                result = ChainSearchResult::Tie(chain.len());
+            } else if chain.len() < winner.len() {
+                result = ChainSearchResult::Winner(chain);
+            }
+        } else {
+            result = ChainSearchResult::Winner(chain);
+        }
+    }
+    match result {
+        ChainSearchResult::Winner(chain) => Ok(chain),
+        ChainSearchResult::Tie(_) => Err("Two chains tie for the same length".to_string()),
+        ChainSearchResult::NoneFound => Err("No chain found.".to_string()),
+    }
 }
 
 pub fn convert_join_tree(mut tree: JoinTree, cx: &RenderingContext) -> (Vec<Join>, Vec<Cte>) {
