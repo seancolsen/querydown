@@ -9,7 +9,7 @@ pub fn compile(schema_json: &str, dialect: &str, input: String) -> Result<String
     };
     let options = Options {
         dialect,
-        identifier_resolution: IdentifierResolution::Strict,
+        identifier_resolution: IdentifierResolution::Flexible,
     };
     let compiler = Compiler::new(schema_json, options)?;
     compiler.compile(input.to_owned())

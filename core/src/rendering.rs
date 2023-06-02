@@ -7,7 +7,7 @@ use crate::{
     schema::{
         chain::Chain,
         links::{FilteredLink, Link, LinkToOne},
-        schema::{Schema, Table},
+        schema::{Column, Schema, Table},
     },
     sql_tree::{Cte, CtePurpose},
     syntax_tree::{Composition, Conjunction, Expression, Literal, Operator},
@@ -135,6 +135,18 @@ impl JoinTree {
     }
 }
 
+fn get_table_by_name<'a>(options: &Options, schema: &'a Schema, name: &str) -> Option<&'a Table> {
+    options
+        .resolve_identifier(&schema.table_lookup, name)
+        .map(|id| schema.tables.get(id).unwrap())
+}
+
+fn get_column_by_name<'a>(options: &Options, table: &'a Table, name: &str) -> Option<&'a Column> {
+    options
+        .resolve_identifier(&table.column_lookup, name)
+        .map(|id| table.columns.get(id).unwrap())
+}
+
 pub struct RenderingContext<'a> {
     pub options: &'a Options,
     pub schema: &'a Schema,
@@ -151,8 +163,7 @@ impl<'a> RenderingContext<'a> {
         schema: &'a Schema,
         base_table_name: &'a str,
     ) -> Result<Self, String> {
-        let base_table = schema
-            .get_table(base_table_name)
+        let base_table = get_table_by_name(options, schema, base_table_name)
             .ok_or(format!("Base table `{}` does not exist.", base_table_name))?;
         Ok(Self {
             options,
@@ -299,16 +310,12 @@ impl<'a> RenderingContext<'a> {
         }
     }
 
-    fn resolve_identifier<'b, T>(
-        &self,
-        map: &'b HashMap<String, T>,
-        identifier: &str,
-    ) -> Option<&'b T> {
-        use crate::IdentifierResolution::*;
-        match self.options.identifier_resolution {
-            Strict => map.get(identifier),
-            Flexible => map.flex_get(identifier),
-        }
+    pub fn get_table_by_name(&self, name: &str) -> Option<&Table> {
+        get_table_by_name(self.options, self.schema, name)
+    }
+
+    pub fn get_column_by_name<'b>(&self, table: &'b Table, name: &str) -> Option<&'b Column> {
+        get_column_by_name(self.options, table, name)
     }
 }
 

@@ -353,9 +353,9 @@ fn build_linked_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<Link
         let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
         match part {
             PathPart::Column(column_name) => {
-                let column_id = current_table
-                    .column_lookup
-                    .get(&column_name)
+                let column_id = cx
+                    .options
+                    .resolve_identifier(&current_table.column_lookup, &column_name)
                     .copied()
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &current_table.name))?;
                 if let Some(link) = current_table.forward_links_to_one.get(&column_id).copied() {
@@ -415,8 +415,7 @@ pub fn get_chain_to_table_with_many(
         return Err("Chain search base already too long before searching.".to_string());
     }
     let target_table = cx
-        .schema
-        .get_table(&target.table)
+        .get_table_by_name(&target.table)
         .ok_or("Target table not found.".to_string())?;
 
     // Success case where the base is already at the target
@@ -574,9 +573,9 @@ pub fn build_cte_select(
     if purpose == CtePurpose::AggregateValue {
         let value_expr = match final_column_name {
             Some(column_name) => {
-                let column_id = ending_table
-                    .column_lookup
-                    .get(&column_name)
+                let column_id = cte_cx
+                    .options
+                    .resolve_identifier(&ending_table.column_lookup, &column_name)
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &ending_table.name))?;
                 let column = ending_table.columns.get(column_id).unwrap();
                 let expr = Expression {

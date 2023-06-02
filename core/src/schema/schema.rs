@@ -28,10 +28,6 @@ pub struct Schema {
 }
 
 impl Schema {
-    pub fn get_table(&self, table_name: &str) -> Option<&Table> {
-        self.tables.get(self.table_lookup.get(table_name)?)
-    }
-
     pub fn get_ideal_alias_for_link_to_one(&self, link: &LinkToOne) -> &str {
         // The `unwrap` calls within this fn are safe because we know all links within the schema
         // are valid.
