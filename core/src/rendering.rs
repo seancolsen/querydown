@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     constants::CTE_ALIAS_PREFIX,
     converters::{build_cte_select, simplify_expression, ValueViaCte},
-    dialects::{dialect::Dialect, sql},
+    dialects::sql,
     schema::{
         chain::Chain,
         links::{FilteredLink, Link, LinkToOne},
@@ -11,6 +11,8 @@ use crate::{
     },
     sql_tree::{Cte, CtePurpose},
     syntax_tree::{Composition, Conjunction, Expression, Literal, Operator},
+    utils::flex_map::FlexMap,
+    Options,
 };
 
 /// We may eventually make this configurable
@@ -134,7 +136,7 @@ impl JoinTree {
 }
 
 pub struct RenderingContext<'a> {
-    pub dialect: &'a Box<dyn Dialect>,
+    pub options: &'a Options,
     pub schema: &'a Schema,
     base_table: &'a Table,
     indentation_level: usize,
@@ -145,7 +147,7 @@ pub struct RenderingContext<'a> {
 
 impl<'a> RenderingContext<'a> {
     pub fn build(
-        dialect: &'a Box<dyn Dialect>,
+        options: &'a Options,
         schema: &'a Schema,
         base_table_name: &'a str,
     ) -> Result<Self, String> {
@@ -153,7 +155,7 @@ impl<'a> RenderingContext<'a> {
             .get_table(base_table_name)
             .ok_or(format!("Base table `{}` does not exist.", base_table_name))?;
         Ok(Self {
-            dialect,
+            options,
             schema,
             base_table,
             indentation_level: 0,
@@ -191,7 +193,7 @@ impl<'a> RenderingContext<'a> {
 
     pub fn spawn(&self, base_table: &'a Table) -> Self {
         RenderingContext {
-            dialect: self.dialect,
+            options: self.options,
             schema: self.schema,
             base_table,
             indentation_level: self.get_indentation_level() + 1,
@@ -296,6 +298,18 @@ impl<'a> RenderingContext<'a> {
             }
         }
     }
+
+    fn resolve_identifier<'b, T>(
+        &self,
+        map: &'b HashMap<String, T>,
+        identifier: &str,
+    ) -> Option<&'b T> {
+        use crate::IdentifierResolution::*;
+        match self.options.identifier_resolution {
+            Strict => map.get(identifier),
+            Flexible => map.flex_get(identifier),
+        }
+    }
 }
 
 pub trait Render {
@@ -305,16 +319,16 @@ pub trait Render {
 impl Render for Literal {
     fn render(&self, cx: &mut RenderingContext) -> String {
         match self {
-            Literal::Date(d) => cx.dialect.date(d),
-            Literal::Duration(d) => cx.dialect.duration(d),
+            Literal::Date(d) => cx.options.dialect.date(d),
+            Literal::Duration(d) => cx.options.dialect.duration(d),
             Literal::False => sql::FALSE.to_string(),
             Literal::Infinity => sql::INFINITY.to_string(),
             Literal::Now => sql::NOW.to_string(),
             Literal::Null => sql::NULL.to_string(),
             Literal::Number(n) => n.clone(),
-            Literal::String(s) => cx.dialect.quote_string(s),
+            Literal::String(s) => cx.options.dialect.quote_string(s),
             Literal::True => sql::TRUE.to_string(),
-            Literal::TableColumnReference(t, c) => cx.dialect.table_column(t, c),
+            Literal::TableColumnReference(t, c) => cx.options.dialect.table_column(t, c),
         }
     }
 }
@@ -323,7 +337,7 @@ fn render_composition(
     function_name: &str,
     base: &str,
     arg: Option<String>,
-    cx: &mut RenderingContext,
+    _: &mut RenderingContext,
 ) -> String {
     let operator = |o: &'static str| match &arg {
         None => base.to_owned(),

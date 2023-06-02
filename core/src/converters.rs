@@ -2,7 +2,7 @@ use itertools::Itertools;
 
 use crate::{
     constants::{CTE_PK_COLUMN_ALIAS, CTE_VALUE_COLUMN_PREFIX},
-    dialects::{dialect::Dialect, sql},
+    dialects::sql,
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
         chain::{Chain, ChainIntersecting},
@@ -427,8 +427,12 @@ pub fn convert_join_tree(mut tree: JoinTree, cx: &RenderingContext) -> (Vec<Join
 fn build_join_for_cte(cte: &Cte, table: String, cx: &RenderingContext) -> Join {
     let condition = format!(
         "{} = {}",
-        cx.dialect.table_column(&table, &cte.join_column_name),
-        cx.dialect.table_column(&cte.alias, CTE_PK_COLUMN_ALIAS),
+        cx.options
+            .dialect
+            .table_column(&table, &cte.join_column_name),
+        cx.options
+            .dialect
+            .table_column(&cte.alias, CTE_PK_COLUMN_ALIAS),
     );
     Join {
         table: cte.alias.clone(),
@@ -593,9 +597,12 @@ fn make_join_from_link(
 
     let condition = format!(
         "{} = {}",
-        cx.dialect
+        cx.options
+            .dialect
             .table_column(starting_alias, &starting_column.name),
-        cx.dialect.table_column(ending_alias, &ending_column.name),
+        cx.options
+            .dialect
+            .table_column(ending_alias, &ending_column.name),
     );
     Join {
         table: cx.schema.tables.get(&ending_table_id).unwrap().name.clone(),

@@ -176,7 +176,12 @@ impl Render for Select {
         cx.indented(|cx| rendered.push_str(&self.columns.render(cx)));
         rendered.push_str(&indentation);
         rendered.push_str("FROM ");
-        rendered.push_str(cx.dialect.quote_identifier(&self.base_table).as_str());
+        rendered.push_str(
+            cx.options
+                .dialect
+                .quote_identifier(&self.base_table)
+                .as_str(),
+        );
         rendered.push_str(&self.joins.render(cx));
         if self.condition_set.entries.len() > 0 {
             rendered.push_str("\n");
@@ -212,7 +217,7 @@ impl Render for Vec<Cte> {
             if !is_first {
                 rendered.push_str(",\n");
             }
-            rendered.push_str(&cx.dialect.quote_identifier(&cte.alias));
+            rendered.push_str(&cx.options.dialect.quote_identifier(&cte.alias));
             rendered.push_str(" AS (\n");
             cx.indented(|cx| rendered.push_str(&cte.select.render(cx)));
             rendered.push_str("\n");
@@ -238,11 +243,11 @@ impl Render for Vec<Join> {
 
 impl Render for Join {
     fn render(&self, cx: &mut RenderingContext) -> String {
-        let quoted_table = cx.dialect.quote_identifier(&self.table);
+        let quoted_table = cx.options.dialect.quote_identifier(&self.table);
         let table_expr = if self.alias == self.table {
             quoted_table
         } else {
-            let quoted_alias = cx.dialect.quote_identifier(&self.alias);
+            let quoted_alias = cx.options.dialect.quote_identifier(&self.alias);
             format!("{} AS {}", quoted_table, quoted_alias)
         };
         let condition_set = cx.indented(|cx| self.condition_set.render(cx));
@@ -259,7 +264,11 @@ impl Render for Vec<Column> {
         let mut rendered = String::new();
         if self.len() == 0 {
             rendered.push_str(cx.get_indentation().as_str());
-            rendered.push_str(&cx.dialect.quote_identifier(&cx.get_base_table().name));
+            rendered.push_str(
+                &cx.options
+                    .dialect
+                    .quote_identifier(&cx.get_base_table().name),
+            );
             rendered.push_str(".*");
             rendered.push('\n');
             return rendered;
@@ -282,7 +291,7 @@ impl Render for Column {
         rendered.push_str(&self.expression);
         if let Some(alias) = &self.alias {
             rendered.push_str(" AS ");
-            rendered.push_str(cx.dialect.quote_identifier(alias).as_str());
+            rendered.push_str(cx.options.dialect.quote_identifier(alias).as_str());
         }
         rendered
     }

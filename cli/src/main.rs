@@ -1,5 +1,5 @@
 use clap::Parser;
-use querydown::{Compiler, Postgres};
+use querydown::*;
 use std::io::{self, Read};
 
 #[derive(Parser, Debug)]
@@ -28,7 +28,11 @@ fn main() -> () {
     let mut args = Args::parse();
     let querydown_code = get_querydown_code(&mut args);
     let schema_json = std::fs::read_to_string(args.schema).unwrap();
-    let compiler = Compiler::new(&schema_json, Box::new(Postgres())).unwrap();
+    let options = Options {
+        dialect: Box::new(Postgres()),
+        identifier_resolution: IdentifierResolution::Flexible,
+    };
+    let compiler = Compiler::new(&schema_json, options).unwrap();
     let sql_code = compiler.compile(querydown_code).unwrap();
     println!("{sql_code}");
 }

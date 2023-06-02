@@ -6,16 +6,17 @@ fn test_corpus() {
     // preventing me from writing these imports at the top of the file like normal.
     use crate::compiler::Compiler;
     use crate::dialects::postgres::Postgres;
+    use crate::options::{IdentifierResolution, Options};
     use crate::tests::test_utils::get_test_resource;
     use std::path::PathBuf;
     use testcase_markdown::*;
 
     #[derive(Default, Clone)]
-    struct Options();
+    struct Opts();
 
-    impl MergeSerialized for Options {
+    impl MergeSerialized for Opts {
         fn merge_serialized(&self, source: String) -> Result<Self, String> {
-            Ok(Options())
+            Ok(Opts())
         }
     }
 
@@ -25,7 +26,7 @@ fn test_corpus() {
         s.replace("\n", "").replace("\t", "").replace(" ", "")
     }
 
-    fn get_output(case: &TestCase<Options>, input: &str, expected: &str, actual: &str) -> String {
+    fn get_output(case: &TestCase<Opts>, input: &str, expected: &str, actual: &str) -> String {
         [
             "",
             " ╭────────────╮",
@@ -51,11 +52,15 @@ fn test_corpus() {
         .join("\n")
     }
 
-    fn test(mut case: TestCase<Options>) {
+    fn test(mut case: TestCase<Opts>) {
         let expected = case.args.pop().unwrap();
         let input = case.args.pop().unwrap();
         let schema_json = get_test_resource("issue_schema.json");
-        let compiler = Compiler::new(&schema_json, Box::new(Postgres())).unwrap();
+        let options = Options {
+            dialect: Box::new(Postgres()),
+            identifier_resolution: IdentifierResolution::Strict,
+        };
+        let compiler = Compiler::new(&schema_json, options).unwrap();
         let actual = compiler.compile(input.to_owned()).unwrap();
         if clean(actual.clone()) == clean(expected.clone()) {
             return;
@@ -64,22 +69,22 @@ fn test_corpus() {
         panic!("Test corpus failure");
     }
 
-    fn name_or_heading_contains(case: &TestCase<Options>, s: &str) -> bool {
+    fn name_or_heading_contains(case: &TestCase<Opts>, s: &str) -> bool {
         case.name.contains(s) || case.headings.iter().any(|h| h.contains(s))
     }
 
-    fn is_soloed(case: &TestCase<Options>) -> bool {
+    fn is_soloed(case: &TestCase<Opts>) -> bool {
         name_or_heading_contains(case, "🔦")
     }
 
-    fn is_skipped(case: &TestCase<Options>) -> bool {
+    fn is_skipped(case: &TestCase<Opts>) -> bool {
         name_or_heading_contains(case, "⛔")
     }
 
     fn run() {
         let path = PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "src", "tests", "corpus.md"]);
         let content = std::fs::read_to_string(path).unwrap();
-        let cases = get_test_cases(content, Options::default());
+        let cases = get_test_cases(content, Opts::default());
         let has_soloed_tests = cases.iter().any(is_soloed);
         for case in cases {
             if is_skipped(&case) {
