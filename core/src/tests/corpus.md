@@ -1,5 +1,10 @@
 # E2E test corpus
 
+```toml options
+schema = "issues"
+identifier_resolution = "flexible"
+```
+
 - ⛔ = skip
 - 🔦 = solo
 
@@ -13,6 +18,22 @@ issues $id->id
 
 ```sql
 SELECT "issues"."id" AS "id" FROM "issues";
+```
+
+## Simple library schema
+
+```toml options
+schema = "library"
+```
+
+> Show all patrons
+
+```qd
+Patrons
+```
+
+```sql
+SELECT "Patrons".* FROM "Patrons";
 ```
 
 ## Large examples

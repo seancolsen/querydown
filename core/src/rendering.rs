@@ -141,12 +141,6 @@ fn get_table_by_name<'a>(options: &Options, schema: &'a Schema, name: &str) -> O
         .map(|id| schema.tables.get(id).unwrap())
 }
 
-fn get_column_by_name<'a>(options: &Options, table: &'a Table, name: &str) -> Option<&'a Column> {
-    options
-        .resolve_identifier(&table.column_lookup, name)
-        .map(|id| table.columns.get(id).unwrap())
-}
-
 pub struct RenderingContext<'a> {
     pub options: &'a Options,
     pub schema: &'a Schema,
@@ -312,10 +306,6 @@ impl<'a> RenderingContext<'a> {
 
     pub fn get_table_by_name(&self, name: &str) -> Option<&Table> {
         get_table_by_name(self.options, self.schema, name)
-    }
-
-    pub fn get_column_by_name<'b>(&self, table: &'b Table, name: &str) -> Option<&'b Column> {
-        get_column_by_name(self.options, table, name)
     }
 }
 

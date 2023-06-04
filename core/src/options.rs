@@ -2,9 +2,16 @@ use std::collections::HashMap;
 
 use crate::{dialects::dialect::Dialect, utils::flex_map::FlexMap};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentifierResolution {
     Strict,
     Flexible,
+}
+
+impl Default for IdentifierResolution {
+    fn default() -> Self {
+        IdentifierResolution::Flexible
+    }
 }
 
 pub struct Options {

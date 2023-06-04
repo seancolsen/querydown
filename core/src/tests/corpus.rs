@@ -10,13 +10,62 @@ fn test_corpus() {
     use crate::tests::test_utils::get_test_resource;
     use std::path::PathBuf;
     use testcase_markdown::*;
+    use toml::{from_str, map::Map, Table, Value};
 
-    #[derive(Default, Clone)]
-    struct Opts();
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Opts {
+        schema_json: String,
+        identifier_resolution: IdentifierResolution,
+        dialect: String,
+    }
+
+    impl Default for Opts {
+        fn default() -> Self {
+            Opts {
+                schema_json: get_test_resource("issue_schema.json"),
+                identifier_resolution: IdentifierResolution::Flexible,
+                dialect: "postgres".to_owned(),
+            }
+        }
+    }
+
+    fn get_schema_json(toml_values: &Map<String, Value>) -> Option<String> {
+        let schema_name = toml_values.get("schema").map(|v| v.as_str())??;
+        let schema_file_name = match schema_name {
+            "issues" => "issue_schema.json",
+            "library" => "library_schema.json",
+            _ => return None,
+        };
+        Some(get_test_resource(schema_file_name))
+    }
+
+    fn get_identifier_resolution(toml_values: &Map<String, Value>) -> Option<IdentifierResolution> {
+        let identifier_resolution = toml_values
+            .get("identifier_resolution")
+            .map(|v| v.as_str())??;
+        match identifier_resolution {
+            "strict" => Some(IdentifierResolution::Strict),
+            "flexible" => Some(IdentifierResolution::Flexible),
+            _ => None,
+        }
+    }
+
+    fn get_dialect<'a>(toml_values: &'a Map<String, Value>) -> Option<&'a str> {
+        toml_values.get("dialect").map(|v| v.as_str())?
+    }
 
     impl MergeSerialized for Opts {
         fn merge_serialized(&self, source: String) -> Result<Self, String> {
-            Ok(Opts())
+            let values = from_str::<Table>(&source).map_err(|e| e.to_string())?;
+            Ok(Opts {
+                schema_json: get_schema_json(&values)
+                    .unwrap_or_else(|| self.schema_json.to_owned()),
+                identifier_resolution: get_identifier_resolution(&values)
+                    .unwrap_or(self.identifier_resolution),
+                dialect: get_dialect(&values)
+                    .map(|d| d.to_owned())
+                    .unwrap_or_else(|| self.dialect.clone()),
+            })
         }
     }
 
@@ -55,12 +104,15 @@ fn test_corpus() {
     fn test(mut case: TestCase<Opts>) {
         let expected = case.args.pop().unwrap();
         let input = case.args.pop().unwrap();
-        let schema_json = get_test_resource("issue_schema.json");
         let options = Options {
-            dialect: Box::new(Postgres()),
-            identifier_resolution: IdentifierResolution::Strict,
+            identifier_resolution: case.options.identifier_resolution,
+            dialect: match case.options.dialect.as_str() {
+                "postgres" => Box::new(Postgres()),
+                _ => panic!("Unknown dialect"),
+            },
         };
-        let compiler = Compiler::new(&schema_json, options).unwrap();
+        // println!("{:}", case.options.schema_json);
+        let compiler = Compiler::new(&case.options.schema_json, options).unwrap();
         let actual = compiler.compile(input.to_owned()).unwrap();
         if clean(actual.clone()) == clean(expected.clone()) {
             return;

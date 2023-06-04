@@ -2,6 +2,7 @@ use crate::syntax_tree::{Date, Duration};
 
 use super::dialect::Dialect;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Postgres();
 
 // TODO: we need to make sure other escape sequences which find their way into the string value
