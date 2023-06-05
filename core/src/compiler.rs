@@ -29,8 +29,8 @@ impl Compiler {
             // TODO_ERR improve error handling
             .map_err(|_| "Invalid querydown code".to_string())?;
         let base_table_name = std::mem::take(&mut query.base_table);
-        let mut select = Select::from(base_table_name.clone());
         let mut cx = RenderingContext::build(&self.options, &self.schema, &base_table_name)?;
+        let mut select = Select::from(cx.get_base_table().name.clone());
         let mut transformations_iter = query.transformations.into_iter();
         let first_transformation = transformations_iter.next().unwrap_or_default();
         let second_transformation = transformations_iter.next();

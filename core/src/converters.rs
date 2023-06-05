@@ -372,8 +372,9 @@ fn build_linked_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<Link
                         None => Some(Chain::try_new(link, ChainIntersecting::Allowed)?),
                     };
                 } else {
+                    let column = current_table.columns.get(&column_id).unwrap();
                     current_table_opt = None;
-                    final_column_name = Some(column_name);
+                    final_column_name = Some(column.name.clone());
                 }
             }
             PathPart::TableWithOne(table_name) => {

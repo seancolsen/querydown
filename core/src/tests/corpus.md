@@ -53,6 +53,90 @@ $author.username
 $#comments.created_at%min \sd
 ```
 
+## Flexible identifiers
+
+```toml options
+schema = "library"
+```
+
+### Simplest flexible identifier
+
+> All checkouts
+
+```qd
+checkouts
+```
+
+```sql
+SELECT
+  "Checkouts".*
+FROM "Checkouts";
+```
+
+### snake_case
+
+> Checkouts from over one month ago and not yet returned
+
+```qd
+checkouts check_in_time:@null check_out_time:<@1M|ago
+```
+
+```sql
+SELECT
+  "Checkouts".*
+FROM "Checkouts"
+WHERE
+  "Checkouts"."Check In Time" = NULL AND
+  "Checkouts"."Checkout Time" < (NOW() - INTERVAL '1M');
+```
+
+### camelCase
+
+> Checkouts from over one month ago and not yet returned
+
+```qd
+checkouts checkInTime:@null checkOutTime:<@1M|ago
+```
+
+```sql
+SELECT
+  "Checkouts".*
+FROM "Checkouts"
+WHERE
+  "Checkouts"."Check In Time" = NULL AND
+  "Checkouts"."Checkout Time" < (NOW() - INTERVAL '1M');
+```
+
+### Complex flexible identifiers
+
+```qd
+items
+++#checkouts{check_in_time:@null patron.first_name:"Foo"}
+book.page_count:>200
+```
+
+```sql
+WITH "cte0" AS (
+  SELECT
+    "Checkouts"."Item" AS "pk"
+  FROM "Checkouts"
+  WHERE
+    "Checkouts"."Check In Time" = NULL AND
+    "Patrons"."First Name" = 'Foo'
+  GROUP BY "Checkouts"."Item"
+)
+SELECT
+  "Items".*
+FROM "Items"
+LEFT JOIN "cte0" ON
+  "Items"."id" = "cte0"."pk"
+LEFT JOIN "Books" ON
+  "Items"."Book" = "Books"."id"
+WHERE
+  "cte0"."pk" IS NOT NULL AND
+  "Books"."Page Count" > 200;
+```
+
 ## Values
 
 ### Date
