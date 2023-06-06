@@ -8,9 +8,9 @@ _See also: **[Language Design](./design.md)**_
 | --                      | -- |
 | `` ` ``                 | db entity quote |
 | `"` or `'`              | string quote |
-| `^`                     | interpolated string quote |
-| `{ }`                   | expression within an interpolated string |
-| `\`                     | escape sequence within string |
+| `^`                     | string flag prefix |
+| `{ }`                   | string interpolation |
+| `\`                     | string escape sequence prefix |
 | `@2000-01-01`           | date/time values |
 | `@1y`                   | duration values |
 | `@now`                  | `now()` |
@@ -21,6 +21,21 @@ _See also: **[Language Design](./design.md)**_
 | `..` `..!` `!..` `!..!` | range |
 | `//`                    | single line comment |
 | `/* */`                 | multi-line comment |
+
+String flags:
+
+- `f` - formatting (aka interpolation) via `{ }`
+- `e` - interpret escape sequences (default is raw)
+- `c` - make RegEx comparison case sensitive (the default is case insensitive)
+
+## String flags
+
+| Flag | Meaning |
+| -- | -- |
+| `f` | formatting (aka interpolation) via `{ }` |
+| `r` | raw (no escape sequences) |
+| `c` | RegEx case sensitive |
+| `i` | RegEx case insensitive (default) |
 
 ## Conditions
 
@@ -33,7 +48,7 @@ _See also: **[Language Design](./design.md)**_
 | `:<=`  | less or equal |
 | `:>`   | greater than |
 | `:>=`  | greater or equal |
-| `:~`   | match |
+| `:~`   | match regex or range |
 | `:~~`  | LIKE |
 | `!`    | negate any comparison by using `!` instead of `:` |
 | `++`   | has at least one |
@@ -47,13 +62,16 @@ _See also: **[Language Design](./design.md)**_
 | `$[ ]`    | incremental column spec |
 | `->`      | alias |
 | `\`       | column control flags |
-| `g`       | "group" flag |
-| `s`       | "sort" flag |
-| `1` - `9` | sorting/grouping ordinality |
-| `d`       | "descending" flag |
-| `n`       | "nulls first" flag |
-| `h`       | "hide" flag |
-| `p`       | "partition" flag (in a window definition) |
+
+Column control flags:
+
+- `g` - group
+- `s` - sort
+- `d` - descending
+- `n` - nulls first
+- `h` - hide
+- `p` - partition (in a window definition)
+- digits `1` through `9` - sorting/grouping ordinality
 
 ## Paths to data
 

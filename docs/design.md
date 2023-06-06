@@ -189,6 +189,30 @@ issues created_at|year:~2010..2019
 The range `2010..2019` **includes** both 2010 and 2019. You can use exclamation marks on either side of the `..` to make the range exclude either of the bounds, i.e. `2010!..2019` or `2010..!2019` or `2010!..!2019`.
 
 
+## String literals
+
+- Strings can be quoted with single quotes or double quotes
+- Strings may span multiple lines.
+- String are raw by default. For example, the sequence `\n` will be interpreted literally instead of as a newline.
+- Strings can be prefixed by [flags](./syntax-cheat-sheet.md#string-flags).
+- Multiple flags can be applied to the same string.
+- The block of all flags must be prefixed by `^`.
+- The flags block can also be empty, meaning that `^` is allowed to prefix a string. This is said to be a "flagged string", even if no flags are present.
+- Flagged strings may be quoted with any of the following characters:
+
+    ```
+    ' " ^ # / | @
+    ```
+
+| Example | Explanation |
+| -- | -- |
+| `"foo"`                  | With double quotes |
+| `'foo'`                  | With single quotes |
+| `^f"Hi {first_name}!"`   | F-strings style formatting interpolation |
+| `^e'Don\'t say "never"'` | Using the `e` flag to interpret escape sequences |
+| `^^Don't say "never"^`   | Using a custom quote character to avoid escape sequences |
+
+
 ## Computations and functions
 
 Functions are applied to values via `|` syntax.
@@ -205,13 +229,6 @@ Here:
 1. Then we pipe the interval into the `days` function to produce a number of days.
 1. Then we pipe the number of days into the (scalar) `max` function, along with 0, taking the maximum of the two values. This eliminates negative numbers, replacing them with zero instead.
 
-## Interpolated strings
-
-Are specified via `^{value}^`
-
-```
-users $^"{username}" <{email}>^
-```
 
 ## Incremental column specification
 
@@ -220,7 +237,7 @@ Use `$[]` to specify all columns, giving you control to add a column after all c
 > Issues with all columns, plus a special concatenation of the username and email:
 
 ```
-users $[] $^"{username}" <{email}>^
+users $[] $^f'"{username}" <{email}>'
 ```
 
 ---
