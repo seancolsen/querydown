@@ -26,7 +26,6 @@ String flags:
 
 - `f` - formatting (aka interpolation) via `{ }`
 - `e` - interpret escape sequences (default is raw)
-- `c` - make RegEx comparison case sensitive (the default is case insensitive)
 
 ## String flags
 
@@ -37,7 +36,7 @@ String flags:
 | `c` | RegEx case sensitive |
 | `i` | RegEx case insensitive (default) |
 
-## Conditions
+## Comparisons
 
 | Code   | Usage |
 | --     | -- |
@@ -49,17 +48,23 @@ String flags:
 | `:>`   | greater than |
 | `:>=`  | greater or equal |
 | `:~`   | match regex |
+| `:\c~` | match regex with flags |
 | `:~~`  | LIKE |
 | `!`    | negate any comparison by using `!` instead of `:` |
+| `..`   | comparison expansion |
 | `++`   | has at least one |
 | `--`   | has none |
+
+Regex flags
+
+- `c` - make RegEx comparison case sensitive (the default is case insensitive)
 
 ## Column control
 
 | Code      | Usage |
 | --        | -- |
 | `$`       | column spec prefix |
-| `$[ ]`    | incremental column spec |
+| `$*( )`   | incremental column spec |
 | `->`      | alias |
 | `\`       | column control flags |
 
@@ -98,7 +103,7 @@ Column control flags:
 | <tt>&VerticalLine;</tt> | pipe a value to a scalar function (higher precedence than algebra) |
 | `%`                     | pipe a value to an aggregate function |
 | `( )`                   | function arguments (if any) |
-| `%%[ ]`                 | window definition |
+| `%%( )`                 | window definition |
 | `;`                     | anonymous scalar function |
 
 ## Variable definition

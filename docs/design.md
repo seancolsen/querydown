@@ -148,34 +148,34 @@ See the [Syntax cheat sheet](./syntax-cheat-sheet.md) for a reference to all the
 
 ### Comparison expansion
 
-Comparisons get expanded when one side is enclosed in brackets
+The `..` syntax can be use to "expand" comparisons into brackets.
 
 > Issues that are either open or reopened:
 
 ```
-issues status:["open" "reopened"]
+issues status:..["open" "reopened"]
 ```
 
 > Issues that are missing a title and description:
 
 ```
-issues {title description}:@null
+issues {title description}..:@null
 ```
 
 > Issues where the title or description contains "foo":
 
 ```
-issues [title description]:~"foo"
+issues [title description]..:~"foo"
 ```
 
 ---
 
-If both sides of the comparison are enclosed in brackets, then the brackets on left side are used for the outer precedence
+If both sides of the comparison are expanded, then the brackets on left side are used for the outer precedence
 
 > Issues where the title and description both contain "foo" or contain "bar":
 
 ```
-issue {title description}:~["foo" "bar"]
+issue {title description}..:~..["foo" "bar"]
 ```
 
 ### Ranges
@@ -201,7 +201,7 @@ The range `2010..2019` **includes** both 2010 and 2019. You can use exclamation 
 - Flagged strings may be quoted with any of the following characters:
 
     ```
-    ' " ^ # / | @
+    " ' ^ # / | @
     ```
 
 | Example | Explanation |
@@ -232,17 +232,17 @@ Here:
 
 ## Incremental column specification
 
-Use `$[]` to specify all columns, giving you control to add a column after all columns
+Use `$*` to specify all columns. This gives you control to add a column after all columns.
 
 > Issues with all columns, plus a special concatenation of the username and email:
 
 ```
-users $[] $^f'"{username}" <{email}>'
+users $* $^f'"{username}" <{email}>'
 ```
 
 ---
 
-Within the set of all columns, you can add column names and flags to control the behavior of columns.
+For more control, you can add parentheses after `*` and use expressions plus flags to alter the behavior of columns.
 
 ---
 
@@ -251,7 +251,7 @@ Use `\h` to hide a column.
 > Issues with all columns except description:
 
 ```
-issues $[description \h]
+issues $*(description \h)
 ```
 
 ---
@@ -259,7 +259,7 @@ issues $[description \h]
 Use `\s` (and similar flags) to sort by columns, leaving their position in the table unchanged.
 
 ```
-issues $[created_at \sd]
+issues $*(created_at \sd)
 ```
 
 
@@ -285,7 +285,7 @@ You can also refer to related tables by name.
 > All issues associated with the "Foo" client.
 
 ```
-issues >>clients.name:"Foo"
+issues >>#clients.name:"Foo"
 ```
 
 This expands to:
@@ -457,7 +457,7 @@ $max_checkouts \sd
 
 ## Window functions
 
-Window functions are defined via `%%[ ]`. Inside the braces, you use the same syntax as with incremental column, but one additional flag is available: `\p` for "partition".
+Window functions are defined via `%%( )`. Inside the braces, you use the same syntax as with incremental column, but one additional flag is available: `\p` for "partition".
 
 After the window function definition, you apply an aggregate function, such as `row_number`, `lag`, `dense_rank`, etc.
 
@@ -467,9 +467,9 @@ After the window function definition, you apply an aggregate function, such as `
 comments
 $issue
 $user
-$%%[issue\p user\p created_on\s]%row_number -> count
+$%%(issue\p user\p created_on\s)%row_number -> count
 ~~~
-%%[issue\p count\sd]%row_number:1
+%%(issue\p count\sd)%row_number:1
 $issue \g
 $count
 $user.username%list
@@ -480,7 +480,7 @@ $user.username%list
 > Origin locations, with the destination of their most recent shipment
 
 ```
-shipment %%[departure_datetime \sd origin \p]%row_number:1
+shipment %%(departure_datetime \sd origin \p)%row_number:1
 $origin
 $origin.addressee
 $destination
@@ -492,7 +492,7 @@ $destination.addressee
 > How many days into each month did it take us to reach 1000 checkouts?
 
 ```
-checkout %%[out_date \s out_date:year_month \p]%row_number:1000
+checkout %%(out_date \s out_date:year_month \p)%row_number:1000
 $out_date|year_month
 $out_date|day_of_month
 ```
@@ -532,7 +532,7 @@ Pipeline within a union
   $"Send" -> action
   $departure_datetime-> time
 )
-#b := (
+#b = (
     shipment destination:@location_id  arrival_datetime!@null
     $id
     $tracking_number
