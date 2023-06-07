@@ -402,23 +402,6 @@ impl Render for Expression {
     }
 }
 
-impl Render for Operator {
-    fn render(&self, _: &mut RenderingContext) -> String {
-        match self {
-            Operator::Eq => sql::EQ.to_string(),
-            Operator::Gt => sql::GT.to_string(),
-            Operator::Gte => sql::GTE.to_string(),
-            Operator::Lt => sql::LT.to_string(),
-            Operator::Lte => sql::LTE.to_string(),
-            Operator::Like => sql::LIKE.to_string(),
-            Operator::Neq => sql::NEQ.to_string(),
-            Operator::NLike => sql::NOT_LIKE.to_string(),
-            Operator::Match => sql::RLIKE.to_string(),
-            Operator::NRLike => sql::NOT_RLIKE.to_string(),
-        }
-    }
-}
-
 impl Render for Conjunction {
     fn render(&self, _: &mut RenderingContext) -> String {
         match self {

@@ -86,7 +86,7 @@ SELECT
   "Checkouts".*
 FROM "Checkouts"
 WHERE
-  "Checkouts"."Check In Time" = NULL AND
+  "Checkouts"."Check In Time" IS NULL AND
   "Checkouts"."Checkout Time" < (NOW() - INTERVAL '1M');
 ```
 
@@ -103,7 +103,7 @@ SELECT
   "Checkouts".*
 FROM "Checkouts"
 WHERE
-  "Checkouts"."Check In Time" = NULL AND
+  "Checkouts"."Check In Time" IS NULL AND
   "Checkouts"."Checkout Time" < (NOW() - INTERVAL '1M');
 ```
 
@@ -121,7 +121,7 @@ WITH "cte0" AS (
     "Checkouts"."Item" AS "pk"
   FROM "Checkouts"
   WHERE
-    "Checkouts"."Check In Time" = NULL AND
+    "Checkouts"."Check In Time" IS NULL AND
     "Patrons"."First Name" = 'Foo'
   GROUP BY "Checkouts"."Item"
 )
@@ -153,6 +153,24 @@ SELECT
 FROM "issues"
 WHERE
   "issues"."created_at" >= DATE '2023-01-01';
+```
+
+## Comparisons
+
+### Regex
+
+> Issues with titles containing "foo"
+
+```qd
+issues title:~"foo"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."title" ~* 'foo';
 ```
 
 ## Condition sets

@@ -86,7 +86,7 @@ pub enum Operator {
     Neq,
     NLike,
     Match,
-    NRLike,
+    NMatch,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -152,6 +152,14 @@ impl Expression {
             _ => false,
         };
         base_is_zero && self.compositions.is_empty()
+    }
+
+    pub fn is_null(&self) -> bool {
+        let base_is_null = match self.base {
+            Value::Literal(Literal::Null) => true,
+            _ => false,
+        };
+        base_is_null && self.compositions.is_empty()
     }
 }
 

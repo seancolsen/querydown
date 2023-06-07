@@ -1,6 +1,6 @@
 use crate::syntax_tree::{Date, Duration};
 
-use super::dialect::Dialect;
+use super::dialect::{Dialect, RegExFlags};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Postgres();
@@ -23,5 +23,15 @@ impl Dialect for Postgres {
 
     fn duration(&self, duration: &Duration) -> String {
         format!("INTERVAL '{}'", duration.to_iso())
+    }
+
+    fn match_regex(&self, a: &str, b: &str, is_positive: bool, flags: &RegExFlags) -> String {
+        let op = match (is_positive, flags.is_case_sensitive) {
+            (true, true) => "~",
+            (true, false) => "~*",
+            (false, true) => "!~",
+            (false, false) => "!~*",
+        };
+        format!("{} {} {}", a, op, b)
     }
 }

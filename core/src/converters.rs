@@ -2,7 +2,7 @@ use itertools::Itertools;
 
 use crate::{
     constants::{CTE_PK_COLUMN_ALIAS, CTE_VALUE_COLUMN_PREFIX},
-    dialects::sql,
+    dialects::{dialect::RegExFlags, sql},
     rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
     schema::{
         chain::{Chain, ChainIntersecting},
@@ -110,31 +110,72 @@ fn convert_simple_condition_set_entry(
 }
 
 fn convert_simple_comparison(
-    s: &SimpleComparison,
+    simple_comparison: &SimpleComparison,
     cx: &mut RenderingContext,
 ) -> SqlConditionSetEntry {
-    // When we see that we're comparing an expression equal to zero or greater to zero, then we
-    // hand off the conversion to the context because, depending on the expression, the context
-    // may choose to handle this condition via a join instead of a condition set entry. In that
-    // case we'll receive an empty SqlConditionSet back, and that will get filtered out later on.
-    if s.left.is_zero() && s.operator == Operator::Eq {
-        return convert_expression_vs_zero(&s.right, ComparisonVsZero::Eq, cx);
+    use Operator::*;
+
+    let SimpleComparison {
+        left,
+        operator,
+        right,
+    } = simple_comparison;
+
+    if left.is_zero() && operator == &Eq {
+        return convert_expression_vs_zero(&right, ComparisonVsZero::Eq, cx);
     }
-    if s.left.is_zero() && s.operator == Operator::Lt {
-        return convert_expression_vs_zero(&s.right, ComparisonVsZero::Gt, cx);
+    if left.is_zero() && operator == &Lt {
+        return convert_expression_vs_zero(&right, ComparisonVsZero::Gt, cx);
     }
-    if s.right.is_zero() && s.operator == Operator::Eq {
-        return convert_expression_vs_zero(&s.left, ComparisonVsZero::Eq, cx);
+    if right.is_zero() && operator == &Eq {
+        return convert_expression_vs_zero(&left, ComparisonVsZero::Eq, cx);
     }
-    if s.right.is_zero() && s.operator == Operator::Gt {
-        return convert_expression_vs_zero(&s.left, ComparisonVsZero::Gt, cx);
+    if right.is_zero() && operator == &Gt {
+        return convert_expression_vs_zero(&left, ComparisonVsZero::Gt, cx);
     }
-    SqlConditionSetEntry::Expression(format!(
-        "{} {} {}",
-        s.left.render(cx),
-        s.operator.render(cx),
-        s.right.render(cx)
-    ))
+
+    if right.is_null() && operator == &Eq {
+        return SqlConditionSetEntry::Expression(sql::value_is_null(left.render(cx)));
+    }
+    if right.is_null() && operator == &Neq {
+        return SqlConditionSetEntry::Expression(sql::value_is_not_null(left.render(cx)));
+    }
+    if left.is_null() && operator == &Eq {
+        return SqlConditionSetEntry::Expression(sql::value_is_null(right.render(cx)));
+    }
+    if left.is_null() && operator == &Neq {
+        return SqlConditionSetEntry::Expression(sql::value_is_not_null(right.render(cx)));
+    }
+
+    let expr = |s: String| SqlConditionSetEntry::Expression(s);
+
+    let plain_comparison = |op: &str, cx: &mut RenderingContext| {
+        expr(format!("{} {} {}", left.render(cx), op, right.render(cx)))
+    };
+
+    let match_regex = |is_positive: bool, cx: &mut RenderingContext| {
+        expr(cx.options.dialect.match_regex(
+            &left.render(cx),
+            &right.render(cx),
+            is_positive,
+            &RegExFlags {
+                is_case_sensitive: false,
+            },
+        ))
+    };
+
+    match operator {
+        Eq => plain_comparison(sql::EQ, cx),
+        Gt => plain_comparison(sql::GT, cx),
+        Gte => plain_comparison(sql::GTE, cx),
+        Lt => plain_comparison(sql::LT, cx),
+        Lte => plain_comparison(sql::LTE, cx),
+        Like => plain_comparison(sql::LIKE, cx),
+        Neq => plain_comparison(sql::NEQ, cx),
+        NLike => plain_comparison(sql::NLIKE, cx),
+        Match => match_regex(true, cx),
+        NMatch => match_regex(false, cx),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -168,7 +209,10 @@ fn convert_expression_vs_zero(
 ) -> SqlConditionSetEntry {
     let fallback = |cx: &mut RenderingContext| {
         let rendered_expr = expr.render(cx);
-        let op = Operator::from(cmp).render(cx);
+        let op = match cmp {
+            ComparisonVsZero::Eq => sql::EQ,
+            ComparisonVsZero::Gt => sql::GT,
+        };
         SqlConditionSetEntry::Expression(format!("{} {} {}", rendered_expr, op, 0))
     };
     if expr.compositions.len() > 0 {

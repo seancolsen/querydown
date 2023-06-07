@@ -183,7 +183,7 @@ issue {title description}:~["foo" "bar"]
 > Issues created in the 2010's decade
 
 ```
-issues created_at|year:~2010..2019
+issues created_at|year:2010..2019
 ```
 
 The range `2010..2019` **includes** both 2010 and 2019. You can use exclamation marks on either side of the `..` to make the range exclude either of the bounds, i.e. `2010!..2019` or `2010..!2019` or `2010!..!2019`.
@@ -276,20 +276,6 @@ When a column links to another table, the `.` character can be used after the co
 
 ```
 issues author.team.name:"Backend" $id $title $author.username
-```
-
----
-
-> Issues for all projects under the "Foo" product which are due within two months:
-
-```
-issues project:~{deadline:<@2m|away product.name:"Foo"}
-```
-
-This expands to
-
-```
-issues project.deadline:<@2m|away project.product.name:"Foo"
 ```
 
 ---

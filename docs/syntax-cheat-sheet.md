@@ -48,7 +48,7 @@ String flags:
 | `:<=`  | less or equal |
 | `:>`   | greater than |
 | `:>=`  | greater or equal |
-| `:~`   | match regex or range |
+| `:~`   | match regex |
 | `:~~`  | LIKE |
 | `!`    | negate any comparison by using `!` instead of `:` |
 | `++`   | has at least one |

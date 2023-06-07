@@ -110,7 +110,7 @@ fn operator() -> impl QdParser<Operator> {
         exactly(OPERATOR_LIKE).to(Operator::Like),
         // Two character
         exactly(OPERATOR_MATCH).to(Operator::Match),
-        exactly(OPERATOR_NOT_MATCH).to(Operator::NRLike),
+        exactly(OPERATOR_NOT_MATCH).to(Operator::NMatch),
         exactly(OPERATOR_GT).to(Operator::Gt),
         exactly(OPERATOR_LT).to(Operator::Lt),
         // One character
