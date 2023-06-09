@@ -8,13 +8,14 @@ use super::utils::*;
 use super::values::*;
 
 pub fn query() -> impl QdParser<Query> {
-    let base_table = db_identifier().then_ignore(whitespace());
+    let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
     let transformations = transformation().separated_by(
         whitespace()
             .then(exactly(TRANSFORMATION_DELIMITER))
             .then(whitespace()),
     );
     base_table
+        .then_ignore(whitespace())
         .then(transformations)
         .then_ignore(whitespace().then(end()))
         .map(|(base_table, transformations)| Query {
@@ -30,7 +31,7 @@ mod tests {
     #[test]
     fn test_query() {
         assert_eq!(
-            query().parse("foo a:8 $bar"),
+            query().parse("#foo a:8 $bar"),
             Ok(Query {
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {

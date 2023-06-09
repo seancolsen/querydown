@@ -14,8 +14,8 @@ pub fn expression(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<E
 
 fn composition(expression: impl QdParser<Expression>) -> impl QdParser<Composition> {
     let prefix = choice((
-        just(COMPOSITION_PREFIX_SCALAR).to(FunctionDimension::Scalar),
-        just(COMPOSITION_PREFIX_AGGREGATE).to(FunctionDimension::Aggregate),
+        just(COMPOSITION_PIPE_SCALAR).to(FunctionDimension::Scalar),
+        just(COMPOSITION_PIPE_AGGREGATE).to(FunctionDimension::Aggregate),
     ));
     let brace_l = whitespace()
         .then(just(COMPOSITION_ARGUMENT_BRACE_L))

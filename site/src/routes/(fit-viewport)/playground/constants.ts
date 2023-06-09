@@ -1,4 +1,4 @@
-export const starting_querydown = `issues
+export const starting_querydown = `#issues
 created_at:<@6M|ago
 due_date:<@now
 description|length:>200

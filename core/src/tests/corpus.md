@@ -13,7 +13,7 @@ identifier_resolution = "flexible"
 > Show all issue ids
 
 ```qd
-issues $id->id
+#issues $id->id
 ```
 
 ```sql
@@ -29,7 +29,7 @@ schema = "library"
 > Show all patrons
 
 ```qd
-Patrons
+#Patrons
 ```
 
 ```sql
@@ -43,7 +43,7 @@ SELECT "Patrons".* FROM "Patrons";
 Not yet working
 
 ```qd
-issues
+#issues
 created_at:>@6M|ago
 --#assignments
 ++#labels{name:["Regression" "Bug"]}
@@ -64,7 +64,7 @@ schema = "library"
 > All checkouts
 
 ```qd
-checkouts
+#checkouts
 ```
 
 ```sql
@@ -78,7 +78,7 @@ FROM "Checkouts";
 > Checkouts from over one month ago and not yet returned
 
 ```qd
-checkouts check_in_time:@null check_out_time:<@1M|ago
+#checkouts check_in_time:@null check_out_time:<@1M|ago
 ```
 
 ```sql
@@ -95,7 +95,7 @@ WHERE
 > Checkouts from over one month ago and not yet returned
 
 ```qd
-checkouts checkInTime:@null checkOutTime:<@1M|ago
+#checkouts checkInTime:@null checkOutTime:<@1M|ago
 ```
 
 ```sql
@@ -110,7 +110,7 @@ WHERE
 ### Complex flexible identifiers
 
 ```qd
-items
+#items
 ++#checkouts{check_in_time:@null patron.first_name:"Foo"}
 book.page_count:>200
 ```
@@ -144,7 +144,7 @@ WHERE
 > Issues created since 2023-01-01
 
 ```qd
-issues created_at:>=@2023-01-01
+#issues created_at:>=@2023-01-01
 ```
 
 ```sql
@@ -162,7 +162,7 @@ WHERE
 > Issues with titles containing "foo"
 
 ```qd
-issues title:~"foo"
+#issues title:~"foo"
 ```
 
 ```sql
@@ -182,7 +182,7 @@ This test is part of a bug fix. Previously, we were using `JOIN` instead of `LEF
 > Issues that have labels or comments
 
 ```qd
-issues [++#labels ++#comments]
+#issues [++#labels ++#comments]
 ```
 
 ```sql
@@ -219,7 +219,7 @@ WHERE
 > Issues under project named "foo".
 
 ```qd
-issues project.name:"foo" $id->id
+#issues project.name:"foo" $id->id
 ```
 
 ```sql
@@ -242,7 +242,7 @@ This test case ensures that we don't have an unnecessary join on `projects` when
 
 
 ```qd
-issues project.id:1 $id->id
+#issues project.id:1 $id->id
 ```
 
 ```sql
@@ -260,7 +260,7 @@ WHERE
 > Issues, showing the date of their most recent comment.
 
 ```qd
-issues $id $#comments.created_at%max->most_recent_comment
+#issues $id $#comments.created_at%max->most_recent_comment
 ```
 
 ```sql
@@ -284,7 +284,7 @@ LEFT JOIN "cte0" ON
 > Issues, showing the total number of comments that the issue's author has made across all issues
 
 ```qd
-issues $id->id $author.#comments->total_comments_by_author
+#issues $id->id $author.#comments->total_comments_by_author
 ```
 
 ```sql
@@ -310,7 +310,7 @@ LEFT JOIN "cte0" ON
 > Users, showing the date of the most recent comment made across all the tickets the user has created.
 
 ```qd
-users $id->id $#issues.#comments.created_at%max->v
+#users $id->id $#issues.#comments.created_at%max->v
 ```
 
 ```sql
@@ -336,7 +336,7 @@ LEFT JOIN "cte0" ON
 > Projects, showing the date of the most recent comment made by users who have ever created tickets associated with the project.
 
 ```qd
-projects $id->id $#issues.author.#comments.created_at%max->v
+#projects $id->id $#issues.author.#comments.created_at%max->v
 ```
 
 ```sql
@@ -364,7 +364,7 @@ LEFT JOIN "cte0" ON
 > Issues that have comments and assignments
 
 ```qd
-issues ++#comments ++#assignments
+#issues ++#comments ++#assignments
 ```
 
 ```sql
@@ -399,7 +399,7 @@ WHERE
 > Issues that have comments
 
 ```qd
-issues ++#comments
+#issues ++#comments
 ```
 
 ```sql
@@ -423,7 +423,7 @@ WHERE
 > Users who have not authored any issues
 
 ```qd
-users --#issues
+#users --#issues
 ```
 
 ```sql
@@ -447,7 +447,7 @@ WHERE
 > Users who have not created any tickets which have comments
 
 ```qd
-users --#issues.#comments
+#users --#issues.#comments
 ```
 
 ```sql
@@ -473,7 +473,7 @@ WHERE
 > Users who have created at least one ticket which has at least one comment
 
 ```qd
-users ++#issues.#comments
+#users ++#issues.#comments
 ```
 
 ```sql
@@ -500,7 +500,7 @@ FIXME there is a bug here
 
 
 ```qd
-issues ++#labels
+#issues ++#labels
 ```
 
 ```sql
@@ -515,7 +515,7 @@ TODO
 > Users who have not created any issues in the past year
 
 ```qd
-users --#issues{created_at:>@1Y|ago}
+#users --#issues{created_at:>@1Y|ago}
 ```
 
 ```sql
@@ -541,7 +541,7 @@ WHERE
 > Users, showing the number of issues created in the past year
 
 ```qd
-users $#issues{created_at:>@1Y|ago}
+#users $#issues{created_at:>@1Y|ago}
 ```
 
 ```sql
@@ -566,7 +566,7 @@ LEFT JOIN "cte0" ON
 > Issues that are not labeled bug
 
 ```qd
-issues --#labels{name:"bug"} $id
+#issues --#labels{name:"bug"} $id
 ```
 
 ```sql
@@ -594,7 +594,7 @@ WHERE
 > Issues, showing the total number of comments made on the issue by the issue's author
 
 ```qd
-issues $#comments{user:issue.author}
+#issues $#comments{user:issue.author}
 ```
 
 ```sql
@@ -606,7 +606,7 @@ TODO
 > Clients that don't have any issues without comments
 
 ```qd
-clients --#issues{--#comments}
+#clients --#issues{--#comments}
 ```
 
 ```sql
@@ -620,7 +620,7 @@ TODO
 > Issues, showing the most recent ones first
 
 ```qd
-issues $id $title $created_at \sd
+#issues $id $title $created_at \sd
 ```
 
 ```sql
@@ -645,17 +645,17 @@ None of this is implemented yet
   ~~ 0
 @search = "foo"
 @@points = field; field|search_points(@search)
-people.points = @@max(first_name|points last_name|points)
-people $[] $points \sd :::limit(10)
+#people.points = @@max(first_name|points last_name|points)
+#people $[] $points \sd :::limit(10)
 ```
 
 ### Drinking age
 
 ```qd
 @drinking_age = 21
-users.age = birth_date|age|years
-users.can_purchase_alcohol = age:>=@drinking_age
-users $can_purchase_alcohol \g $%count
+#users.age = birth_date|age|years
+#users.can_purchase_alcohol = age:>=@drinking_age
+#users $can_purchase_alcohol \g $%count
 ```
 
 ### Generation
@@ -671,27 +671,26 @@ users $can_purchase_alcohol \g $%count
   birth_year:>=1901 ~ "Greatest"
   birth_year:>=1883 ~ "Lost"
   ~~ @null)
-people.generation = birth_date|generation
+#people.generation = birth_date|generation
 ```
 
 ### Completion ratio by client
 
 ```qd
-clients.open_count = #issues{status:"open"}
-clients.closed_count = #issues{status:"closed"}
-clients.completion = closed_count/(closed_issues+open_count)
-clients $[] $completion \s
+#clients.open_count = #issues{status:"open"}
+#clients.closed_count = #issues{status:"closed"}
+#clients.completion = closed_count/(closed_issues+open_count)
+#clients $[] $completion \s
 ```
 
 ### Table-level functions
 
 ```qd
-issues.@@involves = u; [
+#issues.@@involves = u; [
   ++#assignments{user.username:u}
   ++#comments{author.username:u}
   author.username:u
 ]
-issues.@@labeled = l; ++labels{name:l}
----
-issues @@involves("dave") @@labeled("bug")
+#issues.@@labeled = l; ++labels{name:l}
+#issues @@involves("dave") @@labeled("bug")
 ```

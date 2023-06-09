@@ -11,7 +11,7 @@ _See also: **[Syntax Cheat Sheet](./syntax-cheat-sheet.md)**_
 Write the name of a table to select from it. When no conditions and no columns are specified, all rows and columns are returned.
 
 ```
-issues
+#issues
 ```
 
 Here we refer to "issues" the **base table**. Every query has one and only one base table.
@@ -21,7 +21,7 @@ Here we refer to "issues" the **base table**. Every query has one and only one b
 Specify columns to show by listing them prefixed with `$`
 
 ```
-issues $id $title
+#issues $id $title
 ```
 
 ---
@@ -29,7 +29,7 @@ issues $id $title
 Use `->` after a column to give it an alias.
 
 ```
-issues $id->Identifier $title->Subject
+#issues $id->Identifier $title->Subject
 ```
 
 ## White space
@@ -37,11 +37,11 @@ issues $id->Identifier $title->Subject
 Most white space doesn't matter. The following two queries are identical.
 
 ```
-issues$id->Identifier$title->Subject
+#issues$id->Identifier$title->Subject
 ```
 
 ```
-issues
+#issues
 $ id    -> Identifier
 $ title -> Subject
 ```
@@ -51,7 +51,7 @@ $ title -> Subject
 If you want to reference a table name or column name which contains characters other than letters and underscores, enclose it in backticks
 
 ```
-`Gala Attendees`
+#`Gala Attendees`
 $ `Given Name`-> `First Name`
 $ `Surname`-> `Last Name`
 ```
@@ -64,7 +64,7 @@ Ascending sorting by one column. The `s` stands for "sort".
 > Issues sorted by their creation date
 
 ```
-issues $title $created_at \s
+#issues $title $created_at \s
 ```
 
 ---
@@ -72,7 +72,7 @@ issues $title $created_at \s
 Descending sorting is indicated via a `d` after the `s`.
 
 ```
-issues $title $created_at \sd
+#issues $title $created_at \sd
 ```
 
 ---
@@ -80,7 +80,7 @@ issues $title $created_at \sd
 Sorting by multiple columns is done via numbers to indicate ordinality.
 
 ```
-issues $title \s2 $created_at \sd1
+#issues $title \s2 $created_at \sd1
 ```
 
 Sorted columns without any ordinality specified are sorted in the order the appear, after all columns with indicated ordinality.
@@ -90,7 +90,7 @@ Sorted columns without any ordinality specified are sorted in the order the appe
 By default, `NULL` values are sorted last, but this behavior can be modified using the `n` flag, which stands for "nulls first".
 
 ```
-issues $title $created_at \sdn
+#issues $title $created_at \sdn
 ```
 
 
@@ -107,7 +107,7 @@ Curly braces enclose multiple `AND` conditions.
 > Issues that are open **and** created after 2023-03-04
 
 ```
-issues {status:"open" created_at:>@2023-03-04}
+#issues {status:"open" created_at:>@2023-03-04}
 ```
 
 ---
@@ -117,7 +117,7 @@ Square brackets enclose `OR` conditions.
 > Issues that are open **or** created after 2023-03-04
 
 ```
-issues [status:"open" created_at:>@2023-03-04]
+#issues [status:"open" created_at:>@2023-03-04]
 ```
 
 ---
@@ -125,7 +125,7 @@ issues [status:"open" created_at:>@2023-03-04]
 If you omit the top-level braces, then a set of AND conditions is inferred.
 
 ```
-issues status:"open" created_at:>@2023-03-04
+#issues status:"open" created_at:>@2023-03-04
 ```
 
 ---
@@ -135,7 +135,7 @@ Conditions can be nested
 > Issues that are open and created after 2023-03-04 _or_ reopened and created after 2022-11-22:
 
 ```
-issues [
+#issues [
   {status:"open" created_at:>@2023-03-04}
   {status:"reopened" created_at:>@2022-11-22}
 ]
@@ -153,19 +153,19 @@ The `..` syntax can be use to "expand" comparisons into brackets.
 > Issues that are either open or reopened:
 
 ```
-issues status:..["open" "reopened"]
+#issues status:..["open" "reopened"]
 ```
 
 > Issues that are missing a title and description:
 
 ```
-issues {title description}..:@null
+#issues {title description}..:@null
 ```
 
 > Issues where the title or description contains "foo":
 
 ```
-issues [title description]..:~"foo"
+#issues [title description]..:~"foo"
 ```
 
 ---
@@ -175,7 +175,7 @@ If both sides of the comparison are expanded, then the brackets on left side are
 > Issues where the title and description both contain "foo" or contain "bar":
 
 ```
-issue {title description}..:~..["foo" "bar"]
+#issue {title description}..:~..["foo" "bar"]
 ```
 
 ### Ranges
@@ -183,7 +183,7 @@ issue {title description}..:~..["foo" "bar"]
 > Issues created in the 2010's decade
 
 ```
-issues created_at|year:2010..2019
+#issues created_at|year:2010..2019
 ```
 
 The range `2010..2019` **includes** both 2010 and 2019. You can use exclamation marks on either side of the `..` to make the range exclude either of the bounds, i.e. `2010!..2019` or `2010..!2019` or `2010!..!2019`.
@@ -220,7 +220,7 @@ Functions are applied to values via `|` syntax.
 > The most overdue issues
 
 ```
-issues $id $title $(deadline-@now)|days|max(0)\sd
+#issues $id $title $(deadline-@now)|days|max(0)\sd
 ```
 
 Here:
@@ -237,7 +237,7 @@ Use `$*` to specify all columns. This gives you control to add a column after al
 > Issues with all columns, plus a special concatenation of the username and email:
 
 ```
-users $* $^f'"{username}" <{email}>'
+#users $* $^f'"{username}" <{email}>'
 ```
 
 ---
@@ -251,7 +251,7 @@ Use `\h` to hide a column.
 > Issues with all columns except description:
 
 ```
-issues $*(description \h)
+#issues $*(description \h)
 ```
 
 ---
@@ -259,7 +259,7 @@ issues $*(description \h)
 Use `\s` (and similar flags) to sort by columns, leaving their position in the table unchanged.
 
 ```
-issues $*(created_at \sd)
+#issues $*(created_at \sd)
 ```
 
 
@@ -275,7 +275,7 @@ When a column links to another table, the `.` character can be used after the co
 > Issues created by members of the backend team, displaying the issue title and author's username
 
 ```
-issues author.team.name:"Backend" $id $title $author.username
+#issues author.team.name:"Backend" $id $title $author.username
 ```
 
 ---
@@ -285,13 +285,13 @@ You can also refer to related tables by name.
 > All issues associated with the "Foo" client.
 
 ```
-issues >>#clients.name:"Foo"
+#issues >>#clients.name:"Foo"
 ```
 
 This expands to:
 
 ```
-issues project.product.client.name:"Foo"
+#issues project.product.client.name:"Foo"
 ```
 
 The `>>` syntax is shorthand only works if there is one unambiguous path from the base table to the linked table. The longer form is required if there is more than one way to join the two tables.
@@ -301,7 +301,7 @@ The `>>` syntax is shorthand only works if there is one unambiguous path from th
 > Users, and the number of issues they have created
 
 ```
-users $username $#issues
+#users $username $#issues
 ```
 
 In our schema, each user has multiple issues. We use `#` to refer to a related table which has multiple records for each record in the base table.
@@ -315,7 +315,7 @@ Specific aggregate functions can be applied via `%` (similar to pipe syntax).
 > Users, along with most recent date on which they created a ticket
 
 ```
-users $username $#issues.created_at%max
+#users $username $#issues.created_at%max
 ```
 
 ---
@@ -325,25 +325,25 @@ You can use the `++` and `--` shorthand syntax to construct conditions based on 
 > Users that have created at least one issue
 
 ```
-users ++#issues
+#users ++#issues
 ```
 
 This expands to 
 
 ```
-users #issues:>0
+#users #issues:>0
 ```
 
 > Users that have not created any issues
 
 ```
-users --#issues
+#users --#issues
 ```
 
 This expands to 
 
 ```
-users #issues:0
+#users #issues:0
 ```
 
 ---
@@ -353,7 +353,7 @@ You can add a condition block after any aggregated table
 > Users who have not created any issues within the past year
 
 ```
-users --#issues{created_at:>@1y|ago}
+#users --#issues{created_at:>@1y|ago}
 ```
 
 ---
@@ -363,13 +363,13 @@ You can refer to distantly-related tables
 > Clients, sorted by the highest number of associated open issues
 
 ```
-clients $id $name $#issues{status:"Open"} \sd
+#clients $id $name $#issues{status:"Open"} \sd
 ```
 
 Here, the `issues` table is not directly related to the `clients` table, but that's okay. The above code is shorthand for the following:
 
 ```
-clients $id $name $#products.#projects.#issues{status:"Open"}
+#clients $id $name $#products.#projects.#issues{status:"Open"}
 ```
 
 The shorthand works in this case because there is only one path through which `clients` can be joined to `issues`. Querydown will choose the shortest unambiguous path it can find.
@@ -381,7 +381,7 @@ If the related table can be joined via multiple routes which tie as being the sh
 > Attempt to display the number of users associated with each issue.
 
 ```
-issues $id $title $#users // ERROR!
+#issues $id $title $#users // ERROR!
 ```
 
 This doesn't work because `#users` can be joined either through the `assignments` table or through the `comments` table.
@@ -391,7 +391,7 @@ This works:
 > The number of unique users _who have commented_ on each ticket
 
 ```
-issues $id $title $#comments.#users.id%count_distinct
+#issues $id $title $#comments.#users.id%count_distinct
 ```
 
 ---
@@ -401,13 +401,13 @@ If one table directly links to another table multiple times, then parentheses mu
 > Issues that are blocking other issues
 
 ```
-issues ++#blocks(blocker)
+#issues ++#blocks(blocker)
 ```
 
 > Issues that are not blocked by any other issues
 
 ```
-issues --#blocks(blocking)
+#issues --#blocks(blocking)
 ```
 
 ### Multi-column foreign keys
@@ -425,7 +425,7 @@ Grouping is indicated by the `g` flag, similar to sorting.
 > The count of tickets, by status, for the Foo project:
 
 ```
-issues project.name:"Foo" $status \g $%count \sd
+#issues project.name:"Foo" $status \g $%count \sd
 ```
 
 - All ungrouped columns must contain an aggregate function
@@ -438,7 +438,8 @@ issues project.name:"Foo" $status \g $%count \sd
 Books that have been checked out by the same patron at least 5 times in the past year
 
 ```
-checkout out_date:>@1y|ago
+#checkout
+out_date:>@1y|ago
 $item.publication->publication \g
 $patron \g
 $%count->checkout_count
@@ -464,7 +465,7 @@ After the window function definition, you apply an aggregate function, such as `
 > Issues which have a lot of sequential comments from the same user, showing the max number of sequential comments within the issue, along with the names of all the users who tied for making that many sequential comments
 
 ```qd
-comments
+#comments
 $issue
 $user
 $%%(issue\p user\p created_on\s)%row_number -> count
@@ -480,7 +481,8 @@ $user.username%list
 > Origin locations, with the destination of their most recent shipment
 
 ```
-shipment %%(departure_datetime \sd origin \p)%row_number:1
+#shipment
+%%(departure_datetime \sd origin \p)%row_number:1
 $origin
 $origin.addressee
 $destination
@@ -492,7 +494,8 @@ $destination.addressee
 > How many days into each month did it take us to reach 1000 checkouts?
 
 ```
-checkout %%(out_date \s out_date:year_month \p)%row_number:1000
+#checkout
+%%(out_date \s out_date:year_month \p)%row_number:1000
 $out_date|year_month
 $out_date|day_of_month
 ```
@@ -506,11 +509,11 @@ The `+++` operator performs an SQL `UNION`. Tables on both sides must have ident
 ```
 @location_id = 7
 
-shipment
+#shipment
 origin:@location_id  departure_datetime!@null
 $id $tracking_number $"Send"->action $departure_datetime->time
 +++
-shipment
+#shipment
 destination:@location_id arrival_datetime!@null
 $id $tracking_number $"Receive"->action $arrival_datetime->time
 ~~~
@@ -526,14 +529,18 @@ Pipeline within a union
 ``` 
 @location_id = 7
 #a = (
-  shipment origin:@location_id  departure_datetime!@null
+  #shipment
+  origin:@location_id
+  departure_datetime!@null
   $id
   $tracking_number
   $"Send" -> action
   $departure_datetime-> time
 )
 #b = (
-    shipment destination:@location_id  arrival_datetime!@null
+    #shipment
+    destination:@location_id
+    arrival_datetime!@null
     $id
     $tracking_number
     $"Receive" -> action
@@ -546,50 +553,6 @@ a +++ b
 ~~~
 $time \s $action $tracking_number
 ```
-
-## Complex examples
-
-- Unpopular publications we should cull
-
-    TODO
-    
-- Popular publications which would benefit from more copies in stock
-
-    TODO
-
-- Patrons who currently have the highest late fee
-
-    ```
-    checkout.days_overdue = ? in_date:@null ~ 0 ~~ due_date|ago|days|max(0)|ceil
-    checkout.late_fee = days_overdue|times(2) // $2.00 per day
-    patron.late_fee = #checkouts.late_fee%sum
-    patron $[] $late_fee \sd $#email.email%list
-    ```
-
-- Patrons with at least 1 year of checkout history who have never gone more than 14 days without a checkout.
-
-    TODO
-
-- Average days overdue, by month
-
-    ```
-    checkout.days_overdue = ? in_date:@null ~ 0 ~~ due_date|ago|days|max(0)|ceil
-    checkout
-    $days_overdue:>0
-    $out_date|year_month \gs
-    $days_overdue%avg
-    ```
-
-- Publications that have been on the top 10 most frequently checked-out list every month for the past year.
-
-    TODO
-
-- TODO examples
-    - CRM total number of contacts who have given at least $500 total donations of certain type in past year and who are not registered for a specific event
-    - CRM top ten zip codes by average amount of donations over the past 5 years of certain types
-    - CRM total amount raised, by event, for all events of a certain type within the past 10 years
-    - CRM total amount raised, by fiscal year, including certain contribution types
-
 
 
 

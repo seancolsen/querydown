@@ -32,9 +32,7 @@ String flags:
 | Flag | Meaning |
 | -- | -- |
 | `f` | formatting (aka interpolation) via `{ }` |
-| `r` | raw (no escape sequences) |
-| `c` | RegEx case sensitive |
-| `i` | RegEx case insensitive (default) |
+| `e` | handle escape sequences |
 
 ## Comparisons
 
@@ -82,9 +80,9 @@ Column control flags:
 
 | Code                      | Usage |
 | --                        | -- |
+| `#`                       | table prefix |
 | `.`                       | path separator |
 | _alphanumeric identifier_ | column |
-| `#`                       | path to table with many records (to be aggregated) |
 | `>>`                      | path to table with a single record |
 
 ## If/else

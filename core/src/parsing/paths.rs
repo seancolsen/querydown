@@ -32,18 +32,16 @@ fn table_with_many(condition_set: impl QdParser<ConditionSet>) -> impl QdParser<
         just(TABLE_WITH_MANY_COLUMN_BRACE_L).then(whitespace()),
         whitespace().then(just(TABLE_WITH_MANY_COLUMN_BRACE_R)),
     );
-    just(PATH_TO_TABLE_WITH_MANY_PREFIX)
-        .then(whitespace())
-        .ignore_then(
-            db_identifier()
-                .then(column.or_not())
-                .then(condition_set.or_not())
-                .map(|((table, column), cs)| TableWithMany {
-                    table,
-                    condition_set: cs.unwrap_or_default(),
-                    linking_column: column,
-                }),
-        )
+    just(TABLE_SIGIL).ignore_then(
+        db_identifier()
+            .then(column.or_not())
+            .then(condition_set.or_not())
+            .map(|((table, column), cs)| TableWithMany {
+                table,
+                condition_set: cs.unwrap_or_default(),
+                linking_column: column,
+            }),
+    )
 }
 
 #[cfg(test)]

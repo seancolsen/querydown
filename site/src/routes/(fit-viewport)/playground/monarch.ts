@@ -15,7 +15,7 @@ export const monarch: languages.IMonarchLanguage = {
 
   tokenizer: {
     baseTable: [
-      [/(@identifier)/, 'base-table', '@root'],
+      [/#(@identifier)/, 'base-table', '@root'],
     ],
 
     root: [
