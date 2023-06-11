@@ -1,4 +1,4 @@
-use crate::{sql_tree::SortEntry, syntax_tree::SortSpec};
+use crate::{compiling::sql_tree::SortEntry, syntax_tree::SortSpec};
 
 pub struct UnplacedSortEntry {
     entry: SortEntry,

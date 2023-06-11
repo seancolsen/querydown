@@ -1,13 +1,18 @@
 use chumsky::Parser;
 
 use crate::{
-    compiling::sorting::SortingStack,
-    converters::{convert_condition_set, convert_join_tree},
     parsing::query::query,
-    rendering::{Render, RenderingContext},
-    schema::{primitive_schema::PrimitiveSchema, schema::Schema},
-    sql_tree::{Column, Select, Simplify},
+    schema::{primitive_schema::PrimitiveSchema, Schema},
     Options,
+};
+
+use super::{
+    conversion::{
+        conditions::convert_condition_set, paths::convert_join_tree, sorting::SortingStack,
+    },
+    rendering::rendering::Render,
+    scope::Scope,
+    sql_tree::{Column, Select},
 };
 
 pub struct Compiler {
@@ -29,8 +34,8 @@ impl Compiler {
             // TODO_ERR improve error handling
             .map_err(|_| "Invalid querydown code".to_string())?;
         let base_table_name = std::mem::take(&mut query.base_table);
-        let mut cx = RenderingContext::build(&self.options, &self.schema, &base_table_name)?;
-        let mut select = Select::from(cx.get_base_table().name.clone());
+        let mut scope = Scope::build(&self.options, &self.schema, &base_table_name)?;
+        let mut select = Select::from(scope.get_base_table().name.clone());
         let mut transformations_iter = query.transformations.into_iter();
         let first_transformation = transformations_iter.next().unwrap_or_default();
         let second_transformation = transformations_iter.next();
@@ -38,17 +43,18 @@ impl Compiler {
             return Err("Pipelines not yet supported".to_string());
         }
 
-        select.condition_set = convert_condition_set(&first_transformation.condition_set, &mut cx);
+        select.condition_set =
+            convert_condition_set(&first_transformation.condition_set, &mut scope);
 
         let mut sorting_stack = SortingStack::new();
 
         for column_spec in first_transformation.column_layout.column_specs {
-            let expression = column_spec.expression.render(&mut cx);
+            let expression = column_spec.expression.render(&mut scope);
             let alias = column_spec.alias;
             if let Some(sort_spec) = column_spec.column_control.sort {
                 let expr = alias
                     .as_ref()
-                    .map(|a| cx.options.dialect.quote_identifier(a))
+                    .map(|a| scope.options.dialect.quote_identifier(a))
                     .unwrap_or_else(|| expression.clone());
                 sorting_stack.push(expr, sort_spec);
             }
@@ -57,10 +63,10 @@ impl Compiler {
 
         select.sorting = sorting_stack.into();
 
-        (select.joins, select.ctes) = convert_join_tree(cx.take_join_tree(), &cx);
+        (select.joins, select.ctes) = convert_join_tree(scope.take_join_tree(), &scope);
 
         select.simplify();
-        let mut result = select.render(&mut cx);
+        let mut result = select.render(&mut scope);
         result.push(';');
         Ok(result)
     }

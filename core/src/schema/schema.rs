@@ -5,13 +5,13 @@ use std::collections::{
 
 use itertools::Itertools;
 
-use crate::syntax_tree::TableWithMany;
+use crate::errors::msg;
 
 use super::{
     chain::{Chain, ChainIntersecting},
     links::{
-        FilteredLink, ForeignKey, ForwardLinkToOne, Link, LinkToOne, MultiLink, Reference,
-        ReverseLinkToMany, ReverseLinkToOne,
+        ForeignKey, ForwardLinkToOne, Link, LinkToOne, MultiLink, Reference, ReverseLinkToMany,
+        ReverseLinkToOne,
     },
     primitive_schema::{PrimitiveSchema, PrimitiveTable},
 };
@@ -242,8 +242,7 @@ impl TryFrom<PrimitiveSchema> for Schema {
             let base_table = tables.get_mut(&base.table_id).unwrap();
             match base_table.forward_links_to_one.entry(base.column_id) {
                 Occupied(_) => {
-                    let msg = "Schema has multiple foreign keys from the same column".to_string();
-                    return Err(msg);
+                    return Err(msg::multiple_fk_from_col());
                 }
                 Vacant(e) => {
                     e.insert(ForwardLinkToOne::from(foreign_key));

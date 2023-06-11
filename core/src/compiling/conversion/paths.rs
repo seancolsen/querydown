@@ -1,345 +1,44 @@
 use itertools::Itertools;
 
 use crate::{
-    constants::{CTE_PK_COLUMN_ALIAS, CTE_VALUE_COLUMN_PREFIX},
-    dialects::{dialect::RegExFlags, sql},
-    rendering::{JoinTree, Render, RenderingContext, SimpleExpression},
+    compiling::{
+        constants::{CTE_PK_COLUMN_ALIAS, CTE_VALUE_COLUMN_PREFIX},
+        conversion::conditions::convert_condition_set,
+        join_tree::JoinTree,
+        rendering::rendering::Render,
+        scope::Scope,
+        sql_tree::{
+            Column, Cte, CtePurpose, Join, JoinType, Select, SqlConditionSet, SqlConditionSetEntry,
+        },
+    },
+    dialects::sql,
+    errors::msg,
     schema::{
         chain::{Chain, ChainIntersecting},
         links::{FilteredLink, Link, LinkToOne, MultiLink},
-        schema::{ChainSearchBase, Table},
+        ChainSearchBase, Table,
     },
-    sql_tree::*,
-    syntax_tree::*,
+    syntax_tree::{
+        Composition, ConditionSet, Conjunction, Expression, FunctionDimension, Literal, PathPart,
+        TableWithMany, Value,
+    },
 };
 
-struct SimpleConditionSet {
-    conjunction: Conjunction,
-    entries: Vec<SimpleConditionSetEntry>,
-}
-
-impl SimpleConditionSet {
-    pub fn new(conjunction: Conjunction, entries: Vec<SimpleConditionSetEntry>) -> Self {
-        Self {
-            conjunction,
-            entries,
-        }
-    }
-}
-
-enum SimpleConditionSetEntry {
-    SimpleComparison(SimpleComparison),
-    SimpleConditionSet(SimpleConditionSet),
-}
-
-impl SimpleConditionSetEntry {
-    pub fn new_comparison(left: Expression, operator: Operator, right: Expression) -> Self {
-        Self::SimpleComparison(SimpleComparison::new(left, operator, right))
-    }
-
-    pub fn new_set(conjunction: Conjunction, entries: Vec<SimpleConditionSetEntry>) -> Self {
-        Self::SimpleConditionSet(SimpleConditionSet::new(conjunction, entries))
-    }
-}
-
-struct SimpleComparison {
-    left: Expression,
-    operator: Operator,
-    right: Expression,
-}
-
-impl SimpleComparison {
-    pub fn new(left: Expression, operator: Operator, right: Expression) -> Self {
-        Self {
-            left,
-            operator,
-            right,
-        }
-    }
-}
-
-pub fn convert_condition_set(
-    condition_set: &ConditionSet,
-    cx: &mut RenderingContext,
-) -> SqlConditionSet {
-    SqlConditionSet {
-        conjunction: condition_set.conjunction,
-        entries: condition_set
-            .entries
-            .iter()
-            .map(|entry| convert_condition_set_entry(entry, cx))
-            .collect(),
-    }
-}
-
-fn convert_condition_set_entry(
-    condition_set_entry: &ConditionSetEntry,
-    cx: &mut RenderingContext,
-) -> SqlConditionSetEntry {
-    match condition_set_entry {
-        ConditionSetEntry::Comparison(comparison) => convert_comparison(comparison, cx),
-        ConditionSetEntry::ConditionSet(condition_set) => {
-            SqlConditionSetEntry::ConditionSet(convert_condition_set(condition_set, cx))
-        }
-    }
-}
-
-fn convert_comparison(comparison: &Comparison, cx: &mut RenderingContext) -> SqlConditionSetEntry {
-    convert_simple_condition_set_entry(&expand_comparison(comparison), cx)
-}
-
-fn convert_simple_condition_set_entry(
-    entry: &SimpleConditionSetEntry,
-    cx: &mut RenderingContext,
-) -> SqlConditionSetEntry {
-    match entry {
-        SimpleConditionSetEntry::SimpleComparison(comparison) => {
-            convert_simple_comparison(comparison, cx)
-        }
-        SimpleConditionSetEntry::SimpleConditionSet(condition_set) => {
-            SqlConditionSetEntry::ConditionSet(SqlConditionSet {
-                conjunction: condition_set.conjunction,
-                entries: condition_set
-                    .entries
-                    .iter()
-                    .map(|entry| convert_simple_condition_set_entry(entry, cx))
-                    .collect(),
-            })
-        }
-    }
-}
-
-fn convert_simple_comparison(
-    simple_comparison: &SimpleComparison,
-    cx: &mut RenderingContext,
-) -> SqlConditionSetEntry {
-    use Operator::*;
-
-    let SimpleComparison {
-        left,
-        operator,
-        right,
-    } = simple_comparison;
-
-    if left.is_zero() && operator == &Eq {
-        return convert_expression_vs_zero(&right, ComparisonVsZero::Eq, cx);
-    }
-    if left.is_zero() && operator == &Lt {
-        return convert_expression_vs_zero(&right, ComparisonVsZero::Gt, cx);
-    }
-    if right.is_zero() && operator == &Eq {
-        return convert_expression_vs_zero(&left, ComparisonVsZero::Eq, cx);
-    }
-    if right.is_zero() && operator == &Gt {
-        return convert_expression_vs_zero(&left, ComparisonVsZero::Gt, cx);
-    }
-
-    if right.is_null() && operator == &Eq {
-        return SqlConditionSetEntry::Expression(sql::value_is_null(left.render(cx)));
-    }
-    if right.is_null() && operator == &Neq {
-        return SqlConditionSetEntry::Expression(sql::value_is_not_null(left.render(cx)));
-    }
-    if left.is_null() && operator == &Eq {
-        return SqlConditionSetEntry::Expression(sql::value_is_null(right.render(cx)));
-    }
-    if left.is_null() && operator == &Neq {
-        return SqlConditionSetEntry::Expression(sql::value_is_not_null(right.render(cx)));
-    }
-
-    let expr = |s: String| SqlConditionSetEntry::Expression(s);
-
-    let plain_comparison = |op: &str, cx: &mut RenderingContext| {
-        expr(format!("{} {} {}", left.render(cx), op, right.render(cx)))
-    };
-
-    let match_regex = |is_positive: bool, cx: &mut RenderingContext| {
-        expr(cx.options.dialect.match_regex(
-            &left.render(cx),
-            &right.render(cx),
-            is_positive,
-            &RegExFlags {
-                is_case_sensitive: false,
-            },
-        ))
-    };
-
-    match operator {
-        Eq => plain_comparison(sql::EQ, cx),
-        Gt => plain_comparison(sql::GT, cx),
-        Gte => plain_comparison(sql::GTE, cx),
-        Lt => plain_comparison(sql::LT, cx),
-        Lte => plain_comparison(sql::LTE, cx),
-        Like => plain_comparison(sql::LIKE, cx),
-        Neq => plain_comparison(sql::NEQ, cx),
-        NLike => plain_comparison(sql::NLIKE, cx),
-        Match => match_regex(true, cx),
-        NMatch => match_regex(false, cx),
-    }
-}
-
-#[derive(Clone, Copy)]
-enum ComparisonVsZero {
-    Eq,
-    Gt,
-}
-
-impl From<ComparisonVsZero> for Operator {
-    fn from(cmp: ComparisonVsZero) -> Self {
-        match cmp {
-            ComparisonVsZero::Eq => Operator::Eq,
-            ComparisonVsZero::Gt => Operator::Gt,
-        }
-    }
-}
-
-impl From<ComparisonVsZero> for CtePurpose {
-    fn from(cmp: ComparisonVsZero) -> Self {
-        match cmp {
-            ComparisonVsZero::Eq => CtePurpose::Exclusion,
-            ComparisonVsZero::Gt => CtePurpose::Inclusion,
-        }
-    }
-}
-
-fn convert_expression_vs_zero(
-    expr: &Expression,
-    cmp: ComparisonVsZero,
-    cx: &mut RenderingContext,
-) -> SqlConditionSetEntry {
-    let fallback = |cx: &mut RenderingContext| {
-        let rendered_expr = expr.render(cx);
-        let op = match cmp {
-            ComparisonVsZero::Eq => sql::EQ,
-            ComparisonVsZero::Gt => sql::GT,
-        };
-        SqlConditionSetEntry::Expression(format!("{} {} {}", rendered_expr, op, 0))
-    };
-    if expr.compositions.len() > 0 {
-        return fallback(cx);
-    }
-    let Value::Path(path_parts) = &expr.base else { return fallback(cx) };
-    let Ok(clarified_path) = clarify_path(path_parts.clone(), cx) else { return fallback(cx) };
-    let ClarifiedPathTail::ChainToMany((chain, None)) = clarified_path.tail else {
-        return fallback(cx)
-    };
-    let join_result = cx.join_chain_to_many(&clarified_path.head, chain, None, vec![], cmp.into());
-    let Ok(simple_expr) = join_result else { return fallback(cx) };
-    // We're confident that `simple_expr` doesn't have any compositions because we
-    // checked that `expr` doesn't have any above.
-    let rendered_expr = simple_expr.base.render(cx);
-    let rendered_cmp = match cmp {
-        ComparisonVsZero::Eq => sql::value_is_null(rendered_expr),
-        ComparisonVsZero::Gt => sql::value_is_not_null(rendered_expr),
-    };
-    SqlConditionSetEntry::Expression(rendered_cmp)
-}
-
-fn expand_comparison(comparison: &Comparison) -> SimpleConditionSetEntry {
-    use ComparisonPart::{Expression as Expr, ExpressionSet as ExprSet};
-    let make_comparison = |left: Expression, right: Expression| {
-        SimpleConditionSetEntry::new_comparison(left, comparison.operator, right)
-    };
-    let make_set = SimpleConditionSetEntry::new_set;
-    // All the `clone()` calls in here are kind of unfortunate. Cloning an expression is not
-    // necessarily cheap because the expression could be quite deep. In theory, we could perform
-    // this expansion, after the expression is rendered, in which case we'd be cloning strings
-    // instead. Holding references to the objects instead of cloning them would be nice although
-    // it seems like that could get messy. We could consider attempting to eliminate these clone
-    // calls if we find that this is a performance bottleneck.
-    match (&comparison.left, &comparison.right) {
-        (Expr(l), Expr(r)) => make_comparison(l.clone(), r.clone()),
-        (ExprSet(l), Expr(r)) => make_set(
-            l.conjunction,
-            l.entries
-                .iter()
-                .map(|e| make_comparison(e.clone(), r.clone()))
-                .collect(),
-        ),
-        (Expr(l), ExprSet(r)) => make_set(
-            r.conjunction,
-            r.entries
-                .iter()
-                .map(|e| make_comparison(l.clone(), e.clone()))
-                .collect(),
-        ),
-        (ExprSet(l), ExprSet(r)) => make_set(
-            l.conjunction,
-            l.entries
-                .iter()
-                .map(|l_exp| {
-                    make_set(
-                        r.conjunction,
-                        r.entries
-                            .iter()
-                            .map(|r_exp| make_comparison(l_exp.clone(), r_exp.clone()))
-                            .collect(),
-                    )
-                })
-                .collect(),
-        ),
-    }
-}
-
-pub fn simplify_expression(expr: &Expression, cx: &mut RenderingContext) -> SimpleExpression {
-    let expr = expr.clone();
-    match expr.base {
-        Value::Literal(literal) => SimpleExpression {
-            base: literal,
-            compositions: expr.compositions,
-        },
-        // TODO_ERR handle error
-        Value::Path(path) => simplify_path_expression(path, expr.compositions, cx).unwrap(),
-    }
-}
-
-fn simplify_path_expression(
-    parts: Vec<PathPart>,
-    compositions: Vec<Composition>,
-    cx: &mut RenderingContext,
-) -> Result<SimpleExpression, String> {
-    let clarified_path = clarify_path(parts, cx)?;
-    match (clarified_path.head, clarified_path.tail) {
-        (None, ClarifiedPathTail::Column(column_name)) => {
-            let table_name = cx.get_base_table().name.clone();
-            Ok(SimpleExpression {
-                base: Literal::TableColumnReference(table_name, column_name),
-                compositions,
-            })
-        }
-        (Some(chain_to_one), ClarifiedPathTail::Column(column_name)) => {
-            let table_name = cx.join_chain_to_one(&chain_to_one);
-            Ok(SimpleExpression {
-                base: Literal::TableColumnReference(table_name, column_name),
-                compositions,
-            })
-        }
-        (head, ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) => cx
-            .join_chain_to_many(
-                &head,
-                chain_to_many,
-                column_name_opt,
-                compositions,
-                CtePurpose::AggregateValue,
-            ),
-    }
+#[derive(Debug)]
+pub struct ClarifiedPath {
+    pub head: Option<Chain<LinkToOne>>,
+    pub tail: ClarifiedPathTail,
 }
 
 #[derive(Debug)]
-struct ClarifiedPath {
-    head: Option<Chain<LinkToOne>>,
-    tail: ClarifiedPathTail,
-}
-
-#[derive(Debug)]
-enum ClarifiedPathTail {
+pub enum ClarifiedPathTail {
     Column(String),
     /// chain, column_name
     ChainToMany((Chain<FilteredLink>, Option<String>)),
 }
 
-fn clarify_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<ClarifiedPath, String> {
-    let linked_path = build_linked_path(parts, cx)?;
+pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath, String> {
+    let linked_path = build_linked_path(parts, scope)?;
     let chain_opt = linked_path.chain;
     let column_name_opt = linked_path.column;
     let Some(chain) = chain_opt else {
@@ -389,21 +88,21 @@ struct LinkedPath {
     pub column: Option<String>,
 }
 
-fn build_linked_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<LinkedPath, String> {
-    let mut current_table_opt: Option<&Table> = Some(cx.get_base_table());
+fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, String> {
+    let mut current_table_opt: Option<&Table> = Some(scope.get_base_table());
     let mut chain_opt: Option<Chain<FilteredLink>> = None;
     let mut final_column_name: Option<String> = None;
     for part in parts {
         let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
         match part {
             PathPart::Column(column_name) => {
-                let column_id = cx
+                let column_id = scope
                     .options
                     .resolve_identifier(&current_table.column_lookup, &column_name)
                     .copied()
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &current_table.name))?;
                 if let Some(link) = current_table.forward_links_to_one.get(&column_id).copied() {
-                    current_table_opt = cx.schema.tables.get(&link.get_end().table_id);
+                    current_table_opt = scope.schema.tables.get(&link.get_end().table_id);
                     let link = FilteredLink {
                         link: MultiLink::ForwardLinkToOne(link),
                         condition_set: ConditionSet::default(),
@@ -427,10 +126,11 @@ fn build_linked_path(parts: Vec<PathPart>, cx: &RenderingContext) -> Result<Link
             PathPart::TableWithMany(mut table_with_many) => {
                 let base = ChainSearchBase::TableId(current_table.id);
                 let condition_set = std::mem::take(&mut table_with_many.condition_set);
-                let mut new_chain = get_chain_to_table_with_many(base, &table_with_many, None, cx)?;
+                let mut new_chain =
+                    get_chain_to_table_with_many(base, &table_with_many, None, scope)?;
                 new_chain.set_final_condition_set(condition_set);
                 new_chain.allow_intersecting();
-                current_table_opt = cx.schema.tables.get(&new_chain.get_ending_table_id());
+                current_table_opt = scope.schema.tables.get(&new_chain.get_ending_table_id());
                 chain_opt = match chain_opt {
                     Some(mut chain) => {
                         chain.try_connect(new_chain)?;
@@ -452,14 +152,14 @@ pub fn get_chain_to_table_with_many(
     base: ChainSearchBase,
     target: &TableWithMany,
     max_chain_length: Option<usize>,
-    cx: &RenderingContext,
+    scope: &Scope,
 ) -> Result<Chain<FilteredLink>, String> {
     let max_chain_len = max_chain_length.unwrap_or(usize::MAX);
     if base.len() >= max_chain_len {
         // I don't think this should never happen, but I put it here just in case
         return Err("Chain search base already too long before searching.".to_string());
     }
-    let target_table = cx
+    let target_table = scope
         .get_table_by_name(&target.table)
         .ok_or("Target table not found.".to_string())?;
 
@@ -470,7 +170,7 @@ pub fn get_chain_to_table_with_many(
         }
     }
 
-    let base_table = cx
+    let base_table = scope
         .schema
         .tables
         .get(&base.get_base_table_id())
@@ -492,7 +192,7 @@ pub fn get_chain_to_table_with_many(
 
     let get_transitive_chain = |link: MultiLink, max: usize| {
         let chain = base.clone().try_append_into_chain(link)?;
-        get_chain_to_table_with_many(ChainSearchBase::Chain(chain), target, Some(max), cx)
+        get_chain_to_table_with_many(ChainSearchBase::Chain(chain), target, Some(max), scope)
     };
     enum ChainSearchResult {
         Winner(Chain<FilteredLink>),
@@ -527,32 +227,34 @@ pub fn get_chain_to_table_with_many(
     }
 }
 
-pub fn convert_join_tree(mut tree: JoinTree, cx: &RenderingContext) -> (Vec<Join>, Vec<Cte>) {
+pub fn convert_join_tree(mut tree: JoinTree, scope: &Scope) -> (Vec<Join>, Vec<Cte>) {
     let mut ctes = tree.take_ctes();
     let mut joins: Vec<Join> = ctes
         .iter()
-        .map(|cte| build_join_for_cte(cte, tree.get_alias().to_owned(), cx))
+        .map(|cte| build_join_for_cte(cte, tree.get_alias().to_owned(), scope))
         .collect();
     for (link, subtree) in tree.take_dependents() {
         let starting_alias = tree.get_alias();
         let ending_alias = subtree.get_alias();
         let join_type = JoinType::LeftOuter;
-        let join = make_join_from_link(&link, starting_alias, ending_alias, join_type, cx);
+        let join = make_join_from_link(&link, starting_alias, ending_alias, join_type, scope);
         joins.push(join);
-        let (new_joins, new_ctes) = convert_join_tree(subtree, cx);
+        let (new_joins, new_ctes) = convert_join_tree(subtree, scope);
         joins.extend(new_joins);
         ctes.extend(new_ctes);
     }
     (joins, ctes)
 }
 
-fn build_join_for_cte(cte: &Cte, table: String, cx: &RenderingContext) -> Join {
+fn build_join_for_cte(cte: &Cte, table: String, scope: &Scope) -> Join {
     let condition = format!(
         "{} = {}",
-        cx.options
+        scope
+            .options
             .dialect
             .table_column(&table, &cte.join_column_name),
-        cx.options
+        scope
+            .options
             .dialect
             .table_column(&cte.alias, CTE_PK_COLUMN_ALIAS),
     );
@@ -577,7 +279,7 @@ pub fn build_cte_select(
     chain: Chain<FilteredLink>,
     final_column_name: Option<String>,
     compositions: Vec<Composition>,
-    parent_cx: &RenderingContext,
+    parent_cx: &Scope,
     purpose: CtePurpose,
 ) -> Result<ValueViaCte, String> {
     use Literal::TableColumnReference;
@@ -703,70 +405,44 @@ fn make_join_from_link(
     starting_alias: &str,
     ending_alias: &str,
     join_type: JoinType,
-    cx: &RenderingContext,
+    scope: &Scope,
 ) -> Join {
     let start = link.get_start();
     let starting_table_id = start.table_id;
-    let starting_table = cx.schema.tables.get(&starting_table_id).unwrap();
+    let starting_table = scope.schema.tables.get(&starting_table_id).unwrap();
     let starting_column_id = start.column_id;
     let starting_column = starting_table.columns.get(&starting_column_id).unwrap();
 
     let end = link.get_end();
     let ending_table_id = end.table_id;
-    let ending_table = cx.schema.tables.get(&ending_table_id).unwrap();
+    let ending_table = scope.schema.tables.get(&ending_table_id).unwrap();
     let ending_column_id = end.column_id;
     let ending_column = ending_table.columns.get(&ending_column_id).unwrap();
 
     let condition = format!(
         "{} = {}",
-        cx.options
+        scope
+            .options
             .dialect
             .table_column(starting_alias, &starting_column.name),
-        cx.options
+        scope
+            .options
             .dialect
             .table_column(ending_alias, &ending_column.name),
     );
     Join {
-        table: cx.schema.tables.get(&ending_table_id).unwrap().name.clone(),
+        table: scope
+            .schema
+            .tables
+            .get(&ending_table_id)
+            .unwrap()
+            .name
+            .clone(),
         alias: ending_alias.to_owned(),
         condition_set: SqlConditionSet {
             conjunction: Conjunction::And,
             entries: vec![SqlConditionSetEntry::Expression(condition)],
         },
         join_type,
-    }
-}
-
-/// Error messages
-mod msg {
-    pub fn no_current_table() -> String {
-        "Non-FK columns can only appear at the end of a path.".to_string()
-    }
-
-    pub fn col_not_in_table(column_name: &str, table_name: &str) -> String {
-        format!("Column `{column_name}` not found within table `{table_name}`.")
-    }
-
-    pub fn no_path_parts() -> String {
-        "Cannot build a ClarifiedPath without any path parts".to_string()
-    }
-
-    pub fn no_column_name_or_chain() -> String {
-        "Cannot build a ClarifiedPathTail without a column name or chain".to_string()
-    }
-
-    pub fn multiple_agg_fns() -> String {
-        "Cannot apply more than one aggregate function to the same expression.".to_string()
-    }
-
-    pub fn pre_aggregate_composition_without_column() -> String {
-        "Functions can only be applied before aggregation when a column is specified.".to_string()
-    }
-
-    pub fn special_aggregate_composition_applied_without_column(function_name: String) -> String {
-        format!(
-            "Aggregate function `{}` can only be applied to a column.",
-            function_name
-        )
     }
 }

@@ -4,10 +4,10 @@ fn test_corpus() {
     // one small test which calls all these other functions. There's some special behavior for
     // imports within integration tests that I don't fully understand yet. That behavior was
     // preventing me from writing these imports at the top of the file like normal.
-    use crate::compiler::Compiler;
     use crate::dialects::postgres::Postgres;
     use crate::options::{IdentifierResolution, Options};
     use crate::tests::test_utils::get_test_resource;
+    use crate::Compiler;
     use std::path::PathBuf;
     use testcase_markdown::*;
     use toml::{from_str, map::Map, Table, Value};
