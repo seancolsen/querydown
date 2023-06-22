@@ -46,9 +46,9 @@ Not yet working
 #issues
 created_at:>@6M|ago
 --#assignments
-++#labels{name:["Regression" "Bug"]}
+++#labels{name:..["Regression" "Bug"]}
 #comments{user.team.name!"Backend"}:~10..20
-$[]
+$*()
 $author.username
 $#comments.created_at%min \sd
 ```

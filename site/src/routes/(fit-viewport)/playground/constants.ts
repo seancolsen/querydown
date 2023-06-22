@@ -3,7 +3,7 @@ created_at:<@6M|ago
 due_date:<@now
 description|length:>200
 --#assignments
-++#labels{name:["Regression" "Bug"]}
+++#labels{name:..["Regression" "Bug"]}
 #comments{user.team.name!"Backend"}:10
 $id
 $author.username -> author
