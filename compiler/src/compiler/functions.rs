@@ -11,7 +11,7 @@ use crate::{
     },
     errors::msg::{self, unknown_aggregate_function, unknown_scalar_function},
     schema::Schema,
-    sql::expr::build::{agg::*, cond::*, func::*, math::*},
+    sql::expr::build::{agg::*, cond::*, func::*, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
     Options,
 };
@@ -93,7 +93,7 @@ fn args_2(
 
 pub fn get_standard_scalar_functions(options: &Options, schema: &Schema) -> FuncMap {
     #[rustfmt::skip]
-    let templates: [(&str, Func); 13] = [
+    let templates: [(&str, Func); 16] = [
         ("above",  |e, s| args_v(e, s, least)),
         ("abs",    |e, s| args_1(e, s, abs)),
         ("ago",    |e, s| args_1(e, s, |a| subtract(now(), a))),
@@ -102,6 +102,9 @@ pub fn get_standard_scalar_functions(options: &Options, schema: &Schema) -> Func
         ("ceil",   |e, s| args_1(e, s, ceil)),
         ("divide", |e, s| args_2(e, s, divide)),
         ("else",   |e, s| args_1(e, s, coalesce)),
+        ("lower",  |e, s| args_1(e, s, lower)),
+        ("upper",  |e, s| args_1(e, s, upper)),
+        ("length", |e, s| args_1(e, s, char_length)),
         ("floor",  |e, s| args_1(e, s, floor)),
         ("minus",  |e, s| args_2(e, s, subtract)),
         ("mod",    |e, s| args_2(e, s, modulo)),

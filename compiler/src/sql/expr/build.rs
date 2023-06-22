@@ -23,19 +23,19 @@ pub mod agg {
     use super::*;
 
     pub fn bool_and(a: SqlExpr) -> SqlExpr {
-        sql_func("bool_and", vec![a])
+        sql_func("bool_and", [a])
     }
 
     pub fn bool_or(a: SqlExpr) -> SqlExpr {
-        sql_func("bool_or", vec![a])
+        sql_func("bool_or", [a])
     }
 
     pub fn avg(a: SqlExpr) -> SqlExpr {
-        sql_func("avg", vec![a])
+        sql_func("avg", [a])
     }
 
     pub fn count(a: SqlExpr) -> SqlExpr {
-        sql_func("count", vec![a])
+        sql_func("count", [a])
     }
 
     pub fn count_star() -> SqlExpr {
@@ -50,11 +50,11 @@ pub mod agg {
     }
 
     pub fn max(a: SqlExpr) -> SqlExpr {
-        sql_func("max", vec![a])
+        sql_func("max", [a])
     }
 
     pub fn min(a: SqlExpr) -> SqlExpr {
-        sql_func("min", vec![a])
+        sql_func("min", [a])
     }
 
     pub fn string_agg(a: SqlExpr) -> SqlExpr {
@@ -62,11 +62,11 @@ pub mod agg {
         // - Let user customize the separator
         // - Use dialect-specific string quoting logic
         let separator = SqlExpr::atom("', '".to_string());
-        sql_func("string_agg", vec![a, separator])
+        sql_func("string_agg", [a, separator])
     }
 
     pub fn sum(a: SqlExpr) -> SqlExpr {
-        sql_func("sum", vec![a])
+        sql_func("sum", [a])
     }
 }
 
@@ -156,7 +156,7 @@ pub mod cond {
     use super::*;
 
     pub fn coalesce(a: SqlExpr) -> SqlExpr {
-        sql_func("COALESCE", vec![a])
+        sql_func("COALESCE", [a])
     }
 }
 
@@ -172,7 +172,7 @@ pub mod math {
     use super::*;
 
     pub fn abs(a: SqlExpr) -> SqlExpr {
-        sql_func("ABS", vec![a])
+        sql_func("ABS", [a])
     }
 
     pub fn add(a: SqlExpr, b: SqlExpr) -> SqlExpr {
@@ -180,7 +180,7 @@ pub mod math {
     }
 
     pub fn ceil(a: SqlExpr) -> SqlExpr {
-        sql_func("CEIL", vec![a])
+        sql_func("CEIL", [a])
     }
 
     pub fn divide(a: SqlExpr, b: SqlExpr) -> SqlExpr {
@@ -188,7 +188,7 @@ pub mod math {
     }
 
     pub fn floor(a: SqlExpr) -> SqlExpr {
-        sql_func("FLOOR", vec![a])
+        sql_func("FLOOR", [a])
     }
 
     pub fn greatest(args: Vec<SqlExpr>) -> SqlExpr {
@@ -209,6 +209,22 @@ pub mod math {
 
     pub fn subtract(a: SqlExpr, b: SqlExpr) -> SqlExpr {
         binary_op(a, "-", b, SqlExprPrecedence::Addition)
+    }
+}
+
+pub mod strings {
+    use super::*;
+
+    pub fn lower(a: SqlExpr) -> SqlExpr {
+        sql_func("lower", [a])
+    }
+
+    pub fn upper(a: SqlExpr) -> SqlExpr {
+        sql_func("upper", [a])
+    }
+
+    pub fn char_length(a: SqlExpr) -> SqlExpr {
+        sql_func("char_length", [a])
     }
 }
 
