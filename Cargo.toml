@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "cli",
-    "core",
+    "parser",
+    "compiler",
     "bindings/js",
 ]
 

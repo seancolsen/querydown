@@ -14,7 +14,7 @@ _See also: **[Language Design](./design.md)**_
 | `@2000-01-01`           | date/time values |
 | `@1y`                   | duration values |
 | `@now`                  | `now()` |
-| `@inf`                  | `Infinity` |
+| `@infinity`             | `Infinity` |
 | `@true`                 | `TRUE` |
 | `@false`                | `FALSE` |
 | `@null`                 | `NULL` |

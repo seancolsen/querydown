@@ -4,7 +4,7 @@ _See also: **[Syntax Cheat Sheet](./syntax-cheat-sheet.md)**_
 
 ## Example schemas
 
-💡 Most examples in this document are based on a **[issue-tracker sample schema](../core/resources/test/issue_schema.json)**. It has an [ER diagram](../core/resources/test/issue_schema.diagram.png) too. Understanding the schema will be important to understand some of the examples.
+💡 Most examples in this document are based on a **[issue-tracker sample schema](../compiler/resources/test/issue_schema.json)**. It has an [ER diagram](../compiler/resources/test/issue_schema.diagram.png) too. Understanding the schema will be important to understand some of the examples.
 
 ## Basics
 
