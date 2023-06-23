@@ -61,10 +61,6 @@ impl<L: Link> Chain<L> {
         })
     }
 
-    pub fn get_starting_table_id(&self) -> TableId {
-        self.stats.starting_table_id
-    }
-
     pub fn get_ending_table_id(&self) -> TableId {
         self.stats.ending_table_id
     }
@@ -78,35 +74,8 @@ impl<L: Link> Chain<L> {
         self.links.first().unwrap()
     }
 
-    pub fn get_last_link(&self) -> &L {
-        // This unwrap is safe because we know that a chain will have at least one link
-        self.links.last().unwrap()
-    }
-
-    pub fn has_table_id(&self, table_id: TableId) -> bool {
-        self.stats.table_ids.contains(&table_id)
-    }
-
     pub fn allow_intersecting(&mut self) {
         self.intersecting = ChainIntersecting::Allowed
-    }
-
-    pub fn disallow_intersecting(&mut self) {
-        self.intersecting = ChainIntersecting::Disallowed
-    }
-
-    pub fn pop_last(&mut self) -> Option<L> {
-        if self.len() == 1 {
-            // Can't pop the only link off a chain because that would leave it empty. We don't
-            // need to handle the case where the length is 0 because we know the chain will have
-            // at least one link.
-            return None;
-        }
-        // This unwrap is safe because we know that a chain will have at least one link
-        let link = self.links.pop().unwrap();
-        self.stats.ending_table_id = link.get_start().table_id;
-        self.stats.table_ids = calculate_table_ids(self.links.iter());
-        Some(link)
     }
 
     /// Try to add a link to the end of this chain. If it was successfully added, then return

@@ -1,12 +1,17 @@
 use std::collections::HashMap;
 
-use crate::schema::links::{Link, Reference};
-use crate::schema::{chain::Chain, links::LinkToOne};
-use crate::sql::expr::build::*;
-use crate::sql::tree::{Cte, Join, JoinType, SqlExpr};
+use crate::{
+    schema::{
+        chain::Chain,
+        links::{Link, LinkToOne, Reference},
+    },
+    sql::{
+        expr::build::*,
+        tree::{Cte, Join, JoinType},
+    },
+};
 
-use super::constants::CTE_PK_COLUMN_ALIAS;
-use super::scope::Scope;
+use super::{constants::CTE_PK_COLUMN_ALIAS, scope::Scope};
 
 #[derive(Debug)]
 pub struct JoinTree {

@@ -1,11 +1,7 @@
 use itertools::Itertools;
 use querydown_parser::ast::{NullsSort, SortDirection};
 
-use crate::{
-    compiler::scope::Scope,
-    sql,
-    sql::tree::{Column, Cte, Join, JoinType, Select, SortEntry, SqlExpr},
-};
+use crate::{compiler::scope::Scope, sql::tree::*};
 
 use super::constants::INDENT_SPACER;
 
@@ -154,12 +150,12 @@ impl Render for Vec<SortEntry> {
 impl Render for SortEntry {
     fn render(&self, _: &mut Scope) -> String {
         let direction = match self.direction {
-            SortDirection::Asc => sql::ASC,
-            SortDirection::Desc => sql::DESC,
+            SortDirection::Asc => "ASC",
+            SortDirection::Desc => "DESC",
         };
         let nulls_sort = match self.nulls_sort {
-            NullsSort::First => sql::NULLS_FIRST,
-            NullsSort::Last => sql::NULLS_LAST,
+            NullsSort::First => "NULLS FIRST",
+            NullsSort::Last => "NULLS LAST",
         };
         format!("{} {} {}", self.expr, direction, nulls_sort)
     }

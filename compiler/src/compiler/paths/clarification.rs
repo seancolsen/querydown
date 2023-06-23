@@ -108,7 +108,7 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                     final_column_name = Some(column.name.clone());
                 }
             }
-            PathPart::TableWithOne(table_name) => {
+            PathPart::TableWithOne(_) => {
                 todo!()
             }
             PathPart::TableWithMany(mut table_with_many) => {

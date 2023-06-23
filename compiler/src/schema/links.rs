@@ -2,8 +2,7 @@ use std::ops::{BitAnd, Not};
 
 use querydown_parser::ast::ConditionSet;
 
-use super::schema::{ColumnId, Schema, TableId};
-use JoinQuantity::*;
+use super::schema::{ColumnId, TableId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ForwardLinkToOne {
@@ -142,6 +141,7 @@ pub enum JoinQuantity {
     One,
     Many,
 }
+use JoinQuantity::*;
 
 impl BitAnd for JoinQuantity {
     type Output = Self;
@@ -166,15 +166,6 @@ pub enum LinkDirection {
 pub struct Reference {
     pub table_id: TableId,
     pub column_id: ColumnId,
-}
-
-impl Reference {
-    pub fn new(table_id: TableId, column_id: ColumnId) -> Self {
-        Self {
-            table_id,
-            column_id,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]

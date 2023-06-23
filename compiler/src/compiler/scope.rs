@@ -47,8 +47,8 @@ impl<'a, 'b> Scope<'a, 'b> {
             join_tree: JoinTree::new(base_table.name.to_owned()),
             aliases: HashSet::new(),
             cte_naming_index: 0,
-            scalar_functions: get_standard_scalar_functions(options, schema),
-            aggregate_functions: get_standard_aggregate_functions(options, schema),
+            scalar_functions: get_standard_scalar_functions(),
+            aggregate_functions: get_standard_aggregate_functions(),
         })
     }
 

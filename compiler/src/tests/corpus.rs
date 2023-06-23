@@ -8,7 +8,7 @@ fn test_corpus() {
     use crate::Compiler;
     use crate::Postgres;
 
-    use super::super::utils::get_test_resource;
+    use super::get_test_resource;
 
     use std::path::PathBuf;
     use testcase_markdown::*;

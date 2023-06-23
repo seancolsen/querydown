@@ -14,21 +14,6 @@ pub fn no_column_name_or_chain() -> String {
     "Cannot build a ClarifiedPathTail without a column name or chain".to_string()
 }
 
-pub fn multiple_agg_fns() -> String {
-    "Cannot apply more than one aggregate function to the same expression.".to_string()
-}
-
-pub fn pre_aggregate_composition_without_column() -> String {
-    "Functions can only be applied before aggregation when a column is specified.".to_string()
-}
-
-pub fn special_aggregate_composition_applied_without_column(function_name: String) -> String {
-    format!(
-        "Aggregate function `{}` can only be applied to a column.",
-        function_name
-    )
-}
-
 pub fn unknown_scalar_function(function_name: &str) -> String {
     format!("Scalar function `{}` does not exist.", function_name)
 }

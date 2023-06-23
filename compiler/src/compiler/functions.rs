@@ -10,10 +10,8 @@ use crate::{
         scope::Scope,
     },
     errors::msg::{self, unknown_aggregate_function, unknown_scalar_function},
-    schema::Schema,
     sql::expr::build::{agg::*, cond::*, func::*, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
-    Options,
 };
 
 pub fn convert_call(call: Call, scope: &mut Scope) -> Result<SqlExpr, String> {
@@ -91,7 +89,7 @@ fn args_2(
     Ok(f(convert_expr(a, scope)?, convert_expr(b, scope)?))
 }
 
-pub fn get_standard_scalar_functions(options: &Options, schema: &Schema) -> FuncMap {
+pub fn get_standard_scalar_functions() -> FuncMap {
     #[rustfmt::skip]
     let templates: [(&str, Func); 16] = [
         ("above",  |e, s| args_v(e, s, least)),
@@ -143,7 +141,7 @@ fn agg_1(
     )
 }
 
-pub fn get_standard_aggregate_functions(options: &Options, schema: &Schema) -> FuncMap {
+pub fn get_standard_aggregate_functions() -> FuncMap {
     #[rustfmt::skip]
     let templates: [(&str, Func); 9] = [
         ("all_true", |e, s| agg_1(e, s, bool_and)),

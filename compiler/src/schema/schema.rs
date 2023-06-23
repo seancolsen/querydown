@@ -3,8 +3,6 @@ use std::collections::{
     HashMap,
 };
 
-use itertools::Itertools;
-
 use crate::errors::msg;
 
 use super::{
@@ -274,7 +272,7 @@ impl TryFrom<PrimitiveSchema> for Schema {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::get_test_resource;
+    use crate::tests::get_test_resource;
 
     use super::*;
 
