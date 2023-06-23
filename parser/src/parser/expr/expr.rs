@@ -11,7 +11,9 @@ use super::{
 
 pub fn expr() -> impl Psr<Expr> {
     recursive(|e| {
-        let atom = choice((
+        // We begin with the highest precedence rules first. Lower precedence rules compose the
+        // higher precedence rules.
+        let prec_atom = choice((
             number().map(Expr::Number),
             date().map(Expr::Date),
             duration().map(Expr::Duration),
@@ -23,20 +25,21 @@ pub fn expr() -> impl Psr<Expr> {
             parenthetical(e.clone()),
         ));
 
-        let piped = pipe(atom, e);
+        let prec_pipe = pipe(prec_atom, e);
 
-        let multiplication = choice((
-            algebraic(EXPR_TIMES, Expr::Product, piped.clone()),
-            algebraic(EXPR_DIVIDE, Expr::Quotient, piped),
-        ));
+        let prec_multiplication = multiplication(prec_pipe);
 
-        let addition = choice((
-            algebraic(EXPR_PLUS, Expr::Sum, multiplication.clone()),
-            algebraic(EXPR_MINUS, Expr::Difference, multiplication),
-        ));
+        let prec_addition = addition(prec_multiplication);
 
-        comparison(addition)
+        comparison(prec_addition)
     })
+}
+
+fn operator(
+    c: char,
+    expr_enum_constructor: fn(Box<Expr>, Box<Expr>) -> Expr,
+) -> impl Psr<fn(Box<Expr>, Box<Expr>) -> Expr> {
+    just(c).padded().to(expr_enum_constructor)
 }
 
 fn variable() -> impl Psr<String> {
@@ -52,14 +55,24 @@ fn parenthetical(e: impl Psr<Expr>) -> impl Psr<Expr> {
         .delimited_by(just(EXPR_PAREN_L), just(EXPR_PAREN_R))
 }
 
-fn algebraic(
-    operator: char,
-    mapper: fn(Box<Expr>, Box<Expr>) -> Expr,
-    e: impl Psr<Expr>,
-) -> impl Psr<Expr> {
+fn multiplication(e: impl Psr<Expr>) -> impl Psr<Expr> {
+    let op = choice((
+        operator(EXPR_TIMES, Expr::Product),
+        operator(EXPR_DIVIDE, Expr::Quotient),
+    ));
     e.clone()
-        .then(just(operator).padded().ignore_then(e).repeated())
-        .foldl(move |left, right| mapper(Box::new(left), Box::new(right)))
+        .then(op.then(e).repeated())
+        .foldl(|lhs, (f, rhs)| f(Box::new(lhs), Box::new(rhs)))
+}
+
+fn addition(e: impl Psr<Expr>) -> impl Psr<Expr> {
+    let op = choice((
+        operator(EXPR_PLUS, Expr::Sum),
+        operator(EXPR_MINUS, Expr::Difference),
+    ));
+    e.clone()
+        .then(op.then(e).repeated())
+        .foldl(|lhs, (f, rhs)| f(Box::new(lhs), Box::new(rhs)))
 }
 
 #[cfg(test)]
@@ -159,12 +172,47 @@ mod tests {
         );
 
         assert_eq!(
+            p("@a/@b"),
+            Ok(Expr::Quotient(
+                Box::new(Expr::Variable("a".to_string())),
+                Box::new(Expr::Variable("b".to_string()))
+            ))
+        );
+
+        assert_eq!(
             p("5+7"),
             Ok(Expr::Sum(
                 Box::new(Expr::Number("5".to_string())),
                 Box::new(Expr::Number("7".to_string()))
             ))
         );
+
+        assert_eq!(
+            p("@a-@b"),
+            Ok(Expr::Difference(
+                Box::new(Expr::Variable("a".to_string())),
+                Box::new(Expr::Variable("b".to_string()))
+            ))
+        );
+
+        assert_eq!(
+            p("5 - 7"),
+            Ok(Expr::Difference(
+                Box::new(Expr::Number("5".to_string())),
+                Box::new(Expr::Number("7".to_string()))
+            ))
+        );
+
+        assert_eq!(
+            p("5 -7"),
+            Ok(Expr::Difference(
+                Box::new(Expr::Number("5".to_string())),
+                Box::new(Expr::Number("7".to_string()))
+            ))
+        );
+
+        // This is two expressions, not one.
+        assert!(p("5 (-7)").is_err());
 
         assert_eq!(
             p("5*7+3"),
