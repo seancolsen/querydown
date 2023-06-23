@@ -17,7 +17,9 @@ identifier_resolution = "flexible"
 ```
 
 ```sql
-SELECT "issues"."id" AS "id" FROM "issues";
+SELECT
+  "issues"."id" AS "id"
+FROM "issues";
 ```
 
 ## Simple library schema
@@ -116,15 +118,16 @@ book.page_count:>200
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "Checkouts"."Item" AS "pk"
-  FROM "Checkouts"
-  WHERE
-    "Checkouts"."Check In Time" IS NULL AND
-    "Patrons"."First Name" = 'Foo'
-  GROUP BY "Checkouts"."Item"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "Checkouts"."Item" AS "pk"
+    FROM "Checkouts"
+    WHERE
+      "Checkouts"."Check In Time" IS NULL AND
+      "Patrons"."First Name" = 'Foo'
+    GROUP BY "Checkouts"."Item"
+  )
 SELECT
   "Items".*
 FROM "Items"
@@ -186,20 +189,21 @@ This test is part of a bug fix. Previously, we were using `JOIN` instead of `LEF
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issue_labels"."issue" AS "pk"
-  FROM "issue_labels"
-  JOIN "labels" ON
-    "issue_labels"."label" = "labels"."id"
-  GROUP BY "issue_labels"."issue"
-),
-"cte1" AS (
-  SELECT
-    "comments"."issue" AS "pk"
-  FROM "comments"
-  GROUP BY "comments"."issue"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
 SELECT
   "issues".*
 FROM "issues"
@@ -263,13 +267,14 @@ WHERE
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "comments"."issue" AS "pk",
-    max("comments"."created_at") AS "v1"
-  FROM "comments"
-  GROUP BY "comments"."issue"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
 SELECT
   "issues"."id",
   "cte0"."v1" AS "most_recent_comment"
@@ -287,13 +292,14 @@ LEFT JOIN "cte0" ON
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "comments"."user" AS "pk",
-    count(*) AS "v1"
-  FROM "comments"
-  GROUP BY "comments"."user"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  )
 SELECT
   "issues"."id" AS "id",
   "cte0"."v1" AS "total_comments_by_author"
@@ -313,15 +319,16 @@ LEFT JOIN "cte0" ON
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issues"."author" AS "pk",
-    max("comments"."created_at") AS "v1"
-  FROM "issues"
-  JOIN "comments" ON
-    "issues"."id" = "comments"."issue"
-  GROUP BY "issues"."author"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "issues"
+    JOIN "comments" ON
+      "issues"."id" = "comments"."issue"
+    GROUP BY "issues"."author"
+  )
 SELECT
   "users"."id" AS "id",
   "cte0"."v1" AS "v"
@@ -339,17 +346,18 @@ LEFT JOIN "cte0" ON
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issues"."project" AS "pk",
-    max("comments"."created_at") AS "v1"
-  FROM "issues"
-  JOIN "users" ON
-    "issues"."author" = "users"."id"
-  JOIN "comments" ON
-    "users"."id" = "comments"."user"
-  GROUP BY "issues"."project"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "issues"
+    JOIN "users" ON
+      "issues"."author" = "users"."id"
+    JOIN "comments" ON
+      "users"."id" = "comments"."user"
+    GROUP BY "issues"."project"
+  )
 SELECT
   "projects"."id" AS "id",
   "cte0"."v1" AS "v"
@@ -367,18 +375,19 @@ LEFT JOIN "cte0" ON
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "comments"."issue" AS "pk"
-  FROM "comments"
-  GROUP BY "comments"."issue"
-),
-"cte1" AS (
-  SELECT
-    "assignments"."issue" AS "pk"
-  FROM "assignments"
-  GROUP BY "assignments"."issue"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "assignments"."issue" AS "pk"
+    FROM "assignments"
+    GROUP BY "assignments"."issue"
+  )
 SELECT
   "issues".*
 FROM "issues"
@@ -402,12 +411,13 @@ WHERE
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "comments"."issue" AS "pk"
-  FROM "comments"
-  GROUP BY "comments"."issue"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
 SELECT
   "issues".*
 FROM "issues"
@@ -426,12 +436,13 @@ WHERE
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issues"."author" AS "pk"
-  FROM "issues"
-  GROUP BY "issues"."author"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  )
 SELECT
   "users".*
 FROM "users"
@@ -450,14 +461,15 @@ WHERE
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issues"."author" AS "pk"
-  FROM "issues"
-  JOIN "comments" ON
-    "issues"."id" = "comments"."issue"
-  GROUP BY "issues"."author"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk"
+    FROM "issues"
+    JOIN "comments" ON
+      "issues"."id" = "comments"."issue"
+    GROUP BY "issues"."author"
+  )
 SELECT
   "users".*
 FROM "users"
@@ -476,14 +488,15 @@ WHERE
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issues"."author" AS "pk"
-  FROM "issues"
-  JOIN "comments" ON
-    "issues"."id" = "comments"."issue"
-  GROUP BY "issues"."author"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk"
+    FROM "issues"
+    JOIN "comments" ON
+      "issues"."id" = "comments"."issue"
+    GROUP BY "issues"."author"
+  )
 SELECT
   "users".*
 FROM "users"
@@ -518,14 +531,15 @@ TODO
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issues"."author" AS "pk"
-  FROM "issues"
-  WHERE
-    "issues"."created_at" > NOW() - INTERVAL '1Y'
-  GROUP BY "issues"."author"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk"
+    FROM "issues"
+    WHERE
+      "issues"."created_at" > NOW() - INTERVAL '1Y'
+    GROUP BY "issues"."author"
+  )
 SELECT
   "users".*
 FROM "users"
@@ -544,15 +558,16 @@ WHERE
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issues"."author" AS "pk",
-    count(*) AS "v1"
-  FROM "issues"
-  WHERE
-    "issues"."created_at" > NOW() - INTERVAL '1Y'
-  GROUP BY "issues"."author"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      "issues"."created_at" > NOW() - INTERVAL '1Y'
+    GROUP BY "issues"."author"
+  )
 SELECT
   "cte0"."v1"
 FROM "users"
@@ -569,16 +584,17 @@ LEFT JOIN "cte0" ON
 ```
 
 ```sql
-WITH "cte0" AS (
-  SELECT
-    "issue_labels"."issue" AS "pk"
-  FROM "issue_labels"
-  JOIN "labels" ON
-    "issue_labels"."label" = "labels"."id"
-  WHERE
-    "labels"."name" = 'bug'
-  GROUP BY "issue_labels"."issue"
-)
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      "labels"."name" = 'bug'
+    GROUP BY "issue_labels"."issue"
+  )
 SELECT
   "issues"."id"
 FROM "issues"
@@ -628,5 +644,6 @@ SELECT
   "issues"."title",
   "issues"."created_at"
 FROM "issues"
-ORDER BY "issues"."created_at" DESC NULLS LAST;
+ORDER BY
+  "issues"."created_at" DESC NULLS LAST;
 ```
