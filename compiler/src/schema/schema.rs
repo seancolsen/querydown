@@ -58,6 +58,12 @@ impl Schema {
             }
         }
     }
+
+    pub fn get_referenced_column_name(&self, reference: &Reference) -> String {
+        let table = self.tables.get(&reference.table_id).unwrap();
+        let column = table.columns.get(&reference.column_id).unwrap();
+        column.name.clone()
+    }
 }
 
 #[derive(Debug, Clone)]

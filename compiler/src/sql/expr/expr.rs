@@ -7,6 +7,12 @@ pub struct SqlExpr {
 }
 
 impl SqlExpr {
+    pub fn empty() -> SqlExpr {
+        SqlExpr {
+            content: String::new(),
+            precedence: SqlExprPrecedence::Atom,
+        }
+    }
     pub fn is_empty(&self) -> bool {
         self.content.len() == 0
     }

@@ -4,6 +4,7 @@ use querydown_parser::ast::{
 
 use crate::{
     errors::msg,
+    schema::links::Link,
     sql::expr::build::*,
     sql::tree::{CtePurpose, SqlExpr},
 };
@@ -64,18 +65,29 @@ fn convert_variable(variable: &str, _: &Scope) -> Result<SqlExpr, String> {
 fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, String> {
     let clarified_path = clarify_path(parts, scope)?;
     match (clarified_path.head, clarified_path.tail) {
-        (None, ClarifiedPathTail::Column(column_name)) => {
+        (None, None) => Ok(SqlExpr::empty()),
+        (None, Some(ClarifiedPathTail::Column(column_name))) => {
             let table_name = scope.get_base_table().name.clone();
             Ok(scope.table_column_expr(&table_name, &column_name))
         }
-        (Some(chain_to_one), ClarifiedPathTail::Column(column_name)) => {
+        (Some(chain_to_one), None) => {
+            let (truncated_chain_to_one_opt, last_link) = chain_to_one.with_last_link_broken_off();
+            let table_name = match truncated_chain_to_one_opt {
+                Some(truncated_chain_to_one) => scope.join_chain_to_one(&truncated_chain_to_one),
+                None => scope.get_base_table().name.clone(),
+            };
+            let column_reference = last_link.get_start();
+            let column_name = scope.schema.get_referenced_column_name(&column_reference);
+            Ok(scope.table_column_expr(&table_name, &column_name))
+        }
+        (Some(chain_to_one), Some(ClarifiedPathTail::Column(column_name))) => {
             let table_name = scope.join_chain_to_one(&chain_to_one);
             Ok(scope.table_column_expr(&table_name, &column_name))
         }
-        (_, ClarifiedPathTail::ChainToMany((_, Some(column_name)))) => Err(
+        (_, Some(ClarifiedPathTail::ChainToMany((_, Some(column_name))))) => Err(
             msg::path_to_many_with_column_name_and_no_agg_fn(&column_name),
         ),
-        (head, ClarifiedPathTail::ChainToMany((chain_to_many, None))) => {
+        (head, Some(ClarifiedPathTail::ChainToMany((chain_to_many, None)))) => {
             scope.join_chain_to_many(&head, chain_to_many, None, CtePurpose::AggregateValue)
         }
     }

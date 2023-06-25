@@ -126,7 +126,7 @@ fn agg_1(
         return Err(msg::aggregate_fn_applied_to_a_non_path());
     };
     let clarified_path = clarify_path(path_parts, scope)?;
-    let ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt)) = clarified_path.tail else {
+    let Some(ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) = clarified_path.tail else {
         return Err(msg::aggregate_fn_applied_to_path_to_one());
     };
     let Some(column_name) = column_name_opt else {

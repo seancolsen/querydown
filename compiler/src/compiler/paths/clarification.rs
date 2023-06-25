@@ -15,7 +15,7 @@ use crate::{
 #[derive(Debug)]
 pub struct ClarifiedPath {
     pub head: Option<Chain<LinkToOne>>,
-    pub tail: ClarifiedPathTail,
+    pub tail: Option<ClarifiedPathTail>,
 }
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath
     let Some(chain) = chain_opt else {
         return column_name_opt.map(|column_name| ClarifiedPath {
             head: None,
-            tail: ClarifiedPathTail::Column(column_name),
+            tail: Some(ClarifiedPathTail::Column(column_name)),
         }).ok_or_else(msg::no_path_parts)
     };
     let mut head: Option<Chain<LinkToOne>> = None;
@@ -63,9 +63,12 @@ pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath
         }
     }
     let tail = if let Some(chain_to_many) = chain_to_many_opt {
-        ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))
+        Some(ClarifiedPathTail::ChainToMany((
+            chain_to_many,
+            column_name_opt,
+        )))
     } else {
-        ClarifiedPathTail::Column(column_name_opt.ok_or_else(msg::no_column_name_or_chain)?)
+        column_name_opt.map(ClarifiedPathTail::Column)
     };
     Ok(ClarifiedPath { head, tail })
 }
@@ -73,6 +76,9 @@ pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath
 #[derive(Debug)]
 struct LinkedPath {
     pub chain: Option<Chain<FilteredLink>>,
+    /// The name of the column at the end of the path, if there is one. When a path ends with a FK
+    /// column, then the column will be treated as a link and will be included in the chain,
+    /// making the `column` field `None`.
     pub column: Option<String>,
 }
 

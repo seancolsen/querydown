@@ -61,6 +61,10 @@ impl<L: Link> Chain<L> {
         })
     }
 
+    pub fn get_starting_table_id(&self) -> TableId {
+        self.stats.starting_table_id
+    }
+
     pub fn get_ending_table_id(&self) -> TableId {
         self.stats.ending_table_id
     }
@@ -159,6 +163,26 @@ impl<L: Link + Copy> Chain<L> {
             }
         });
         (first_link, new_chain)
+    }
+
+    pub fn with_last_link_broken_off(&self) -> (Option<Self>, &L) {
+        // This unwrap is safe because we know that a chain will have at least one link
+        let last_link = self.links.last().unwrap();
+        let remaining_links = self.links[..self.links.len() - 1].to_vec();
+        let new_chain = remaining_links.last().copied().map(|new_last_link| {
+            let new_ending_table_id = new_last_link.get_end().table_id;
+            let table_ids = calculate_table_ids(remaining_links.iter());
+            Self {
+                links: remaining_links,
+                stats: ChainStats {
+                    starting_table_id: self.get_starting_table_id(),
+                    ending_table_id: new_ending_table_id,
+                    table_ids,
+                },
+                intersecting: self.intersecting,
+            }
+        });
+        (new_chain, last_link)
     }
 }
 

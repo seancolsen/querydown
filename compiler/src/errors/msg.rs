@@ -10,10 +10,6 @@ pub fn no_path_parts() -> String {
     "Cannot build a ClarifiedPath without any path parts".to_string()
 }
 
-pub fn no_column_name_or_chain() -> String {
-    "Cannot build a ClarifiedPathTail without a column name or chain".to_string()
-}
-
 pub fn unknown_scalar_function(function_name: &str) -> String {
     format!("Scalar function `{}` does not exist.", function_name)
 }

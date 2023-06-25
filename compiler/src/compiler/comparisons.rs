@@ -149,7 +149,7 @@ fn convert_expression_vs_zero(
     let Ok(clarified_path) = clarify_path(path_parts.to_owned(), scope) else {
         return fallback(scope);
     };
-    let ClarifiedPathTail::ChainToMany((chain, None)) = clarified_path.tail else {
+    let Some(ClarifiedPathTail::ChainToMany((chain, None))) = clarified_path.tail else {
         return fallback(scope);
     };
     let join_result = scope.join_chain_to_many(&clarified_path.head, chain, None, cmp.into());
