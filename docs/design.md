@@ -224,14 +224,14 @@ Functions are applied to values via `|` syntax.
 > The most overdue issues
 
 ```
-#issues $id $title $(deadline-@now)|days|max(0)\sd
+#issues $id $title $(deadline-@now)|days|keep_above(0)\sd
 ```
 
 Here:
 
 1. `deadline` and `@now` are both dates. Subtracting the two produces an interval.
 1. Then we pipe the interval into the `days` function to produce a number of days.
-1. Then we pipe the number of days into the (scalar) `max` function, along with 0, taking the maximum of the two values. This eliminates negative numbers, replacing them with zero instead.
+1. Then we pipe the number of days into the `keep_above` function, along with 0, taking the maximum of the two values. This eliminates negative numbers, replacing them with zero instead.
 
 
 ## Column globs
@@ -538,7 +538,7 @@ Union has higher precedence than pipeline (the union will be performed before th
 @search = "foo"
 @@points = field; field|search_points(@search)
 #people.points = @@max(first_name|points last_name|points)
-#people $[] $points \sd :::limit(10)
+#people $[] $points \sd
 ```
 
 ### Drinking age

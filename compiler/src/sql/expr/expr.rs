@@ -48,6 +48,7 @@ impl Display for SqlExpr {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-PRECEDENCE
 pub enum SqlExprPrecedence {
     /// A literal value, a column name, a function call, or parentheses.
     Atom = 0,
@@ -57,10 +58,12 @@ pub enum SqlExprPrecedence {
     Addition = -2,
     /// `=` `<>` `>` `>=` `<` `<=` `IS` `IS NOT` `IN` `LIKE` `NOT LIKE
     Comparison = -3,
+    /// `NOT`
+    LogicalNot = -4,
     /// `AND`
-    LogicalAnd = -4,
+    LogicalAnd = -5,
     /// `OR`
-    LogicalOr = -5,
+    LogicalOr = -6,
 }
 
 impl Default for SqlExprPrecedence {

@@ -1,48 +1,48 @@
 # Querydown functions
 
-⚠️ TODO ⚠️
-
 ## Scalar functions
 
 Applied via `|`
 
+- `abs`
+- `age`
 - `ago`
 - `away`
-- `is_null`
-- `has_value`
-- `segment()`
-- `bins()`
-- `above()`
-- `below()`
-- `else()` (i.e. `COALESCE`)
-- `date_format()`
-- `days`
-- `months`
-- `years`
-- `weeks`
-- `floor`
 - `ceil`
-- `mod()`
-- `and()`
-- `or()`
-- `xor()`
+- `days`
+- `divide`
+- `else`
+- `floor`
+- `hours`
+- `keep_above`
+- `keep_below`
+- `length`
+- `lowercase`
+- `max`
+- `min`
+- `minus`
+- `minutes`
+- `mod`
 - `not`
-- `bool`
-- `minus()`
-- `plus()`
-- `times()`
-- `divide()`
-- ...
+- `plus`
+- `seconds`
+- `times`
+- `uppercase`
+
+_(more to come)_
 
 ## Aggregate functions
 
 Applied via `%`
 
-- `%count` (This is the only aggregate function which can also be applied to the _table_)
-- `%count_distinct`
-- `%sum`
-- `%product`
-- `%min`
-- `%max`
-- `%avg`
-- `%list()` (i.e. `group_concat` or `string_agg`) This function accepts a `separator` argument. TODO: how to sort entries
+- `all_true`
+- `any_true`
+- `avg`
+- `count`
+- `distinct`
+- `list`
+- `max`
+- `min`
+- `sum`
+
+_(more to come)_

@@ -158,6 +158,37 @@ pub mod cond {
     pub fn coalesce(a: SqlExpr) -> SqlExpr {
         sql_func("COALESCE", [a])
     }
+
+    pub fn not(a: SqlExpr) -> SqlExpr {
+        SqlExpr {
+            content: format!("NOT {}", a.content),
+            precedence: SqlExprPrecedence::LogicalNot,
+        }
+    }
+}
+
+pub mod date_time {
+    use super::*;
+
+    pub fn days(a: SqlExpr) -> SqlExpr {
+        math::divide(extract_epoch(a), SqlExpr::atom("86400".to_string()))
+    }
+
+    pub fn hours(a: SqlExpr) -> SqlExpr {
+        math::divide(extract_epoch(a), SqlExpr::atom("3600".to_string()))
+    }
+
+    pub fn minutes(a: SqlExpr) -> SqlExpr {
+        math::divide(extract_epoch(a), SqlExpr::atom("60".to_string()))
+    }
+
+    pub fn seconds(a: SqlExpr) -> SqlExpr {
+        extract_epoch(a)
+    }
+
+    pub fn extract_epoch(a: SqlExpr) -> SqlExpr {
+        SqlExpr::atom(format!("EXTRACT(epoch FROM {})", a.content))
+    }
 }
 
 pub mod func {

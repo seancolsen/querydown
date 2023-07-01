@@ -10,7 +10,7 @@ use crate::{
         scope::Scope,
     },
     errors::msg::{self, unknown_aggregate_function, unknown_scalar_function},
-    sql::expr::build::{agg::*, cond::*, func::*, math::*, strings::*},
+    sql::expr::build::{agg::*, cond::*, date_time::*, func::*, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
 };
 
@@ -91,23 +91,31 @@ fn args_2(
 
 pub fn get_standard_scalar_functions() -> FuncMap {
     #[rustfmt::skip]
-    let templates: [(&str, Func); 16] = [
-        ("above",  |e, s| args_v(e, s, least)),
-        ("abs",    |e, s| args_1(e, s, abs)),
-        ("ago",    |e, s| args_1(e, s, |a| subtract(now(), a))),
-        ("away",   |e, s| args_1(e, s, |a| add(now(), a))),
-        ("below",  |e, s| args_v(e, s, greatest)),
-        ("ceil",   |e, s| args_1(e, s, ceil)),
-        ("divide", |e, s| args_2(e, s, divide)),
-        ("else",   |e, s| args_1(e, s, coalesce)),
-        ("lower",  |e, s| args_1(e, s, lower)),
-        ("upper",  |e, s| args_1(e, s, upper)),
-        ("length", |e, s| args_1(e, s, char_length)),
-        ("floor",  |e, s| args_1(e, s, floor)),
-        ("minus",  |e, s| args_2(e, s, subtract)),
-        ("mod",    |e, s| args_2(e, s, modulo)),
-        ("plus",   |e, s| args_2(e, s, add)),
-        ("times",  |e, s| args_2(e, s, multiply)),
+    let templates: [(&str, Func); 24] = [
+        ("abs",         |e, s| args_1(e, s, abs)),
+        ("age",         |e, s| args_1(e, s, |a| subtract(now(), a))),
+        ("ago",         |e, s| args_1(e, s, |a| subtract(now(), a))),
+        ("away",        |e, s| args_1(e, s, |a| add(now(), a))),
+        ("ceil",        |e, s| args_1(e, s, ceil)),
+        ("days",        |e, s| args_1(e, s, days)),
+        ("divide",      |e, s| args_2(e, s, divide)),
+        ("else",        |e, s| args_1(e, s, coalesce)),
+        ("floor",       |e, s| args_1(e, s, floor)),
+        ("hours",       |e, s| args_1(e, s, hours)),
+        ("keep_above",  |e, s| args_v(e, s, greatest)),
+        ("keep_below",  |e, s| args_v(e, s, least)),
+        ("length",      |e, s| args_1(e, s, char_length)),
+        ("lowercase",   |e, s| args_1(e, s, lower)),
+        ("max",         |e, s| args_v(e, s, greatest)),
+        ("min",         |e, s| args_v(e, s, least)),
+        ("minus",       |e, s| args_2(e, s, subtract)),
+        ("minutes",     |e, s| args_1(e, s, minutes)),
+        ("mod",         |e, s| args_2(e, s, modulo)),
+        ("not",         |e, s| args_1(e, s, not)),
+        ("plus",        |e, s| args_2(e, s, add)),
+        ("seconds",     |e, s| args_1(e, s, seconds)),
+        ("times",       |e, s| args_2(e, s, multiply)),
+        ("uppercase",   |e, s| args_1(e, s, upper)),
     ];
     templates
         .into_iter()
