@@ -27,6 +27,7 @@ export const monarch: languages.IMonarchLanguage = {
       [/@(@identifier)/, 'constant'],
       [/@\d\d\d\d-\d\d-\d\d/, 'date'],
       [/\./, 'path-separator'],
+      [/\*/, 'glob'],
       [/\|/, 'scalar-pipe', '@scalarFunction'],
       [/%/, 'aggregate-pipe', '@aggregateFunction'],
 

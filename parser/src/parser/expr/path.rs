@@ -15,10 +15,26 @@ pub fn path(expr: impl Psr<Expr>) -> impl Psr<Vec<PathPart>> {
     )
 }
 
+pub fn path_to_one() -> impl Psr<Vec<PathPart>> {
+    path_part_to_one().chain(
+        whitespace()
+            .then(just(PATH_SEPARATOR))
+            .ignore_then(path_part_to_one())
+            .repeated(),
+    )
+}
+
 fn path_part(expr: impl Psr<Expr>) -> impl Psr<PathPart> {
     choice((
         db_identifier().map(PathPart::Column),
         table_with_many(expr).map(PathPart::TableWithMany),
+        table_with_one().map(PathPart::TableWithOne),
+    ))
+}
+
+fn path_part_to_one() -> impl Psr<PathPart> {
+    choice((
+        db_identifier().map(PathPart::Column),
         table_with_one().map(PathPart::TableWithOne),
     ))
 }

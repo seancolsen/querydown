@@ -660,3 +660,66 @@ FROM "issues"
 ORDER BY
   "issues"."created_at" DESC NULLS LAST;
 ```
+
+## Column globs
+
+### Basic column glob
+
+> Issues, showing all columns
+
+```qd
+#issues $*
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues";
+```
+
+### Complex column glob
+
+> Issues, showing all columns
+
+```qd
+#issues
+$*(
+  id->identifier
+  title \sd
+  duplicateOf \h
+  "this has no effect"
+  description|length \sd1
+)
+$author.*(username \sd1)
+```
+
+```sql
+SELECT
+  "issues"."id" AS "identifier",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."due_date",
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+ORDER BY
+  char_length("issues"."description") DESC NULLS LAST,
+  "users"."username" DESC NULLS LAST,
+  "issues"."title" DESC NULLS LAST;
+```

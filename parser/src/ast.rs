@@ -9,7 +9,7 @@ pub struct Query {
 #[derive(Debug, PartialEq, Default)]
 pub struct Transformation {
     pub conditions: ConditionSet,
-    pub column_layout: ColumnLayout,
+    pub result_columns: Vec<ResultColumnStatement>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,9 +218,10 @@ pub enum FunctionDimension {
     Aggregate,
 }
 
-#[derive(Debug, Default, PartialEq)]
-pub struct ColumnLayout {
-    pub column_specs: Vec<ColumnSpec>,
+#[derive(Debug, PartialEq)]
+pub enum ResultColumnStatement {
+    Spec(ColumnSpec),
+    Glob(ColumnGlob),
 }
 
 #[derive(Debug, PartialEq)]
@@ -266,4 +267,10 @@ pub enum SortDirection {
     #[default]
     Asc,
     Desc,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct ColumnGlob {
+    pub head: Vec<PathPart>,
+    pub specs: Vec<ColumnSpec>,
 }

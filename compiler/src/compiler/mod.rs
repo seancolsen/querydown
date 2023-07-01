@@ -6,7 +6,7 @@ mod functions;
 mod join_tree;
 mod paths;
 mod rendering;
+mod result_columns;
 mod scope;
-mod sorting;
 
 pub use compiler::Compiler;

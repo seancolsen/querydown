@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use querydown_parser::ast::PathPart;
+
 use crate::{
     schema::{
         chain::Chain,
@@ -22,8 +24,8 @@ pub struct Scope<'a, 'b> {
     pub options: &'a Options,
     pub schema: &'a Schema,
     base_table: &'a Table,
-    // indentation_level: usize,
     join_tree: JoinTree,
+    pub path_prefix: Vec<PathPart>,
     aliases: HashSet<String>,
     cte_naming_index: usize,
     scalar_functions: FuncMap,
@@ -43,8 +45,8 @@ impl<'a, 'b> Scope<'a, 'b> {
             options,
             schema,
             base_table,
-            // indentation_level: 0,
             join_tree: JoinTree::new(base_table.name.to_owned()),
+            path_prefix: vec![],
             aliases: HashSet::new(),
             cte_naming_index: 0,
             scalar_functions: get_standard_scalar_functions(),
@@ -64,34 +66,33 @@ impl<'a, 'b> Scope<'a, 'b> {
         join_tree.decompose(self)
     }
 
-    // pub fn get_indentation(&self) -> String {
-    //     INDENT_SPACER.repeat(self.indentation_level)
-    // }
-
-    // pub fn get_indentation_level(&self) -> usize {
-    //     self.indentation_level
-    // }
-
-    // pub fn indented<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-    //     self.indentation_level = self.indentation_level.saturating_add(1);
-    //     let result = f(self);
-    //     self.indentation_level = self.indentation_level.saturating_sub(1);
-    //     result
-    // }
-
     pub fn spawn(&'b self, base_table: &'a Table) -> Self {
         Scope {
             parent: Some(self),
             options: self.options,
             schema: self.schema,
             base_table,
-            // indentation_level: self.get_indentation_level() + 1,
             join_tree: JoinTree::new(base_table.name.to_owned()),
+            path_prefix: vec![],
             aliases: HashSet::new(),
             cte_naming_index: 0,
             scalar_functions: HashMap::new(),
             aggregate_functions: HashMap::new(),
         }
+    }
+
+    pub fn with_path_prefix<T>(
+        &mut self,
+        path_prefix: Vec<PathPart>,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        // We don't do any nested path prefixing, so the logic here simply resets the path prefix
+        // to be empty afterwards. We can make it more complex if we need to support nested path
+        // prefixing at some point.
+        self.path_prefix = path_prefix;
+        let return_value = f(self);
+        self.path_prefix = vec![];
+        return_value
     }
 
     pub fn table_column_expr(&self, table_name: &str, column_name: &str) -> SqlExpr {

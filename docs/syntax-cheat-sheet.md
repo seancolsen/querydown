@@ -7,10 +7,8 @@ _See also: **[Language Design](./design.md)**_
 | Code                    | Usage |
 | --                      | -- |
 | `` ` ``                 | db entity quote |
-| `"` or `'`              | string quote |
-| `^`                     | string flag prefix |
-| `{ }`                   | string interpolation |
-| `\`                     | string escape sequence prefix |
+| `//`                    | single line comment |
+| `/* */`                 | multi-line comment |
 | `@2000-01-01`           | date/time values |
 | `@1y`                   | duration values |
 | `@now`                  | `now()` |
@@ -19,20 +17,15 @@ _See also: **[Language Design](./design.md)**_
 | `@false`                | `FALSE` |
 | `@null`                 | `NULL` |
 | `..` `..!` `!..` `!..!` | range |
-| `//`                    | single line comment |
-| `/* */`                 | multi-line comment |
+| `"` or `'`              | string quote |
+| `^`                     | string flag prefix |
+| `{ }`                   | string interpolation |
+| `\`                     | string escape sequence prefix |
 
 String flags:
 
 - `f` - formatting (aka interpolation) via `{ }`
 - `e` - interpret escape sequences (default is raw)
-
-## String flags
-
-| Flag | Meaning |
-| -- | -- |
-| `f` | formatting (aka interpolation) via `{ }` |
-| `e` | handle escape sequences |
 
 ## Comparisons
 
@@ -59,12 +52,12 @@ Regex flags
 
 ## Column control
 
-| Code      | Usage |
-| --        | -- |
-| `$`       | column spec prefix |
-| `$*( )`   | incremental column spec |
-| `->`      | alias |
-| `\`       | column control flags |
+| Code   | Usage |
+| --     | -- |
+| `$`    | column spec prefix |
+| `*( )` | column globs |
+| `->`   | alias |
+| `\`    | column control flags |
 
 Column control flags:
 

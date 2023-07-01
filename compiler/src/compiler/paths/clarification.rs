@@ -13,6 +13,10 @@ use crate::{
 };
 
 #[derive(Debug)]
+// TODO: this data structure has grown and now seems like it needs a bit of refactoring. For the
+// sake of correctness, it should not permit both the head and the tail to be None. And the sake
+// of ergonomics, it should probably not be quite so nested. We might consider flattening it out
+// to an enum with many different variants.
 pub struct ClarifiedPath {
     pub head: Option<Chain<LinkToOne>>,
     pub tail: Option<ClarifiedPathTail>,

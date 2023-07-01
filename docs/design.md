@@ -230,7 +230,7 @@ Here:
 1. Then we pipe the number of days into the (scalar) `max` function, along with 0, taking the maximum of the two values. This eliminates negative numbers, replacing them with zero instead.
 
 
-## Incremental column specification
+## Column globs
 
 Use `$*` to specify all columns. This gives you control to add a column after all columns.
 
@@ -458,7 +458,7 @@ $max_checkouts \sd
 
 ## Window functions
 
-Window functions are defined via `%%( )`. Inside the braces, you use the same syntax as with incremental column, but one additional flag is available: `\p` for "partition".
+Window functions are defined via `%%( )`. Inside the braces, you use the same syntax as with column globs, but one additional flag is available: `\p` for "partition".
 
 After the window function definition, you apply an aggregate function, such as `row_number`, `lag`, `dense_rank`, etc.
 

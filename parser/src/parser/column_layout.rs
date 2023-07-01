@@ -3,20 +3,47 @@ use chumsky::{prelude::*, text::*};
 use crate::ast::*;
 use crate::tokens::*;
 
-use super::expr::expr;
+use super::expr::{expr, path_to_one};
 use super::utils::*;
 
-pub fn column_layout() -> impl Psr<ColumnLayout> {
-    column_spec()
+pub fn result_columns() -> impl Psr<Vec<ResultColumnStatement>> {
+    result_column_statement()
         .then_ignore(whitespace())
         .repeated()
-        .map(|column_specs| ColumnLayout { column_specs })
+}
+
+fn result_column_statement() -> impl Psr<ResultColumnStatement> {
+    just(COLUMN_SPEC_PREFIX)
+        .then(whitespace())
+        .ignore_then(choice((
+            column_glob().map(ResultColumnStatement::Glob),
+            column_spec().map(ResultColumnStatement::Spec),
+        )))
+}
+
+fn column_glob() -> impl Psr<ColumnGlob> {
+    let head = path_to_one()
+        .then_ignore(just(PATH_SEPARATOR))
+        .or_not()
+        .map(|p| p.unwrap_or_default());
+
+    let specs = column_spec()
+        .padded()
+        .repeated()
+        .delimited_by(
+            just(COLUMN_GLOB_ADJUSTMENT_BRACE_L),
+            just(COLUMN_GLOB_ADJUSTMENT_BRACE_R),
+        )
+        .or_not()
+        .map(|a| a.unwrap_or_default());
+
+    head.then_ignore(just(COLUMN_GLOB))
+        .then(specs)
+        .map(|(head, specs)| ColumnGlob { head, specs })
 }
 
 fn column_spec() -> impl Psr<ColumnSpec> {
-    just(COLUMN_SPEC_PREFIX)
-        .then(whitespace())
-        .ignore_then(expr())
+    expr()
         .then(
             whitespace()
                 .then(just(COLUMN_ALIAS_PREFIX))
@@ -143,9 +170,9 @@ mod tests {
     }
 
     #[test]
-    fn test_column_spec() {
+    fn test_parse_column_spec() {
         assert_eq!(
-            column_spec().parse("$8"),
+            column_spec().parse("8"),
             Ok(ColumnSpec {
                 column_control: ColumnControl::default(),
                 expr: Expr::Number("8".to_string()),
@@ -153,7 +180,7 @@ mod tests {
             })
         );
         assert_eq!(
-            column_spec().parse(r"$foo->bar\s1d"),
+            column_spec().parse(r"foo->bar\s1d"),
             Ok(ColumnSpec {
                 column_control: ColumnControl {
                     sort: Some(SortSpec {
@@ -172,28 +199,59 @@ mod tests {
     }
 
     #[test]
-    fn test_column_layout() {
+    fn test_parse_result_columns() {
         assert_eq!(
-            column_layout().parse(r"$foo $bar->B \g"),
-            Ok(ColumnLayout {
-                column_specs: vec![
-                    ColumnSpec {
-                        column_control: ColumnControl::default(),
-                        expr: Expr::Path(vec![PathPart::Column("foo".to_string())]),
-                        alias: None,
-                    },
-                    ColumnSpec {
-                        column_control: ColumnControl {
-                            sort: None,
-                            group: Some(GroupSpec { ordinal: None }),
-                            is_partition_by: false,
-                            is_hidden: false,
+            result_columns().parse(r"$* $a.b.*(c \h d\s) $foo $bar->B \g"),
+            Ok(vec![
+                ResultColumnStatement::Glob(ColumnGlob::default()),
+                ResultColumnStatement::Glob(ColumnGlob {
+                    head: vec![
+                        PathPart::Column("a".to_string()),
+                        PathPart::Column("b".to_string()),
+                    ],
+                    specs: vec![
+                        ColumnSpec {
+                            column_control: ColumnControl {
+                                sort: None,
+                                group: None,
+                                is_partition_by: false,
+                                is_hidden: true,
+                            },
+                            expr: Expr::Path(vec![PathPart::Column("c".to_string())]),
+                            alias: None,
                         },
-                        expr: Expr::Path(vec![PathPart::Column("bar".to_string())]),
-                        alias: Some("B".to_string()),
+                        ColumnSpec {
+                            column_control: ColumnControl {
+                                sort: Some(SortSpec {
+                                    ordinal: None,
+                                    direction: SortDirection::Asc,
+                                    nulls_sort: NullsSort::default(),
+                                }),
+                                group: None,
+                                is_partition_by: false,
+                                is_hidden: false,
+                            },
+                            expr: Expr::Path(vec![PathPart::Column("d".to_string())]),
+                            alias: None,
+                        },
+                    ]
+                }),
+                ResultColumnStatement::Spec(ColumnSpec {
+                    column_control: ColumnControl::default(),
+                    expr: Expr::Path(vec![PathPart::Column("foo".to_string())]),
+                    alias: None,
+                }),
+                ResultColumnStatement::Spec(ColumnSpec {
+                    column_control: ColumnControl {
+                        sort: None,
+                        group: Some(GroupSpec { ordinal: None }),
+                        is_partition_by: false,
+                        is_hidden: false,
                     },
-                ]
-            })
+                    expr: Expr::Path(vec![PathPart::Column("bar".to_string())]),
+                    alias: Some("B".to_string()),
+                }),
+            ])
         );
     }
 }

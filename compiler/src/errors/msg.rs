@@ -52,3 +52,18 @@ pub fn expected_two_args() -> String {
 pub fn multiple_fk_from_col() -> String {
     "Schema has multiple foreign keys from the same column".to_string()
 }
+
+pub fn column_glob_on_path_to_many() -> String {
+    "Column globs (`*`) can not be used on paths that reference many records.".to_string()
+}
+
+pub fn column_glob_after_non_fk_column(column_name: &str) -> String {
+    format!("Column globs (`*`) can only be placed after foreign key columns. The column `{}` is not a foreign key column.", column_name)
+}
+
+/// If this happens, it's a bug somewhere up the stack.
+///
+/// TODO: we should improve the ClarifiedPath data structure to make this impossible
+pub fn empty_path() -> String {
+    "Bug: Empty path.".to_string()
+}

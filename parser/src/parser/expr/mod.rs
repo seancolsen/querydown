@@ -9,3 +9,4 @@ mod path;
 mod pipe;
 
 pub use expr::expr;
+pub use path::path_to_one;

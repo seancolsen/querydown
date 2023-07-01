@@ -63,7 +63,8 @@ fn convert_variable(variable: &str, _: &Scope) -> Result<SqlExpr, String> {
 }
 
 fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, String> {
-    let clarified_path = clarify_path(parts, scope)?;
+    let prefixed_parts = scope.path_prefix.iter().cloned().chain(parts).collect();
+    let clarified_path = clarify_path(prefixed_parts, scope)?;
     match (clarified_path.head, clarified_path.tail) {
         (None, None) => Ok(SqlExpr::empty()),
         (None, Some(ClarifiedPathTail::Column(column_name))) => {

@@ -4,7 +4,7 @@ use crate::ast::*;
 use crate::tokens::*;
 
 use super::utils::*;
-use super::{column_layout::column_layout, expr::expr};
+use super::{column_layout::result_columns, expr::expr};
 
 pub fn query() -> impl Psr<Query> {
     let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
@@ -26,10 +26,10 @@ pub fn query() -> impl Psr<Query> {
 fn transformation() -> impl Psr<Transformation> {
     top_level_condition_set()
         .then_ignore(whitespace())
-        .then(column_layout().or_not())
+        .then(result_columns().or_not())
         .map(|(conditions, cl)| Transformation {
             conditions,
-            column_layout: cl.unwrap_or_default(),
+            result_columns: cl.unwrap_or_default(),
         })
 }
 
@@ -70,18 +70,16 @@ mod tests {
                             })),
                         ],
                     },
-                    column_layout: ColumnLayout {
-                        column_specs: vec![ColumnSpec {
-                            alias: None,
-                            column_control: ColumnControl {
-                                sort: None,
-                                group: None,
-                                is_partition_by: false,
-                                is_hidden: false
-                            },
-                            expr: Expr::Path(vec![PathPart::Column("c".to_string())])
-                        }]
-                    },
+                    result_columns: vec![ResultColumnStatement::Spec(ColumnSpec {
+                        alias: None,
+                        column_control: ColumnControl {
+                            sort: None,
+                            group: None,
+                            is_partition_by: false,
+                            is_hidden: false
+                        },
+                        expr: Expr::Path(vec![PathPart::Column("c".to_string())])
+                    })],
                 }],
             })
         );

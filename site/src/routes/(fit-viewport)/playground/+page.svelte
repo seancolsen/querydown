@@ -33,6 +33,7 @@
         { token: 'column', foreground: '1e1f63' },
         { token: 'column-control', foreground: '737373', fontStyle: 'bold' },
         { token: 'column-prefix', foreground: 'c963e3', fontStyle: 'bold' },
+        { token: 'glob', foreground: '634181', fontStyle: 'bold' },
         { token: 'duration', foreground: 'a63f87' },
         { token: 'date', foreground: 'a63f87' },
         { token: 'qd-number', foreground: 'a66565' },

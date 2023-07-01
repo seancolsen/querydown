@@ -5,7 +5,7 @@ description|length:>200
 --#assignments
 ++#labels{name:..["Regression" "Bug"]}
 #comments{user.team.name!"Backend"}:10
-$id
+$*
 $author.username -> author
 $#comments.created_at%min -> first_comment_date \\sd
 `;
