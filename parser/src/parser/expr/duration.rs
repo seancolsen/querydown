@@ -10,7 +10,11 @@ use crate::parser::utils::*;
 use crate::tokens::*;
 
 pub fn duration() -> impl Psr<Duration> {
-    let part = |sym: char| positive_float().then_ignore(just(sym));
+    let case_insensitive =
+        |uppercase: char| choice((just(uppercase), just(uppercase.to_ascii_lowercase())));
+
+    let part = |c: char| positive_float().then_ignore(case_insensitive(c));
+
     let large_part = choice((
         part('Y').map(|value| Part { kind: Year, value }),
         part('M').map(|value| Part { kind: Month, value }),
@@ -27,7 +31,7 @@ pub fn duration() -> impl Psr<Duration> {
         large_part
             .repeated()
             .chain::<Part, _, _>(
-                just('T')
+                case_insensitive('T')
                     .ignore_then(small_part.repeated().at_least(1))
                     .or_not()
                     .flatten(),

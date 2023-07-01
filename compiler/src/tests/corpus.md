@@ -160,6 +160,34 @@ WHERE
   "issues"."created_at" >= DATE '2023-01-01';
 ```
 
+### Duration
+
+```qd
+#issues created_at:>@6Y|ago
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."created_at" > NOW() - INTERVAL '6Y';
+```
+
+### Duration, lowercase
+
+```qd
+#issues created_at:>@6y|ago
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."created_at" > NOW() - INTERVAL '6Y';
+```
+
 ## Comparisons
 
 ### Regex
