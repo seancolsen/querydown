@@ -38,6 +38,7 @@
         { token: 'date', foreground: 'a63f87' },
         { token: 'qd-number', foreground: 'a66565' },
         { token: 'comparison-operator', foreground: '000be3', fontStyle: 'bold' },
+        { token: 'range-separator', foreground: 'a19483' },
         { token: 'has', foreground: '787113', fontStyle: 'bold' },
         { token: 'scalar-pipe', foreground: '787113', fontStyle: 'bold' },
         { token: 'scalar-function', foreground: '787113' },

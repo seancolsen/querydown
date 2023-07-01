@@ -10,28 +10,50 @@ use super::{
 };
 
 pub fn expr() -> impl Psr<Expr> {
-    recursive(|e| {
-        // We begin with the highest precedence rules first. Lower precedence rules compose the
-        // higher precedence rules.
+    // A bit about how this works:
+    //
+    // - `prec` is short for "precedence".
+    //
+    // - `prec_atom` is the highest precedence rule. These kinds of expressions can be parsed
+    //   unambiguously because they are entirely self-contained, for example, a string. Some of
+    //   these expressions also include other expressions, e.g. `parenthetical`, and in that case,
+    //   we pass the recursive rule to the sub-parser so that it can parse its own sub-expressions
+    //   using the most generalized expression parser which includes rules for all levels of
+    //   precedence.
+    //
+    // - As we move to lower precedence rules, we build them up by composing the higher precedence
+    //   rules.
+    //
+    // - In total, it's a circular system of composition. The lower precedence rules compose the
+    //   higher precedence rules, and the highest precedence rule recursively composes the lowest
+    //   precedence rule.
+    //
+    // I took this approach from [Chumsky's example code][1].
+    //
+    // [1]: https://github.com/zesterer/chumsky/blob/0.9/examples/foo.rs#L33
+
+    recursive(|prec_comparison| {
         let prec_atom = choice((
             number().map(Expr::Number),
             date().map(Expr::Date),
             duration().map(Expr::Duration),
             string().map(Expr::String),
             variable().map(Expr::Variable),
-            path(e.clone()).map(Expr::Path),
-            has_quantity(e.clone()).map(Expr::HasQuantity),
-            condition_set(e.clone()).map(Expr::ConditionSet),
-            parenthetical(e.clone()),
+            path(prec_comparison.clone()).map(Expr::Path),
+            has_quantity(prec_comparison.clone()).map(Expr::HasQuantity),
+            condition_set(prec_comparison.clone()).map(Expr::ConditionSet),
+            parenthetical(prec_comparison.clone()),
         ));
 
-        let prec_pipe = pipe(prec_atom, e);
+        let prec_pipe = pipe(prec_atom.clone(), prec_comparison.clone());
 
         let prec_multiplication = multiplication(prec_pipe);
 
         let prec_addition = addition(prec_multiplication);
 
-        comparison(prec_addition)
+        comparison(prec_addition.clone(), prec_comparison, prec_atom)
+            .map(|c| Expr::Comparison(Box::new(c)))
+            .or(prec_addition)
     })
 }
 
@@ -131,11 +153,11 @@ mod tests {
                     condition_set: ConditionSet {
                         conjunction: Conjunction::And,
                         entries: vec![Expr::Comparison(Box::new(Comparison {
-                            left: Expr::Path(vec![PathPart::Column("a".to_string())]),
+                            left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                                "a".to_string()
+                            )])),
                             operator: Operator::Eq,
-                            right: Expr::Number("2".to_string()),
-                            is_expand_left: false,
-                            is_expand_right: false,
+                            right: ComparisonSide::Expr(Expr::Number("2".to_string())),
                         }))]
                     },
                     linking_column: None
@@ -255,20 +277,56 @@ mod tests {
             ))
         );
 
+        // Comparisons don't fold
+        assert!(p("1:2:3").is_err());
+
+        // Nested comparisons can be done via parentheses
         assert_eq!(
-            p("1:2:3"),
+            p("(1:2):3"),
             Ok(Expr::Comparison(Box::new(Comparison {
-                left: Expr::Comparison(Box::new(Comparison {
-                    left: Expr::Number("1".to_string()),
+                left: ComparisonSide::Expr(Expr::Comparison(Box::new(Comparison {
+                    left: ComparisonSide::Expr(Expr::Number("1".to_string())),
                     operator: Operator::Eq,
-                    right: Expr::Number("2".to_string()),
-                    is_expand_left: false,
-                    is_expand_right: false,
-                })),
+                    right: ComparisonSide::Expr(Expr::Number("2".to_string())),
+                }))),
                 operator: Operator::Eq,
-                right: Expr::Number("3".to_string()),
-                is_expand_left: false,
-                is_expand_right: false,
+                right: ComparisonSide::Expr(Expr::Number("3".to_string())),
+            })))
+        );
+
+        assert_eq!(
+            p("x:@a..@b"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("x".to_string())])),
+                operator: Operator::Eq,
+                right: ComparisonSide::Range(Range {
+                    lower: RangeBound {
+                        expr: Expr::Variable("a".to_string()),
+                        exclusivity: Exclusivity::Inclusive,
+                    },
+                    upper: RangeBound {
+                        expr: Expr::Variable("b".to_string()),
+                        exclusivity: Exclusivity::Inclusive,
+                    },
+                }),
+            })))
+        );
+
+        assert_eq!(
+            p("x:@a<..<@b"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("x".to_string())])),
+                operator: Operator::Eq,
+                right: ComparisonSide::Range(Range {
+                    lower: RangeBound {
+                        expr: Expr::Variable("a".to_string()),
+                        exclusivity: Exclusivity::Exclusive,
+                    },
+                    upper: RangeBound {
+                        expr: Expr::Variable("b".to_string()),
+                        exclusivity: Exclusivity::Exclusive,
+                    },
+                }),
             })))
         );
 
@@ -302,7 +360,7 @@ mod tests {
         assert_eq!(
             p("[a b] ..! 2 + foo * @bar | baz"),
             Ok(Expr::Comparison(Box::new(Comparison {
-                left: Expr::ConditionSet(ConditionSet {
+                left: ComparisonSide::Expansion(ConditionSet {
                     entries: vec![
                         Expr::Path(vec![PathPart::Column("a".to_string())]),
                         Expr::Path(vec![PathPart::Column("b".to_string())]),
@@ -310,7 +368,7 @@ mod tests {
                     conjunction: Conjunction::Or,
                 }),
                 operator: Operator::Neq,
-                right: Expr::Sum(
+                right: ComparisonSide::Expr(Expr::Sum(
                     Box::new(Expr::Number("2".to_string())),
                     Box::new(Expr::Product(
                         Box::new(Expr::Path(vec![PathPart::Column("foo".to_string())])),
@@ -321,9 +379,7 @@ mod tests {
                             args: vec![Expr::Variable("bar".to_string())],
                         })),
                     )),
-                ),
-                is_expand_left: true,
-                is_expand_right: false,
+                )),
             })))
         );
     }

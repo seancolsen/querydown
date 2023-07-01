@@ -42,17 +42,19 @@ SELECT "Patrons".* FROM "Patrons";
 
 ### ⛔ Main README
 
-Not yet working
-
 ```qd
 #issues
 created_at:>@6M|ago
 --#assignments
 ++#labels{name:..["Regression" "Bug"]}
-#comments{user.team.name!"Backend"}:~10..20
-$*()
+10..20:#comments{user.team.name!"Backend"}
+$*
 $author.username
 $#comments.created_at%min \sd
+```
+
+```
+TODO
 ```
 
 ## Flexible identifiers
@@ -175,6 +177,101 @@ FROM "issues"
 WHERE
   "issues"."title" ~* 'foo';
 ```
+
+### Expansion
+
+```qd
+#issues title:~..["color" "colour"]
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  ("issues"."title" ~* 'color' OR "issues"."title" ~* 'colour');
+```
+
+### Dual expansion
+
+```qd
+#issues {title description}..:~..["color" "colour"]
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  ("issues"."title" ~* 'color' OR "issues"."title" ~* 'colour') AND
+  ("issues"."description" ~* 'color' OR "issues"."description" ~* 'colour');
+```
+
+### Simple range
+
+```qd
+#issues id:50..100
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."id" >= 50 AND
+  "issues"."id" <= 100;
+```
+
+### Range with exclusive ends
+
+```qd
+#issues created_at:@2000-01-01<..<@2010-01-01
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."created_at" > DATE '2000-01-01' AND
+  "issues"."created_at" < DATE '2010-01-01';
+```
+
+### Range containing pipes
+
+```qd
+#issues created_at:(@2Y|ago)..(@1Y|ago)
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."created_at" >= NOW() - INTERVAL '2Y' AND
+  "issues"."created_at" <= NOW() - INTERVAL '1Y';
+```
+
+### Range vs expansion
+
+```qd
+#comments [created_at issue.created_at]..:@2000-01-01..<@2000-02-01
+```
+
+```sql
+SELECT
+  "comments".*
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  (
+    "comments"."created_at" >= DATE '2000-01-01' AND "comments"."created_at" < DATE '2000-02-01'
+    OR
+    "issues"."created_at" >= DATE '2000-01-01' AND "issues"."created_at" < DATE '2000-02-01'
+  );
+```
+
 
 ## Condition sets
 

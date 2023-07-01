@@ -1,42 +1,62 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::parser::expr::condition_set::condition_set;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
-pub fn comparison(expr: impl Psr<Expr>) -> impl Psr<Expr> {
-    expr.clone()
-        .then(separator().padded().then(expr).repeated())
-        .foldl(|left, (sep, right)| {
-            Expr::Comparison(Box::new(Comparison {
-                left,
-                operator: sep.operator,
-                right,
-                is_expand_left: sep.is_expand_left,
-                is_expand_right: sep.is_expand_right,
-            }))
-        })
-}
+pub fn comparison(
+    comparison_side_expr: impl Psr<Expr>,
+    condition_set_expr: impl Psr<Expr>,
+    range_expr: impl Psr<Expr>,
+) -> impl Psr<Comparison> {
+    let left = choice((
+        condition_set(condition_set_expr.clone())
+            .then_ignore(whitespace().then(just(COMPARISON_EXPAND)))
+            .map(ComparisonSide::Expansion),
+        range(range_expr.clone()).map(ComparisonSide::Range),
+        comparison_side_expr.clone().map(ComparisonSide::Expr),
+    ));
+    let right = choice((
+        just(COMPARISON_EXPAND)
+            .then(whitespace())
+            .ignore_then(condition_set(condition_set_expr.clone()).map(ComparisonSide::Expansion)),
+        range(range_expr.clone()).map(ComparisonSide::Range),
+        comparison_side_expr.clone().map(ComparisonSide::Expr),
+    ));
 
-struct Separator {
-    pub operator: Operator,
-    pub is_expand_left: bool,
-    pub is_expand_right: bool,
-}
-
-fn separator() -> impl Psr<Separator> {
-    just(COMPARISON_EXPAND)
-        .or_not()
-        .map(|b| b.is_some())
-        .then_ignore(whitespace())
-        .then(operator())
-        .then_ignore(whitespace())
-        .then(just(COMPARISON_EXPAND).or_not().map(|b| b.is_some()))
-        .map(|((is_expand_left, operator), is_expand_right)| Separator {
+    left.then(operator().padded())
+        .then(right)
+        .map(|((left, operator), right)| Comparison {
+            left,
             operator,
-            is_expand_left,
-            is_expand_right,
+            right,
         })
+}
+
+fn range(expr: impl Psr<Expr>) -> impl Psr<Range> {
+    let exclusivity = just(COMPARISON_RANGE_BOUND_EXCLUSIVE)
+        .or_not()
+        .map(|b| match b {
+            Some(_) => Exclusivity::Exclusive,
+            None => Exclusivity::Inclusive,
+        });
+
+    let lower = expr
+        .clone()
+        .then_ignore(whitespace())
+        .then(exclusivity)
+        .map(|(expr, exclusivity)| RangeBound { expr, exclusivity });
+
+    let upper = exclusivity
+        .then_ignore(whitespace())
+        .then(expr.clone())
+        .map(|(exclusivity, expr)| RangeBound { expr, exclusivity });
+
+    lower
+        .then_ignore(just(COMPARISON_RANGE_BOUND_SEPARATOR).padded())
+        .then(upper)
+        .map(|(lower, upper)| Range { lower, upper })
 }
 
 fn operator() -> impl Psr<Operator> {

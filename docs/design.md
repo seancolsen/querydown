@@ -186,7 +186,11 @@ If both sides of the comparison are expanded, then the brackets on left side are
 #issues created_at|year:2010..2019
 ```
 
-The range `2010..2019` **includes** both 2010 and 2019. You can use exclamation marks on either side of the `..` to make the range exclude either of the bounds, i.e. `2010!..2019` or `2010..!2019` or `2010!..!2019`.
+The range `2010..2019` **includes** both 2010 and 2019. You can use `<` on either side of the `..` to make the range exclude either of the bounds. For example:
+
+- `2010<..2019` means _"greater than 2010 and less or equal to 2019"._
+- `2010..<2019` means _"greater or equal to 2010 and less than 2019"._
+- `2010<..<2019` means _"greater than 2010 and less than 2019"._
 
 
 ## String literals

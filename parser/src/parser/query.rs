@@ -55,18 +55,18 @@ mod tests {
                         conjunction: Conjunction::And,
                         entries: vec![
                             Expr::Comparison(Box::new(Comparison {
-                                left: Expr::Path(vec![PathPart::Column("a".to_string())]),
+                                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                                    "a".to_string()
+                                )])),
                                 operator: Operator::Eq,
-                                right: Expr::Number("1".to_string()),
-                                is_expand_left: false,
-                                is_expand_right: false,
+                                right: ComparisonSide::Expr(Expr::Number("1".to_string())),
                             })),
                             Expr::Comparison(Box::new(Comparison {
-                                left: Expr::Path(vec![PathPart::Column("b".to_string())]),
+                                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                                    "b".to_string()
+                                )])),
                                 operator: Operator::Eq,
-                                right: Expr::Number("2".to_string()),
-                                is_expand_left: false,
-                                is_expand_right: false,
+                                right: ComparisonSide::Expr(Expr::Number("2".to_string())),
                             })),
                         ],
                     },

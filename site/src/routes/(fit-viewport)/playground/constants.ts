@@ -1,11 +1,9 @@
 export const starting_querydown = `#issues
-created_at:<@6M|ago
-due_date:<@now
-description|length:>200
+created_at:>@6M|ago
 --#assignments
 ++#labels{name:..["Regression" "Bug"]}
-#comments{user.team.name!"Backend"}:10
+10..20:#comments{user.team.name!"Backend"}
 $*
-$author.username -> author
-$#comments.created_at%min -> first_comment_date \\sd
+$author.username
+$#comments.created_at%min \\sd
 `;

@@ -132,11 +132,34 @@ pub struct TableWithMany {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Comparison {
-    pub left: Expr,
+    pub left: ComparisonSide,
     pub operator: Operator,
-    pub right: Expr,
-    pub is_expand_left: bool,
-    pub is_expand_right: bool,
+    pub right: ComparisonSide,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComparisonSide {
+    Expr(Expr),
+    Expansion(ConditionSet),
+    Range(Range),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Range {
+    pub lower: RangeBound,
+    pub upper: RangeBound,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RangeBound {
+    pub expr: Expr,
+    pub exclusivity: Exclusivity,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Exclusivity {
+    Inclusive,
+    Exclusive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

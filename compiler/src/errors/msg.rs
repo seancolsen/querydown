@@ -67,3 +67,11 @@ pub fn column_glob_after_non_fk_column(column_name: &str) -> String {
 pub fn empty_path() -> String {
     "Bug: Empty path.".to_string()
 }
+
+pub fn compare_two_ranges() -> String {
+    "Cannot compare two ranges.".to_string()
+}
+
+pub fn compare_range_without_eq() -> String {
+    "Range comparison must use the `:` operator.".to_string()
+}

@@ -1,6 +1,4 @@
-use querydown_parser::ast::{
-    Comparison, ConditionSet, Expr, HasQuantity, Operator, PathPart, Quantity,
-};
+use querydown_parser::ast::*;
 
 use crate::{
     errors::msg,
@@ -112,11 +110,9 @@ fn convert_has_quantity(has_quantity: HasQuantity, scope: &mut Scope) -> Result<
         Quantity::Zero => Operator::Eq,
     };
     let comparison = Comparison {
-        left: Expr::Path(has_quantity.path_parts),
+        left: ComparisonSide::Expr(Expr::Path(has_quantity.path_parts)),
         operator,
-        right: Expr::zero(),
-        is_expand_left: false,
-        is_expand_right: false,
+        right: ComparisonSide::Expr(Expr::zero()),
     };
     convert_comparison(comparison, scope)
 }

@@ -26,6 +26,11 @@ export const monarch: languages.IMonarchLanguage = {
       [/@(\d+[ymdwthsYMDWTHS])+/, 'duration'],
       [/@(@identifier)/, 'constant'],
       [/@\d\d\d\d-\d\d-\d\d/, 'date'],
+
+      [/(\.\.)?(:|!)(~~|~|>=|>|<=|<)?(\.\.)?/, 'comparison-operator'],
+
+      [/<?\.\.<?/, 'range-separator'],
+      
       [/\./, 'path-separator'],
       [/\*/, 'glob'],
       [/\|/, 'scalar-pipe', '@scalarFunction'],
@@ -43,8 +48,6 @@ export const monarch: languages.IMonarchLanguage = {
       [/'[^\\']'/, 'string'],
       [/(')(@escapes)(')/, ['string','string.escape','string']],
       [/'/, 'string.invalid'],
-
-      [/(:|!)(~~|~|>=|>|<=|<)?/, 'comparison-operator'],
 
       [/\+\+|--/, 'has'],
 

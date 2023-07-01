@@ -1,7 +1,8 @@
-use querydown_parser::ast::{Comparison, ConditionSet, Expr, Operator};
+use querydown_parser::ast::*;
 
 use crate::{
     compiler::expr::convert_expr,
+    errors::msg,
     sql::{
         expr::build::*,
         tree::{CtePurpose, SqlExpr},
@@ -15,40 +16,71 @@ use super::{
 };
 
 pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, String> {
-    let left_conditions = if c.is_expand_left {
-        match c.left {
-            Expr::ConditionSet(condition_set) => condition_set,
-            _ => ConditionSet::via_and(vec![c.left]),
-        }
-    } else {
-        ConditionSet::via_and(vec![c.left])
-    };
+    use ComparisonSide::{Expansion as CmpExpansion, Expr as CmpExpr, Range as CmpRange};
 
-    let right_conditions = if c.is_expand_right {
-        match c.right {
-            Expr::ConditionSet(condition_set) => condition_set,
-            _ => ConditionSet::via_and(vec![c.right]),
-        }
-    } else {
-        ConditionSet::via_and(vec![c.right])
-    };
+    let mut simple = |l: &Expr, r: &Expr| convert_simple_comparison(l, c.operator, r, scope);
 
-    let mut outer_entries = vec![];
-    for left in left_conditions.entries.iter() {
-        let mut inner_entries = vec![];
-        for right in right_conditions.entries.iter() {
-            inner_entries.push(convert_simple_comparison(left, c.operator, right, scope)?);
+    match (c.left, c.right) {
+        // Two expressions
+        (CmpExpr(left), CmpExpr(right)) => simple(&left, &right),
+
+        // Expression vs expansion
+        (CmpExpr(ref left), CmpExpansion(conditions)) => conditions
+            .entries
+            .iter()
+            .map(|right| simple(left, right))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|exprs| cmp::condition_set(exprs, &conditions.conjunction)),
+        (CmpExpansion(conditions), CmpExpr(ref right)) => conditions
+            .entries
+            .iter()
+            .map(|left| simple(left, right))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|exprs| cmp::condition_set(exprs, &conditions.conjunction)),
+
+        // Dual expansion
+        (CmpExpansion(left_conditions), CmpExpansion(right_conditions)) => {
+            let mut outer_entries = vec![];
+            for left in left_conditions.entries.iter() {
+                let mut inner_entries = vec![];
+                for right in right_conditions.entries.iter() {
+                    inner_entries.push(simple(left, right)?);
+                }
+                outer_entries.push(cmp::condition_set(
+                    inner_entries,
+                    &right_conditions.conjunction,
+                ));
+            }
+            Ok(cmp::condition_set(
+                outer_entries,
+                &left_conditions.conjunction,
+            ))
         }
-        outer_entries.push(cmp::condition_set(
-            inner_entries,
-            &right_conditions.conjunction,
-        ));
+
+        // Range vs Expr
+        (CmpRange(range), CmpExpr(expr)) | (CmpExpr(expr), CmpRange(range)) => {
+            if c.operator != Operator::Eq {
+                return Err(msg::compare_range_without_eq());
+            }
+            convert_range_comparison(&expr, &range, scope)
+        }
+
+        // Range vs Expansion
+        (CmpExpansion(conditions), CmpRange(r)) | (CmpRange(r), CmpExpansion(conditions)) => {
+            if c.operator != Operator::Eq {
+                return Err(msg::compare_range_without_eq());
+            }
+            conditions
+                .entries
+                .iter()
+                .map(|expr| convert_range_comparison(expr, &r, scope))
+                .collect::<Result<Vec<_>, _>>()
+                .map(|exprs| cmp::condition_set(exprs, &conditions.conjunction))
+        }
+
+        // Two ranges
+        (CmpRange(_), CmpRange(_)) => Err(msg::compare_two_ranges()),
     }
-
-    Ok(cmp::condition_set(
-        outer_entries,
-        &left_conditions.conjunction,
-    ))
 }
 
 fn convert_simple_comparison(
@@ -107,6 +139,26 @@ fn convert_simple_comparison(
         Match => Ok(match_regex(left_converted, right_converted, true, scope)),
         NMatch => Ok(match_regex(left_converted, right_converted, false, scope)),
     }
+}
+
+fn convert_range_comparison(
+    expr: &Expr,
+    range: &Range,
+    scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    let lower_op = match range.lower.exclusivity {
+        Exclusivity::Inclusive => Operator::Gte,
+        Exclusivity::Exclusive => Operator::Gt,
+    };
+    let lower = convert_simple_comparison(expr, lower_op, &range.lower.expr, scope)?;
+
+    let upper_op = match range.upper.exclusivity {
+        Exclusivity::Inclusive => Operator::Lte,
+        Exclusivity::Exclusive => Operator::Lt,
+    };
+    let upper = convert_simple_comparison(expr, upper_op, &range.upper.expr, scope)?;
+
+    Ok(cmp::condition_set([lower, upper], &Conjunction::And))
 }
 
 #[derive(Clone, Copy)]

@@ -16,7 +16,7 @@ _See also: **[Language Design](./design.md)**_
 | `@true`                 | `TRUE` |
 | `@false`                | `FALSE` |
 | `@null`                 | `NULL` |
-| `..` `..!` `!..` `!..!` | range |
+| `..` `..<` `<..` `<..<` | range |
 | `"` or `'`              | string quote |
 | `^`                     | string flag prefix |
 | `{ }`                   | string interpolation |
