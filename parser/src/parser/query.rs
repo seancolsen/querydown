@@ -13,14 +13,16 @@ pub fn query() -> impl Psr<Query> {
             .then(exactly(TRANSFORMATION_DELIMITER))
             .then(whitespace()),
     );
-    base_table
-        .then_ignore(whitespace())
-        .then(transformations)
-        .then_ignore(whitespace().then(end()))
-        .map(|(base_table, transformations)| Query {
-            base_table,
-            transformations,
-        })
+    whitespace().ignore_then(
+        base_table
+            .then_ignore(whitespace())
+            .then(transformations)
+            .then_ignore(whitespace().then(end()))
+            .map(|(base_table, transformations)| Query {
+                base_table,
+                transformations,
+            }),
+    )
 }
 
 fn transformation() -> impl Psr<Transformation> {
