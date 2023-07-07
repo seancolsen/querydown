@@ -1,0 +1,316 @@
+<svg id="svg1960" width="750" height="720" version="1.1" viewBox="0 0 750 720" xmlns="http://www.w3.org/2000/svg">
+ <g id="layer1">
+  <rect id="rect3993" width="750" height="720" style="color:#000000;fill:#ffffff;paint-order:stroke fill markers;stop-color:#000000;stroke-opacity:.7;stroke-width:3.647"/>
+  <g id="g1955" transform="translate(16.94 17.08)">
+   <svg id="svg138" x="160" y="463.8" width="75" height="52.33" version="1.1">
+    <path id="path132" d="m8 26.33h26.83q0.1667 0 0.1667-0.1667 0-0.1667 0.1667-0.1667h26.83-26.83q-0.1667 0-0.1667 0.1667 0 0.1667-0.1667 0.1667h-26.83m10-4v8m44-8.333-10 4 10 4" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text134" x="11" y="23.333334" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+    <text id="text136" x="51.288887" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+   </svg>
+   <svg id="svg146" x="412" y="397.8" width="133.6" height="52" version="1.1">
+    <path id="path140" d="m8 26h112.6-112.6m0-4 10 4-10 4m102.6-8v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text142" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text144" x="109.62222" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg154" x="412" y="232.8" width="31" height="85" version="1.1">
+    <path id="path148" d="m8 59h10q10 0 10-10v-13q0-10-10-10h-10 10q10 0 10 10v13q0 10-10 10zm0-4 10 4-10 4m10-41v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text150" x="11" y="56" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text152" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg162" x="412" y="89.5" width="93" height="195.3" version="1.1">
+    <path id="path156" d="m8 169.3h26q10 0 10-10v-123.3q0-10 10-10h26-26q-10 0-10 10v123.3q0 10-10 10h-26m10-4v8m62-151.3-10 4 10 4" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text158" x="11" y="166.33333" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+    <text id="text160" x="69.288887" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+   </svg>
+   <svg id="svg170" x="635.8" y="56.5" width="81.82" height="393.3" version="1.1">
+    <path id="path164" d="m8 26h60.82q10 0 10 10v321.3q0 10-10 10h-10 10q10 0 10-10v-321.3q0-10-10-10zm0-4 10 4-10 4m60.82 333.3v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text166" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text168" x="61.822224" y="364.33334" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg178" x="385.7" y="106.8" width="57.33" height="178" version="1.1">
+    <path id="path172" d="m8 26h36.33q10 0 10 10v106q0 10-10 10h-10 10q10 0 10-10v-106q0-10-10-10zm0-4 10 4-10 4m36.33 118v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text174" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text176" x="37.333332" y="149" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg186" x="385.7" y="139.8" width="57.33" height="145" version="1.1">
+    <path id="path180" d="m8 26h36.33q10 0 10 10v73q0 10-10 10h-10 10q10 0 10-10v-73q0-10-10-10zm0-4 10 4-10 4m36.33 85v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text182" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text184" x="37.333332" y="116" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg194" x="156.3" y="232.8" width="78.76" height="52" version="1.1">
+    <path id="path188" d="m8 26h57.76-57.76m0-4 10 4-10 4m47.76-8v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text190" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text192" x="54.755558" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg202" x="155.4" y="265.8" width="31.93" height="130.3" version="1.1">
+    <path id="path196" d="m8.933 26h10q10 0 10 10v58.33q0 10-10 10h-10.93 10.93q10 0 10-10v-58.33q0-10-10-10zm0-4 10 4-10 4m9.067 70.33v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text198" x="11.933331" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text200" x="11" y="101.33334" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg210" x="412" y="232.8" width="93.71" height="52" version="1.1">
+    <path id="path204" d="m8 26h72.71-72.71m10-4v8m62.71-8-10 4 10 4" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text206" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+    <text id="text208" x="70" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+   </svg>
+   <svg id="svg218" x="682.8" y="199.8" width="34.82" height="250" version="1.1">
+    <path id="path212" d="m8 26h13.82q10 0 10 10v178q0 10-10 10h-10 10q10 0 10-10v-178q0-10-10-10zm0-4 10 4-10 4m13.82 190v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text214" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text216" x="14.822223" y="221" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg226" x="656.6" y="496.8" width="60.93" height="136.3" version="1.1">
+    <path id="path220" d="m37.93 26h10q10 0 10 10v64.33q0 10-10 10h-39.93 39.93q10 0 10-10v-64.33q0-10-10-10zm0-4 10 4-10 4m-19.93 76.33v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text222" x="40.933331" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text224" x="11" y="107.33334" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg234" x="160" y="530.2" width="74.33" height="98" version="1.1">
+    <path id="path228" d="m8 26h16.67q10 0 10 10v26q0 10 10 10h16.67-16.67q-10 0-10-10v-26q0-10-10-10h-16.67m0-4 10 4-10 4m43.33 38v8" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text230" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+    <text id="text232" x="50.333332" y="69" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+   </svg>
+   <svg id="svg242" x="159" y="608.8" width="75.36" height="85.33" version="1.1">
+    <path id="path236" d="m8 26h17.18q10 0 10 10v13.33q0 10 10 10h17.18-17.18q-10 0-10-10v-13.33q0-10-10-10h-17.18m10-4v8m44.36 25.33-10 4 10 4" fill="none" stroke="#619bcc" stroke-width="2"/>
+    <text id="text238" x="11" y="23" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">1</text>
+    <text id="text240" x="51.644444" y="56.333332" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:14px">*</text>
+   </svg>
+   <svg id="svg248" x="532.7" y="374.3" version="1.1">
+    <rect id="rect244" width="161.9" height="33" fill="#316896"/>
+    <text id="text246" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">users</text>
+   </svg>
+   <svg id="svg256" x="532.7" y="407.3" version="1.1">
+    <rect id="rect250" width="161.9" height="33" fill="#deecf3"/>
+    <text id="text252" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text254" x="105.13333" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg264" x="532.7" y="440.3" version="1.1">
+    <rect id="rect258" width="161.9" height="33" fill="#f2f2f2"/>
+    <text id="text260" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">username</text>
+    <text id="text262" x="128.53333" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg272" x="532.7" y="473.3" version="1.1">
+    <rect id="rect266" width="161.9" height="33" fill="#f2f2f2"/>
+    <text id="text268" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">email</text>
+    <text id="text270" x="128.53333" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg280" x="532.7" y="506.3" version="1.1">
+    <rect id="rect274" width="161.9" height="33" fill="#deecf3"/>
+    <text id="text276" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">team</text>
+    <text id="text278" x="109.04445" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg286" x="222" y="209.3" version="1.1">
+    <rect id="rect282" width="198" height="33" fill="#316896"/>
+    <text id="text284" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">issues</text>
+   </svg>
+   <svg id="svg294" x="222" y="242.3" version="1.1">
+    <rect id="rect288" width="198" height="33" fill="#deecf3"/>
+    <text id="text290" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text292" x="141.22223" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg302" x="222" y="275.3" version="1.1">
+    <rect id="rect296" width="198" height="33" fill="#deecf3"/>
+    <text id="text298" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">duplicate_of</text>
+    <text id="text300" x="145.13333" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg310" x="222" y="308.3" version="1.1">
+    <rect id="rect304" width="198" height="33" fill="#f2f2f2"/>
+    <text id="text306" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">title</text>
+    <text id="text308" x="164.62222" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg318" x="222" y="341.3" version="1.1">
+    <rect id="rect312" width="198" height="33" fill="#f2f2f2"/>
+    <text id="text314" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">description</text>
+    <text id="text316" x="164.62222" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg326" x="222" y="374.3" version="1.1">
+    <rect id="rect320" width="198" height="33" fill="#f2f2f2"/>
+    <text id="text322" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">created_at</text>
+    <text id="text324" x="133.62222" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">datetime</text>
+   </svg>
+   <svg id="svg334" x="222" y="407.3" version="1.1">
+    <rect id="rect328" width="198" height="33" fill="#deecf3"/>
+    <text id="text330" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">author</text>
+    <text id="text332" x="145.13333" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg342" x="222" y="440.3" version="1.1">
+    <rect id="rect336" width="198" height="33" fill="#f2f2f2"/>
+    <text id="text338" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">status</text>
+    <text id="text340" x="164.62222" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg350" x="222" y="473.3" version="1.1">
+    <rect id="rect344" width="198" height="33" fill="#deecf3"/>
+    <text id="text346" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">project</text>
+    <text id="text348" x="145.13333" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg358" x="222" y="506.3" version="1.1">
+    <rect id="rect352" width="198" height="33" fill="#f2f2f2"/>
+    <text id="text354" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">due_date</text>
+    <text id="text356" x="133.62222" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">datetime</text>
+   </svg>
+   <svg id="svg364" x="492" version="1.1">
+    <rect id="rect360" width="151.7" height="33" fill="#316896"/>
+    <text id="text362" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">assignments</text>
+   </svg>
+   <svg id="svg372" x="492" y="33" version="1.1">
+    <rect id="rect366" width="151.7" height="33" fill="#f2f2f2"/>
+    <text id="text368" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text370" x="94.933334" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg380" x="492" y="66" version="1.1">
+    <rect id="rect374" width="151.7" height="33" fill="#deecf3"/>
+    <text id="text376" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">user</text>
+    <text id="text378" x="98.844452" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg388" x="492" y="99" version="1.1">
+    <rect id="rect382" width="151.7" height="33" fill="#deecf3"/>
+    <text id="text384" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">issue</text>
+    <text id="text386" x="98.844452" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg394" x="222.1" y="50.33" version="1.1">
+    <rect id="rect390" width="171.6" height="33" fill="#316896"/>
+    <text id="text392" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">blocks</text>
+   </svg>
+   <svg id="svg402" x="222.1" y="83.33" version="1.1">
+    <rect id="rect396" width="171.6" height="33" fill="#f2f2f2"/>
+    <text id="text398" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text400" x="114.84444" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg410" x="222.1" y="116.3" version="1.1">
+    <rect id="rect404" width="171.6" height="33" fill="#deecf3"/>
+    <text id="text406" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">blocker</text>
+    <text id="text408" x="118.75555" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg418" x="222.1" y="149.3" version="1.1">
+    <rect id="rect412" width="171.6" height="33" fill="#deecf3"/>
+    <text id="text414" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">blocking</text>
+    <text id="text416" x="118.75555" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg424" y="440.7" version="1.1">
+    <rect id="rect420" width="168" height="33" fill="#316896"/>
+    <text id="text422" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">projects</text>
+   </svg>
+   <svg id="svg432" y="473.7" version="1.1">
+    <rect id="rect426" width="168" height="33" fill="#deecf3"/>
+    <text id="text428" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text430" x="111.26666" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg440" y="506.7" version="1.1">
+    <rect id="rect434" width="168" height="33" fill="#f2f2f2"/>
+    <text id="text436" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">name</text>
+    <text id="text438" x="134.66666" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg448" y="539.7" version="1.1">
+    <rect id="rect442" width="168" height="33" fill="#deecf3"/>
+    <text id="text444" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">product</text>
+    <text id="text446" x="115.17778" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg454" x="30.04" y="320.7" version="1.1">
+    <rect id="rect450" width="133.3" height="33" fill="#316896"/>
+    <text id="text452" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">labels</text>
+   </svg>
+   <svg id="svg462" x="30.04" y="353.7" version="1.1">
+    <rect id="rect456" width="133.3" height="33" fill="#deecf3"/>
+    <text id="text458" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text460" x="76.533333" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg470" x="30.04" y="386.7" version="1.1">
+    <rect id="rect464" width="133.3" height="33" fill="#f2f2f2"/>
+    <text id="text466" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">name</text>
+    <text id="text468" x="99.933334" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg476" x="14.38" y="176.3" version="1.1">
+    <rect id="rect472" width="149.9" height="33" fill="#316896"/>
+    <text id="text474" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">issue_labels</text>
+   </svg>
+   <svg id="svg484" x="14.38" y="209.3" version="1.1">
+    <rect id="rect478" width="149.9" height="33" fill="#f2f2f2"/>
+    <text id="text480" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text482" x="93.133331" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg492" x="14.38" y="242.3" version="1.1">
+    <rect id="rect486" width="149.9" height="33" fill="#deecf3"/>
+    <text id="text488" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">issue</text>
+    <text id="text490" x="97.044449" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg500" x="14.38" y="275.3" version="1.1">
+    <rect id="rect494" width="149.9" height="33" fill="#deecf3"/>
+    <text id="text496" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">label</text>
+    <text id="text498" x="97.044449" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg506" x="492.8" y="143.3" version="1.1">
+    <rect id="rect502" width="198" height="33" fill="#316896"/>
+    <text id="text504" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">comments</text>
+   </svg>
+   <svg id="svg514" x="492.8" y="176.3" version="1.1">
+    <rect id="rect508" width="198" height="33" fill="#f2f2f2"/>
+    <text id="text510" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text512" x="141.22223" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg522" x="492.8" y="209.3" version="1.1">
+    <rect id="rect516" width="198" height="33" fill="#deecf3"/>
+    <text id="text518" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">user</text>
+    <text id="text520" x="145.13333" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg530" x="492.8" y="242.3" version="1.1">
+    <rect id="rect524" width="198" height="33" fill="#deecf3"/>
+    <text id="text526" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">issue</text>
+    <text id="text528" x="145.13333" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg538" x="492.8" y="275.3" version="1.1">
+    <rect id="rect532" width="198" height="33" fill="#f2f2f2"/>
+    <text id="text534" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">body</text>
+    <text id="text536" x="164.62222" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg546" x="492.8" y="308.3" version="1.1">
+    <rect id="rect540" width="198" height="33" fill="#f2f2f2"/>
+    <text id="text542" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">created_at</text>
+    <text id="text544" x="133.62222" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">datetime</text>
+   </svg>
+   <svg id="svg552" x="531.3" y="557.7" version="1.1">
+    <rect id="rect548" width="133.3" height="33" fill="#316896"/>
+    <text id="text550" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">teams</text>
+   </svg>
+   <svg id="svg560" x="531.3" y="590.7" version="1.1">
+    <rect id="rect554" width="133.3" height="33" fill="#deecf3"/>
+    <text id="text556" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text558" x="76.533333" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg568" x="531.3" y="623.7" version="1.1">
+    <rect id="rect562" width="133.3" height="33" fill="#f2f2f2"/>
+    <text id="text564" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">name</text>
+    <text id="text566" x="99.933334" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg574" x="221.4" y="552.7" version="1.1">
+    <rect id="rect570" width="153.3" height="33" fill="#316896"/>
+    <text id="text572" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">products</text>
+   </svg>
+   <svg id="svg582" x="221.4" y="585.7" version="1.1">
+    <rect id="rect576" width="153.3" height="33" fill="#deecf3"/>
+    <text id="text578" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text580" x="96.511108" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg590" x="221.4" y="618.7" version="1.1">
+    <rect id="rect584" width="153.3" height="33" fill="#f2f2f2"/>
+    <text id="text586" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">name</text>
+    <text id="text588" x="119.91111" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+   <svg id="svg598" x="221.4" y="651.7" version="1.1">
+    <rect id="rect592" width="153.3" height="33" fill="#deecf3"/>
+    <text id="text594" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">client</text>
+    <text id="text596" x="100.42223" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">integer</text>
+   </svg>
+   <svg id="svg604" x="33.71" y="585.3" version="1.1">
+    <rect id="rect600" width="133.3" height="33" fill="#316896"/>
+    <text id="text602" x="10" y="19.75" style="fill:#ffffff;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">clients</text>
+   </svg>
+   <svg id="svg612" x="33.71" y="618.3" version="1.1">
+    <rect id="rect606" width="133.3" height="33" fill="#deecf3"/>
+    <text id="text608" x="10" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">id</text>
+    <text id="text610" x="76.533333" y="19.75" style="fill:#000000;font-family:'Open Sans', sans-serif;font-size:13px;font-weight:bold">integer</text>
+   </svg>
+   <svg id="svg620" x="33.71" y="651.3" version="1.1">
+    <rect id="rect614" width="133.3" height="33" fill="#f2f2f2"/>
+    <text id="text616" x="10" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">name</text>
+    <text id="text618" x="99.933334" y="19.75" style="fill:#6f6f6f;font-family:'Open Sans', sans-serif;font-size:13px">text</text>
+   </svg>
+  </g>
+ </g>
+</svg>

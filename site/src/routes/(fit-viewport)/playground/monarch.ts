@@ -15,6 +15,7 @@ export const qd_monarch: languages.IMonarchLanguage = {
 
   tokenizer: {
     baseTable: [
+      { include: '@whitespace' },
       [/#(@identifier)/, 'base-table', '@root'],
     ],
 

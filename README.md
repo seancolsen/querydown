@@ -4,7 +4,7 @@
 
 # Querydown
 
-Querydown is a modern [domain-specific programing language](https://en.wikipedia.org/wiki/Domain-specific_language) designed for expressively writing relational databases queries that [transpile](https://en.wikipedia.org/wiki/Source-to-source_compiler) to [SQL](https://en.wikipedia.org/wiki/SQL). The code is succinct and safe for end-users to write, making it like **"markdown for SQL"**. The Querydown compiler is written in [Rust](https://www.rust-lang.org/).
+Querydown is a modern [domain-specific programming language](https://en.wikipedia.org/wiki/Domain-specific_language) for expressively writing relational databases queries that compile to [SQL](https://en.wikipedia.org/wiki/SQL). The code is succinct and safe for end-users to write, making it like **"markdown for SQL"**. The Querydown compiler is written in [Rust](https://www.rust-lang.org/).
 
 ## Use case
 
@@ -18,14 +18,14 @@ Querydown is intended to be a general-purpose, schema agnostic library that _app
 
 ⚠️ Querydown is currently in **_very_ early development**. ⚠️
 
-- The [language design](./docs/design.md) is still in flux, but only changing slowly.
+- The [language design](./docs/syntax.md) is still in flux, but only changing slowly.
 - Parsing is implemented for _most_ of the language, as currently designed.
 - Compilation is implemented for some simple queries, but there is still a lot of work to do here!
 - PostgreSQL is the only dialect implemented so far.
 
 ## Example
 
-> _Given an example [issue-tracker schema](./resources/test/issue_schema.diagram.png)_...<br/>
+> _Given an example [issue-tracker schema](./docs/syntax.md#example-schema)_...<br/>
 > - Find **issues**
 > - that were created in the past 6 months,
 > - and have no assignments,
@@ -47,6 +47,9 @@ $*
 $author.username
 $#comments.created_at%min \sd
 ```
+## Documentation
+
+**[Documentation](./docs/syntax.md)**
 
 
 ## Design goals
@@ -56,10 +59,6 @@ $#comments.created_at%min \sd
 - No keywords
 - All queries begin with one base table
 - Results never have more rows than are present in the base table
-
-## Language design
-
-See **[Language design](./docs/design.md)** (with lots more examples)!
 
 
 ## How it works

@@ -1,9 +1,16 @@
-<script>
+<script lang="ts">
   import { page } from '$app/stores';
 
   import BrandName from '../icons/BrandName.svelte';
   import GitHub from '../icons/GitHub.svelte';
   import Logo from '../icons/Logo.svelte';
+
+  const links = [
+    { href: '/', name: 'Home' },
+    // { href: '/docs', name: 'Docs' },
+    { href: '/playground', name: 'Playground'},
+  ];
+  
 </script>
 
 <header>
@@ -19,8 +26,9 @@
   </div>
   <div class="right">
     <nav>
-      <a href="/" class:active={$page.url.pathname === '/'}>Home</a>
-      <a href="/playground" class:active={$page.url.pathname === '/playground'}>Playground</a>
+      {#each links as {href, name} (href)}
+        <a {href} class:active={$page.url.pathname === href}>{name}</a>
+      {/each}
     </nav>
     <div class="external-links">
       <a

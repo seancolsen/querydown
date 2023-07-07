@@ -1,0 +1,90 @@
+// For use in making ER diagram. Saved to:
+// https://dbdiagram.io/d/64a1d25202bd1c4a5e5fefba
+
+Table users {
+  id integer [primary key]
+  username text
+  email text
+  team integer
+}
+
+Table issues {
+  id integer [primary key]
+  title text
+  description text
+  created_at datetime
+  author integer
+  status text
+  project integer
+  duplicate_of integer
+  due_date datetime
+}
+
+Table assignments {
+  id integer [primary key]
+  issue integer
+  user integer
+}
+
+Table blocks {
+  id integer [primary key]
+  blocker integer
+  blocking integer
+}
+
+Table projects {
+  id integer [primary key]
+  name text
+  product integer
+}
+
+Table labels {
+  id integer [primary key]
+  name text
+}
+
+Table issue_labels {
+  id integer [primary key]
+  issue integer
+  label integer
+}
+
+Table comments {
+  id integer [primary key]
+  issue integer
+  user integer
+  body text
+  created_at datetime
+}
+
+Table teams {
+  id integer [primary key]
+  name text
+}
+
+Table products {
+  id integer [primary key]
+  name text
+  client integer
+}
+
+Table clients {
+  id integer [primary key]
+  name text
+}
+
+Ref: issues.project       > projects.id
+Ref: issues.author        > users.id
+Ref: issues.duplicate_of  > issues.id
+Ref: assignments.issue    > issues.id
+Ref: assignments.user     > users.id
+Ref: blocks.blocker       > issues.id
+Ref: blocks.blocking      > issues.id
+Ref: issue_labels.issue   > issues.id
+Ref: issue_labels.label   > labels.id
+Ref: comments.issue       > issues.id
+Ref: comments.user        > users.id
+Ref: users.team           > teams.id
+Ref: projects.product     > products.id
+Ref: products.client      > clients.id
+
