@@ -18,14 +18,14 @@ Querydown is intended to be a general-purpose, schema agnostic library that _app
 
 ⚠️ Querydown is currently in **_very_ early development**. ⚠️
 
-- The [language design](./docs/syntax.md) is still in flux, but only changing slowly.
+- The [language design](./docs/language.md) is still in flux, but only changing slowly.
 - Parsing is implemented for _most_ of the language, as currently designed.
 - Compilation is implemented for some simple queries, but there is still a lot of work to do here!
 - PostgreSQL is the only dialect implemented so far.
 
 ## Example
 
-> _Given an example [issue-tracker schema](./docs/syntax.md#example-schema)_...<br/>
+> _Given an example [issue-tracker schema](./docs/language.md#example-schema)_...<br/>
 > - Find **issues**
 > - that were created in the past 6 months,
 > - and have no assignments,
@@ -49,7 +49,7 @@ $#comments.created_at%min \sd
 ```
 ## Documentation
 
-**[Documentation](./docs/syntax.md)**
+**[Documentation](./docs/language.md)**
 
 
 ## Design goals

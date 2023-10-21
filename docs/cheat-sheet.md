@@ -29,7 +29,7 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `//` `/* */` | code comments | ❌ |
 | `@2000-01-01` | [dates](./language.md#date-literals) | ✅ |
 | `@1y` | [durations](./language.md#duration-literals) | ✅ |
-| `@` | sigil for [built-in](./syntax.md#built-in-constants) and [user-defined](./syntax.md#user-defined-constants) constants | ✅ |
+| `@` | sigil for [built-in](./language.md#built-in-constants) and [user-defined](./language.md#user-defined-constants) constants | ✅ |
 | `..` `..<` `<..` `<..<` | [ranges](./language.md#ranges) | ✅ |
 | `"` or `'` | string quote | ✅ |
 | `^` | [string flag](./language.md#flagged-strings) prefix | ❌ |
