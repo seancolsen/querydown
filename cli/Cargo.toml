@@ -11,7 +11,7 @@ description = "A command line interface for the Querydown language"
 
 [dependencies]
 querydown = { version = "0.0.1", path = "../compiler" }
-clap = { version = "4.1.4", features = ["derive"] }
+clap = { version = "4.4.11", features = ["derive"] }
 
 # We override the name of the binary for src/main.rs, which otherwise would be
 # querydown-cli (matching the crate name).
