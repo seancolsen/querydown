@@ -6,7 +6,7 @@ use crate::tokens::*;
 
 use super::path::path;
 
-pub fn has_quantity(expr: impl Psr<Expr>) -> impl Psr<HasQuantity> {
+pub fn has_quantity<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, HasQuantity> {
     let quantity = choice((
         exactly(HAS_QUANTITY_AT_LEAST_ONE).to(Quantity::AtLeastOne),
         exactly(HAS_QUANTITY_ZERO).to(Quantity::Zero),

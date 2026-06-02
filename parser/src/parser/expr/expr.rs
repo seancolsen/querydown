@@ -9,7 +9,7 @@ use super::{
     has_quantity::has_quantity, number::number, path::path, pipe::pipe,
 };
 
-pub fn expr() -> impl Psr<Expr> {
+pub fn expr<'src>() -> impl Psr<'src, Expr> {
     // A bit about how this works:
     //
     // - `prec` is short for "precedence".
@@ -57,44 +57,44 @@ pub fn expr() -> impl Psr<Expr> {
     })
 }
 
-fn operator(
+fn operator<'src>(
     c: char,
     expr_enum_constructor: fn(Box<Expr>, Box<Expr>) -> Expr,
-) -> impl Psr<fn(Box<Expr>, Box<Expr>) -> Expr> {
+) -> impl Psr<'src, fn(Box<Expr>, Box<Expr>) -> Expr> {
     just(c).padded().to(expr_enum_constructor)
 }
 
-fn variable() -> impl Psr<String> {
-    just(CONST_SIGIL).ignore_then(ident())
+fn variable<'src>() -> impl Psr<'src, String> {
+    just(CONST_SIGIL).ignore_then(ident().map(|s: &str| s.to_string()))
 }
 
-fn string() -> impl Psr<String> {
+fn string<'src>() -> impl Psr<'src, String> {
     quoted(STRING_QUOTE_SINGLE).or(quoted(STRING_QUOTE_DOUBLE))
 }
 
-fn parenthetical(e: impl Psr<Expr>) -> impl Psr<Expr> {
+fn parenthetical<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     e.padded()
         .delimited_by(just(EXPR_PAREN_L), just(EXPR_PAREN_R))
 }
 
-fn multiplication(e: impl Psr<Expr>) -> impl Psr<Expr> {
+fn multiplication<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     let op = choice((
         operator(EXPR_TIMES, Expr::Product),
         operator(EXPR_DIVIDE, Expr::Quotient),
     ));
-    e.clone()
-        .then(op.then(e).repeated())
-        .foldl(|lhs, (f, rhs)| f(Box::new(lhs), Box::new(rhs)))
+    e.clone().foldl(op.then(e).repeated(), |lhs, (f, rhs)| {
+        f(Box::new(lhs), Box::new(rhs))
+    })
 }
 
-fn addition(e: impl Psr<Expr>) -> impl Psr<Expr> {
+fn addition<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     let op = choice((
         operator(EXPR_PLUS, Expr::Sum),
         operator(EXPR_MINUS, Expr::Difference),
     ));
-    e.clone()
-        .then(op.then(e).repeated())
-        .foldl(|lhs, (f, rhs)| f(Box::new(lhs), Box::new(rhs)))
+    e.clone().foldl(op.then(e).repeated(), |lhs, (f, rhs)| {
+        f(Box::new(lhs), Box::new(rhs))
+    })
 }
 
 #[cfg(test)]
@@ -106,8 +106,13 @@ mod tests {
 
     #[test]
     fn test_parse_expr() {
-        let parser = expr().then_ignore(end());
-        let p = |s: &str| parser.parse(s);
+        let p = |s: &str| {
+            expr()
+                .then_ignore(end())
+                .parse(s)
+                .into_result()
+                .map_err(|_| ())
+        };
 
         assert_eq!(p("8"), Ok(Expr::Number("8".to_string())));
         assert_eq!(

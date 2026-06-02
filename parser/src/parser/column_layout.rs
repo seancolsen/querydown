@@ -6,13 +6,14 @@ use crate::tokens::*;
 use super::expr::{expr, path_to_one};
 use super::utils::*;
 
-pub fn result_columns() -> impl Psr<Vec<ResultColumnStatement>> {
+pub fn result_columns<'src>() -> impl Psr<'src, Vec<ResultColumnStatement>> {
     result_column_statement()
         .then_ignore(whitespace())
         .repeated()
+        .collect::<Vec<ResultColumnStatement>>()
 }
 
-fn result_column_statement() -> impl Psr<ResultColumnStatement> {
+fn result_column_statement<'src>() -> impl Psr<'src, ResultColumnStatement> {
     just(COLUMN_SPEC_PREFIX)
         .then(whitespace())
         .ignore_then(choice((
@@ -21,7 +22,7 @@ fn result_column_statement() -> impl Psr<ResultColumnStatement> {
         )))
 }
 
-fn column_glob() -> impl Psr<ColumnGlob> {
+fn column_glob<'src>() -> impl Psr<'src, ColumnGlob> {
     let head = path_to_one()
         .then_ignore(just(PATH_SEPARATOR))
         .or_not()
@@ -30,6 +31,7 @@ fn column_glob() -> impl Psr<ColumnGlob> {
     let specs = column_spec()
         .padded()
         .repeated()
+        .collect::<Vec<ColumnSpec>>()
         .delimited_by(
             just(COLUMN_GLOB_ADJUSTMENT_BRACE_L),
             just(COLUMN_GLOB_ADJUSTMENT_BRACE_R),
@@ -42,7 +44,7 @@ fn column_glob() -> impl Psr<ColumnGlob> {
         .map(|(head, specs)| ColumnGlob { head, specs })
 }
 
-fn column_spec() -> impl Psr<ColumnSpec> {
+fn column_spec<'src>() -> impl Psr<'src, ColumnSpec> {
     expr()
         .then(
             whitespace()
@@ -67,7 +69,7 @@ fn column_spec() -> impl Psr<ColumnSpec> {
         })
 }
 
-fn column_control() -> impl Psr<ColumnControl> {
+fn column_control<'src>() -> impl Psr<'src, ColumnControl> {
     #[derive(Clone)]
     enum Flag {
         Sort,
@@ -93,59 +95,64 @@ fn column_control() -> impl Psr<ColumnControl> {
         just(COLUMN_CONTROL_FLAG_HIDE).to(Flag::Hide),
         just(COLUMN_CONTROL_FLAG_PARTITION).to(Flag::Partition),
     ));
-    just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(flag.repeated().at_least(1).map(|flags| {
-        let mut context = Context::General;
-        let mut sort = false;
-        let mut sort_ordinal: Option<u32> = None;
-        let mut sort_direction = SortDirection::default();
-        let mut sort_nulls = NullsSort::default();
-        let mut group = false;
-        let mut group_ordinal: Option<u32> = None;
-        let mut partition = false;
-        let mut hide = false;
-        let mut handle_ordinal = |o: u32, c: &Context| match c {
-            Context::Sorting => sort_ordinal = Some(o),
-            Context::Grouping => group_ordinal = Some(o),
-            Context::General => {}
-        };
-        for flag in flags {
-            match flag {
-                Flag::Sort => {
-                    sort = true;
-                    context = Context::Sorting;
+    just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(
+        flag.repeated()
+            .at_least(1)
+            .collect::<Vec<Flag>>()
+            .map(|flags| {
+                let mut context = Context::General;
+                let mut sort = false;
+                let mut sort_ordinal: Option<u32> = None;
+                let mut sort_direction = SortDirection::default();
+                let mut sort_nulls = NullsSort::default();
+                let mut group = false;
+                let mut group_ordinal: Option<u32> = None;
+                let mut partition = false;
+                let mut hide = false;
+                let mut handle_ordinal = |o: u32, c: &Context| match c {
+                    Context::Sorting => sort_ordinal = Some(o),
+                    Context::Grouping => group_ordinal = Some(o),
+                    Context::General => {}
+                };
+                for flag in flags {
+                    match flag {
+                        Flag::Sort => {
+                            sort = true;
+                            context = Context::Sorting;
+                        }
+                        Flag::Desc => sort_direction = SortDirection::Desc,
+                        Flag::Ordinal(o) => handle_ordinal(o, &context),
+                        Flag::Group => {
+                            group = true;
+                            context = Context::Grouping;
+                        }
+                        Flag::NullsFirst => sort_nulls = NullsSort::First,
+                        Flag::Hide => hide = true,
+                        Flag::Partition => partition = true,
+                    }
                 }
-                Flag::Desc => sort_direction = SortDirection::Desc,
-                Flag::Ordinal(o) => handle_ordinal(o, &context),
-                Flag::Group => {
-                    group = true;
-                    context = Context::Grouping;
+                ColumnControl {
+                    sort: if sort {
+                        Some(SortSpec {
+                            ordinal: sort_ordinal,
+                            direction: sort_direction,
+                            nulls_sort: sort_nulls,
+                        })
+                    } else {
+                        None
+                    },
+                    group: if group {
+                        Some(GroupSpec {
+                            ordinal: group_ordinal,
+                        })
+                    } else {
+                        None
+                    },
+                    is_partition_by: partition,
+                    is_hidden: hide,
                 }
-                Flag::NullsFirst => sort_nulls = NullsSort::First,
-                Flag::Hide => hide = true,
-                Flag::Partition => partition = true,
-            }
-        }
-        ColumnControl {
-            sort: if sort {
-                Some(SortSpec {
-                    ordinal: sort_ordinal,
-                    direction: sort_direction,
-                    nulls_sort: sort_nulls,
-                })
-            } else {
-                None
-            },
-            group: if group {
-                Some(GroupSpec {
-                    ordinal: group_ordinal,
-                })
-            } else {
-                None
-            },
-            is_partition_by: partition,
-            is_hidden: hide,
-        }
-    }))
+            }),
+    )
 }
 
 #[cfg(test)]
@@ -155,7 +162,7 @@ mod tests {
     #[test]
     fn test_parse_column_control() {
         assert_eq!(
-            column_control().parse(r"\s1d"),
+            column_control().parse(r"\s1d").into_result(),
             Ok(ColumnControl {
                 sort: Some(SortSpec {
                     ordinal: Some(1),
@@ -172,7 +179,7 @@ mod tests {
     #[test]
     fn test_parse_column_spec() {
         assert_eq!(
-            column_spec().parse("8"),
+            column_spec().parse("8").into_result(),
             Ok(ColumnSpec {
                 column_control: ColumnControl::default(),
                 expr: Expr::Number("8".to_string()),
@@ -180,7 +187,7 @@ mod tests {
             })
         );
         assert_eq!(
-            column_spec().parse(r"foo->bar\s1d"),
+            column_spec().parse(r"foo->bar\s1d").into_result(),
             Ok(ColumnSpec {
                 column_control: ColumnControl {
                     sort: Some(SortSpec {
@@ -201,7 +208,9 @@ mod tests {
     #[test]
     fn test_parse_result_columns() {
         assert_eq!(
-            result_columns().parse(r"$* $a.b.*(c \h d\s) $foo $bar->B \g"),
+            result_columns()
+                .parse(r"$* $a.b.*(c \h d\s) $foo $bar->B \g")
+                .into_result(),
             Ok(vec![
                 ResultColumnStatement::Glob(ColumnGlob::default()),
                 ResultColumnStatement::Glob(ColumnGlob {

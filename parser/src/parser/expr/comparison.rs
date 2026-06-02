@@ -5,11 +5,11 @@ use crate::parser::expr::condition_set::condition_set;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
-pub fn comparison(
-    comparison_side_expr: impl Psr<Expr>,
-    condition_set_expr: impl Psr<Expr>,
-    range_expr: impl Psr<Expr>,
-) -> impl Psr<Comparison> {
+pub fn comparison<'src>(
+    comparison_side_expr: impl Psr<'src, Expr>,
+    condition_set_expr: impl Psr<'src, Expr>,
+    range_expr: impl Psr<'src, Expr>,
+) -> impl Psr<'src, Comparison> {
     let left = choice((
         condition_set(condition_set_expr.clone())
             .then_ignore(whitespace().then(just(COMPARISON_EXPAND)))
@@ -34,7 +34,7 @@ pub fn comparison(
         })
 }
 
-fn range(expr: impl Psr<Expr>) -> impl Psr<Range> {
+fn range<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Range> {
     let exclusivity = just(COMPARISON_RANGE_BOUND_EXCLUSIVE)
         .or_not()
         .map(|b| match b {
@@ -59,7 +59,7 @@ fn range(expr: impl Psr<Expr>) -> impl Psr<Range> {
         .map(|(lower, upper)| Range { lower, upper })
 }
 
-fn operator() -> impl Psr<Operator> {
+fn operator<'src>() -> impl Psr<'src, Operator> {
     choice((
         // Three character
         exactly(COMPARE_NOT_LIKE).to(Operator::NLike),

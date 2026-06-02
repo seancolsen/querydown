@@ -9,7 +9,7 @@ use crate::ast::*;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
-pub fn duration() -> impl Psr<Duration> {
+pub fn duration<'src>() -> impl Psr<'src, Duration> {
     let case_insensitive =
         |uppercase: char| choice((just(uppercase), just(uppercase.to_ascii_lowercase())));
 
@@ -30,13 +30,18 @@ pub fn duration() -> impl Psr<Duration> {
     just(CONST_SIGIL).ignore_then(
         large_part
             .repeated()
-            .chain::<Part, _, _>(
+            .collect::<Vec<Part>>()
+            .then(
                 case_insensitive('T')
-                    .ignore_then(small_part.repeated().at_least(1))
-                    .or_not()
-                    .flatten(),
+                    .ignore_then(small_part.repeated().at_least(1).collect::<Vec<Part>>())
+                    .or_not(),
             )
-            .try_map(|v, span| assemble(v).map_err(|s| Simple::custom(span, s))),
+            .try_map(|(mut large, small), span| {
+                if let Some(small) = small {
+                    large.extend(small);
+                }
+                assemble(large).map_err(|s| Rich::custom(span, s))
+            }),
     )
 }
 
@@ -101,7 +106,13 @@ mod tests {
 
     #[test]
     fn test_parse_duration() {
-        let parse = |s: &str| duration().then_ignore(end()).parse(s);
+        let parse = |s: &str| {
+            duration()
+                .then_ignore(end())
+                .parse(s)
+                .into_result()
+                .map_err(|_| ())
+        };
         assert_eq!(
             parse("@1Y2.2M0.3W4444DT5H6M7S"),
             Ok(Duration {

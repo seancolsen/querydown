@@ -2,16 +2,12 @@ use chumsky::{prelude::*, text::*};
 
 use crate::parser::utils::*;
 
-pub fn number() -> impl Psr<String> {
+pub fn number<'src>() -> impl Psr<'src, String> {
     just('-')
         .or_not()
-        .chain::<char, _, _>(int(10))
-        .chain::<char, _, _>(
-            just('.')
-                .chain(digits::<char, Simple<char>>(10))
-                .or_not()
-                .flatten(),
-        )
-        .collect::<String>()
+        .then(int(10))
+        .then(just('.').then(digits(10)).or_not())
+        .to_slice()
+        .map(|s: &str| s.to_string())
         .labelled("number")
 }

@@ -6,13 +6,15 @@ use crate::tokens::*;
 use super::utils::*;
 use super::{column_layout::result_columns, expr::expr};
 
-pub fn query() -> impl Psr<Query> {
+pub fn query<'src>() -> impl Psr<'src, Query> {
     let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
-    let transformations = transformation().separated_by(
-        whitespace()
-            .then(exactly(TRANSFORMATION_DELIMITER))
-            .then(whitespace()),
-    );
+    let transformations = transformation()
+        .separated_by(
+            whitespace()
+                .then(exactly(TRANSFORMATION_DELIMITER))
+                .then(whitespace()),
+        )
+        .collect::<Vec<Transformation>>();
     whitespace().ignore_then(
         base_table
             .then_ignore(whitespace())
@@ -25,7 +27,7 @@ pub fn query() -> impl Psr<Query> {
     )
 }
 
-fn transformation() -> impl Psr<Transformation> {
+fn transformation<'src>() -> impl Psr<'src, Transformation> {
     top_level_condition_set()
         .then_ignore(whitespace())
         .then(result_columns().or_not())
@@ -35,11 +37,15 @@ fn transformation() -> impl Psr<Transformation> {
         })
 }
 
-fn top_level_condition_set() -> impl Psr<ConditionSet> {
-    expr().padded().repeated().map(|entries| ConditionSet {
-        conjunction: Conjunction::And,
-        entries,
-    })
+fn top_level_condition_set<'src>() -> impl Psr<'src, ConditionSet> {
+    expr()
+        .padded()
+        .repeated()
+        .collect::<Vec<Expr>>()
+        .map(|entries| ConditionSet {
+            conjunction: Conjunction::And,
+            entries,
+        })
 }
 
 #[cfg(test)]
@@ -49,7 +55,7 @@ mod tests {
     #[test]
     fn test_parse_query() {
         assert_eq!(
-            query().parse("#foo a:1 b:2 $c"),
+            query().parse("#foo a:1 b:2 $c").into_result(),
             Ok(Query {
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {

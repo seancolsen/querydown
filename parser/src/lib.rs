@@ -9,6 +9,7 @@ use parser::query;
 pub fn parse(input: &str) -> Result<ast::Query, String> {
     query()
         .parse(input)
+        .into_result()
         // TODO_ERR improve error handling
         .map_err(|_| "Invalid querydown code".to_string())
 }

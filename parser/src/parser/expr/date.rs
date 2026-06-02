@@ -4,7 +4,7 @@ use crate::ast::*;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
-pub fn date() -> impl Psr<Date> {
+pub fn date<'src>() -> impl Psr<'src, Date> {
     just(CONST_SIGIL).ignore_then(
         usize_with_digit_count(4)
             .then_ignore(just('-'))
