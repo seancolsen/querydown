@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 querydown = { path = "../../compiler" }
-wasm-bindgen = "0.2.86"
+wasm-bindgen = "0.2.122"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.13"
