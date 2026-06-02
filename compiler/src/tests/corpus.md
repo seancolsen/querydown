@@ -91,7 +91,7 @@ SELECT
 FROM "Checkouts"
 WHERE
   "Checkouts"."Check In Time" IS NULL AND
-  "Checkouts"."Checkout Time" < NOW() - INTERVAL '1M';
+  "Checkouts"."Checkout Time" < NOW() - make_interval(months => 1);
 ```
 
 ### camelCase
@@ -108,7 +108,7 @@ SELECT
 FROM "Checkouts"
 WHERE
   "Checkouts"."Check In Time" IS NULL AND
-  "Checkouts"."Checkout Time" < NOW() - INTERVAL '1M';
+  "Checkouts"."Checkout Time" < NOW() - make_interval(months => 1);
 ```
 
 ### Complex flexible identifiers
@@ -171,7 +171,7 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  "issues"."created_at" > NOW() - INTERVAL '6Y';
+  "issues"."created_at" > NOW() - make_interval(years => 6);
 ```
 
 ### Duration, lowercase
@@ -185,7 +185,7 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  "issues"."created_at" > NOW() - INTERVAL '6Y';
+  "issues"."created_at" > NOW() - make_interval(years => 6);
 ```
 
 ## Comparisons
@@ -276,8 +276,8 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  "issues"."created_at" >= NOW() - INTERVAL '2Y' AND
-  "issues"."created_at" <= NOW() - INTERVAL '1Y';
+  "issues"."created_at" >= NOW() - make_interval(years => 2) AND
+  "issues"."created_at" <= NOW() - make_interval(years => 1);
 ```
 
 ### Range vs expansion
@@ -675,7 +675,7 @@ WITH
       "issues"."author" AS "pk"
     FROM "issues"
     WHERE
-      "issues"."created_at" > NOW() - INTERVAL '1Y'
+      "issues"."created_at" > NOW() - make_interval(years => 1)
     GROUP BY "issues"."author"
   )
 SELECT
@@ -703,7 +703,7 @@ WITH
       count(*) AS "v1"
     FROM "issues"
     WHERE
-      "issues"."created_at" > NOW() - INTERVAL '1Y'
+      "issues"."created_at" > NOW() - make_interval(years => 1)
     GROUP BY "issues"."author"
   )
 SELECT
