@@ -893,13 +893,80 @@ _(🚧 Not yet implemented)_
 
 ### Column-level metadata
 
-_(🚧 Not yet implemented)_
+You can associate arbitrary, application-defined metadata with any result column by writing an object prefixed with a `@` sigil. The metadata must come **last** in the column spec — after any sorting/grouping flags and after the column alias.
 
-> Show all columns in the `issues` table. Also associate `{"width": 100}` as JSON metadata with the `title` column. This metadata will get passed through as output from the Querydown compiler, separate from the SQL output.
+> Show several columns from the `issues` table, attaching display metadata to each.
 
 ```qd
-#issues $*(title \{"width": 100})
+#issues
+$title @{width:100}
+$created_at @{formatter:timeElapsed textColor:light}
+$due_date @{format:'YYYY-MM-DD' datePicker:@true}
+$#comments @{formattingConditions:[
+  {gte:10 bg:'#fbc9ff'}
+  {gte:5 bg:'#d5d2ff'}
+]}
 ```
+
+This compiles to the following SQL:
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  "issues"."created_at",
+  "issues"."due_date",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+…and to the following metadata, returned by the compiler separately from the SQL:
+
+```json
+{
+  "columnMetadata": [
+    { "width": 100 },
+    { "formatter": "timeElapsed", "textColor": "light" },
+    { "format": "YYYY-MM-DD", "datePicker": true },
+    {
+      "formattingConditions": [
+        { "gte": 10, "bg": "#fbc9ff" },
+        { "gte": 5, "bg": "#d5d2ff" }
+      ]
+    }
+  ]
+}
+```
+
+The exact structure of the metadata is entirely up to you. Querydown does not interpret it — it only provides a way to specify arbitrary metadata for any column and pass it through to the output.
+
+#### The metadata output
+
+The `columnMetadata` array is **positional**: it has one entry per output column, in the same order as the columns in the result set. A column with no metadata gets `null` in its slot. This means a column glob like `$*` contributes one `null` (or its adjustment metadata) per expanded column, and hidden columns (`\h`) contribute nothing.
+
+#### Querydown's JSON variant
+
+The metadata is written in a JSON-like syntax with a few differences from standard JSON:
+
+- Object entries and array elements are delimited with **whitespace** instead of commas.
+- Strings can be left **unquoted** if they are identifiers (e.g. `timeElapsed`). They can also be quoted with single or double quotes.
+- The values `null`, `true`, and `false` are written with a `@` sigil: `@null`, `@true`, `@false`.
+- Only the top-level metadata object takes the `@` sigil. Nested objects do not.
+
+A few things to watch out for:
+
+- Bare `true`, `false`, and `null` (without the `@` sigil) are parsed as the **strings** `"true"`, `"false"`, and `"null"`.
+- Inside metadata, the `@` sigil accepts **only** `true`/`false`/`null` — not dates (`@2000-01-01`), durations (`@2y`), or other constants.
+- A value that begins with a digit is parsed as a number, and a value that begins with `#` (such as a color like `#fbc9ff`) must be quoted.
 
 ### Query-level metadata
 

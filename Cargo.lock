@@ -326,6 +326,7 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "querydown",
+ "serde_json",
 ]
 
 [[package]]
@@ -333,6 +334,7 @@ name = "querydown-js"
 version = "0.0.1"
 dependencies = [
  "querydown",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]
@@ -342,6 +344,8 @@ name = "querydown-parser"
 version = "0.0.1"
 dependencies = [
  "chumsky",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

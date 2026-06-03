@@ -16,28 +16,55 @@ use self::sorting::SortingStack;
 
 use super::{expr::convert_expr, scope::Scope};
 
+/// The result of converting result columns: the SQL columns, the sorting, and a `column_metadata`
+/// vector that is positionally aligned with `columns` (one entry per emitted column, `None` where
+/// the column has no metadata).
+pub struct ConvertedResultColumns {
+    pub columns: Vec<Column>,
+    pub sorting: Vec<SortEntry>,
+    pub column_metadata: Vec<Option<MetaValue>>,
+}
+
 pub fn convert_result_columns(
     result_columns: Vec<ResultColumnStatement>,
     scope: &mut Scope,
-) -> Result<(Vec<Column>, Vec<SortEntry>), String> {
+) -> Result<ConvertedResultColumns, String> {
     let mut columns = Vec::<Column>::new();
+    let mut column_metadata = Vec::<Option<MetaValue>>::new();
     let mut sorting_stack = SortingStack::new();
     for column_statement in result_columns {
         match column_statement {
             ResultColumnStatement::Spec(spec) => {
-                handle_spec(spec, &mut columns, &mut sorting_stack, scope)?;
+                handle_spec(
+                    spec,
+                    &mut columns,
+                    &mut column_metadata,
+                    &mut sorting_stack,
+                    scope,
+                )?;
             }
             ResultColumnStatement::Glob(glob) => {
-                handle_glob(glob, &mut columns, &mut sorting_stack, scope)?;
+                handle_glob(
+                    glob,
+                    &mut columns,
+                    &mut column_metadata,
+                    &mut sorting_stack,
+                    scope,
+                )?;
             }
         }
     }
-    Ok((columns, sorting_stack.into()))
+    Ok(ConvertedResultColumns {
+        columns,
+        sorting: sorting_stack.into(),
+        column_metadata,
+    })
 }
 
 fn handle_spec(
     spec: ColumnSpec,
     columns: &mut Vec<Column>,
+    column_metadata: &mut Vec<Option<MetaValue>>,
     sorting_stack: &mut SortingStack,
     scope: &mut Scope,
 ) -> Result<(), String> {
@@ -51,6 +78,7 @@ fn handle_spec(
         sorting_stack.push(sorting_expr, sort_spec);
     }
     columns.push(Column { expr, alias });
+    column_metadata.push(spec.metadata);
     // TODO convert GroupSpec into GROUP BY
     Ok(())
 }
@@ -58,6 +86,7 @@ fn handle_spec(
 fn handle_glob(
     glob: ColumnGlob,
     columns: &mut Vec<Column>,
+    column_metadata: &mut Vec<Option<MetaValue>>,
     sorting_stack: &mut SortingStack,
     scope: &mut Scope,
 ) -> Result<(), String> {
@@ -85,8 +114,8 @@ fn handle_glob(
             return Err(err_msg);
         }
         let Some(chain_to_one) = clarified_path.head else {
-                return Err(msg::empty_path());
-            };
+            return Err(msg::empty_path());
+        };
         let table = scope
             .schema
             .tables
@@ -98,6 +127,7 @@ fn handle_glob(
 
     let mut hidden_columns: HashSet<usize> = HashSet::new();
     let mut column_aliases: HashMap<usize, String> = HashMap::new();
+    let mut column_metadata_map: HashMap<usize, MetaValue> = HashMap::new();
 
     for spec in glob.specs {
         if let Expr::Path(ref path) = spec.expr {
@@ -114,6 +144,9 @@ fn handle_glob(
                     if let Some(alias) = spec.alias {
                         column_aliases.insert(column_id, alias);
                     }
+                    if let Some(metadata) = spec.metadata {
+                        column_metadata_map.insert(column_id, metadata);
+                    }
                 }
             }
         }
@@ -124,6 +157,7 @@ fn handle_glob(
         let alias = column_aliases.get(&column.id).cloned();
         if !hidden_columns.contains(&column.id) {
             columns.push(Column { expr, alias });
+            column_metadata.push(column_metadata_map.get(&column.id).cloned());
         }
     }
     Ok(())

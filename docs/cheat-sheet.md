@@ -34,6 +34,7 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `"` or `'` | string quote | ✅ |
 | `^` | [string flag](./language.md#flagged-strings) prefix | ❌ |
 | `{ }` | [string interpolation](./language.md#flagged-strings) | ❌ |
+| `@{ }` | [column metadata](./language.md#column-level-metadata) object (`@true`/`@false`/`@null`, whitespace-delimited, `:` between key and value) | ✅ |
 | `\` | string escape sequence prefix | ✅ |
 | `` ` `` | [identifier quote](./language.md#identifiers-table-names-and-column-names) | ✅ |
 
@@ -73,6 +74,7 @@ Regex flags
 | `*( )` | [column globs](./language.md#column-globs) | ✅ |
 | `->` | [alias](./language.md#aliasing-result-columns) prefix | ✅ |
 | `\` | column control flags prefix | ✅ |
+| `@{ }` | [column metadata](./language.md#column-level-metadata) (written last in the spec) | ✅ |
 
 Column control flags:
 

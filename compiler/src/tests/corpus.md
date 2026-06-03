@@ -848,3 +848,118 @@ ORDER BY
   "users"."username" DESC NULLS LAST,
   "issues"."title" DESC NULLS LAST;
 ```
+
+## Column metadata
+
+A test case may include an optional ` ```json ` block after the SQL block. When
+present, the harness compares its `columnMetadata` against the compiler output.
+
+### Full example
+
+```qd
+#issues
+$title @{width:100}
+$created_at @{formatter:timeElapsed textColor:light}
+$due_date @{format:'YYYY-MM-DD' datePicker:@true}
+$#comments @{formattingConditions:[
+  {gte:10 bg:'#fbc9ff'}
+  {gte:5 bg:'#d5d2ff'}
+]}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  "issues"."created_at",
+  "issues"."due_date",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+```json
+{
+  "columnMetadata": [
+    { "width": 100 },
+    { "formatter": "timeElapsed", "textColor": "light" },
+    { "format": "YYYY-MM-DD", "datePicker": true },
+    {
+      "formattingConditions": [
+        { "gte": 10, "bg": "#fbc9ff" },
+        { "gte": 5, "bg": "#d5d2ff" }
+      ]
+    }
+  ]
+}
+```
+
+### Null slot for a column without metadata
+
+> A column without metadata gets a `null` slot, keeping the array aligned with the columns.
+
+```qd
+#issues $title @{width:100} $id
+```
+
+```sql
+SELECT
+  "issues"."title",
+  "issues"."id"
+FROM "issues";
+```
+
+```json
+{
+  "columnMetadata": [
+    { "width": 100 },
+    null
+  ]
+}
+```
+
+### Metadata on a globbed column
+
+> Metadata attached to a column inside a glob is associated with that one expanded column.
+
+```qd
+#issues $*(title @{width:100})
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues";
+```
+
+```json
+{
+  "columnMetadata": [
+    null,
+    { "width": 100 },
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ]
+}
+```

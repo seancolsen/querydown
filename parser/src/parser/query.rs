@@ -86,7 +86,8 @@ mod tests {
                             is_partition_by: false,
                             is_hidden: false
                         },
-                        expr: Expr::Path(vec![PathPart::Column("c".to_string())])
+                        expr: Expr::Path(vec![PathPart::Column("c".to_string())]),
+                        metadata: None,
                     })],
                 }],
             })

@@ -1,4 +1,55 @@
+use serde::ser::{SerializeMap, SerializeSeq};
+use serde::{Serialize, Serializer};
+
 use crate::tokens::LITERAL_NULL;
+
+/// A value in Querydown's JSON-like metadata sub-language. Used to carry arbitrary,
+/// application-defined metadata for result columns from the source code through to the compiler
+/// output, separate from the generated SQL.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MetaValue {
+    Null,
+    Bool(bool),
+    /// The number is kept as a string (like [`Expr::Number`]) so that we preserve the exact way it
+    /// was written. It is serialized as a JSON number.
+    Number(String),
+    String(String),
+    Array(Vec<MetaValue>),
+    /// Object entries are stored in a `Vec` (rather than a map) so that key order is preserved in
+    /// the serialized output.
+    Object(Vec<(String, MetaValue)>),
+}
+
+impl Serialize for MetaValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            MetaValue::Null => serializer.serialize_none(),
+            MetaValue::Bool(b) => serializer.serialize_bool(*b),
+            MetaValue::Number(n) => {
+                let number: serde_json::Number = n.parse().map_err(serde::ser::Error::custom)?;
+                number.serialize(serializer)
+            }
+            MetaValue::String(s) => serializer.serialize_str(s),
+            MetaValue::Array(items) => {
+                let mut seq = serializer.serialize_seq(Some(items.len()))?;
+                for item in items {
+                    seq.serialize_element(item)?;
+                }
+                seq.end()
+            }
+            MetaValue::Object(entries) => {
+                let mut map = serializer.serialize_map(Some(entries.len()))?;
+                for (key, value) in entries {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct Query {
@@ -252,6 +303,9 @@ pub struct ColumnSpec {
     pub expr: Expr,
     pub alias: Option<String>,
     pub column_control: ColumnControl,
+    /// Optional column-level metadata, written last in the spec as `@{ ... }`. When present, this
+    /// is always a [`MetaValue::Object`].
+    pub metadata: Option<MetaValue>,
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -296,4 +350,47 @@ pub enum SortDirection {
 pub struct ColumnGlob {
     pub head: Vec<PathPart>,
     pub specs: Vec<ColumnSpec>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn obj(entries: Vec<(&str, MetaValue)>) -> MetaValue {
+        MetaValue::Object(
+            entries
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn test_meta_value_serialization() {
+        // Numbers are unquoted, booleans are real JSON booleans, null is null, and object key order
+        // is preserved.
+        let value = MetaValue::Array(vec![
+            obj(vec![("width", MetaValue::Number("100".to_string()))]),
+            obj(vec![
+                ("formatter", MetaValue::String("timeElapsed".to_string())),
+                ("textColor", MetaValue::String("light".to_string())),
+            ]),
+            obj(vec![
+                ("format", MetaValue::String("YYYY-MM-DD".to_string())),
+                ("datePicker", MetaValue::Bool(true)),
+            ]),
+            obj(vec![("missing", MetaValue::Null)]),
+        ]);
+        let json = serde_json::to_string(&value).unwrap();
+        assert_eq!(
+            json,
+            r#"[{"width":100},{"formatter":"timeElapsed","textColor":"light"},{"format":"YYYY-MM-DD","datePicker":true},{"missing":null}]"#
+        );
+    }
+
+    #[test]
+    fn test_meta_value_float_serialization() {
+        let value = MetaValue::Number("-2.5".to_string());
+        assert_eq!(serde_json::to_string(&value).unwrap(), "-2.5");
+    }
 }

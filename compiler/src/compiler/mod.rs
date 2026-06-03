@@ -9,4 +9,4 @@ mod rendering;
 mod result_columns;
 mod scope;
 
-pub use compiler::Compiler;
+pub use compiler::{CompileResult, Compiler};

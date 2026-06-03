@@ -12,5 +12,7 @@ pub fn compile(schema_json: &str, dialect: &str, input: String) -> Result<String
         identifier_resolution: IdentifierResolution::Flexible,
     };
     let compiler = Compiler::new(schema_json, options)?;
-    compiler.compile(input.to_owned())
+    let result = compiler.compile(input.to_owned())?;
+    // Return a JSON object `{ sql, columnMetadata }` serialized as a string.
+    serde_json::to_string(&result).map_err(|e| e.to_string())
 }

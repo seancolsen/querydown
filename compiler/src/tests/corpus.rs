@@ -103,9 +103,12 @@ fn test_corpus() {
         .join("\n")
     }
 
-    fn test(mut case: TestCase<Opts>) {
-        let expected = case.args.pop().unwrap();
-        let input = case.args.pop().unwrap();
+    fn test(case: TestCase<Opts>) {
+        // Args are the fenced code blocks in document order: the Querydown input first, then the
+        // expected SQL, then optionally a JSON block with the expected column metadata.
+        let input = case.args.get(0).expect("missing input code block").clone();
+        let expected_sql = case.args.get(1).expect("missing SQL code block").clone();
+        let expected_json = case.args.get(2).cloned();
         let options = Options {
             identifier_resolution: case.options.identifier_resolution,
             dialect: match case.options.dialect.as_str() {
@@ -115,12 +118,30 @@ fn test_corpus() {
         };
         // println!("{:}", case.options.schema_json);
         let compiler = Compiler::new(&case.options.schema_json, options).unwrap();
-        let actual = compiler.compile(input.to_owned()).unwrap();
-        if clean(actual.clone()) == clean(expected.clone()) {
-            return;
+        let result = compiler.compile(input.to_owned()).unwrap();
+
+        if clean(result.sql.clone()) != clean(expected_sql.clone()) {
+            println!("{}", get_output(&case, &input, &expected_sql, &result.sql));
+            panic!("Test corpus failure (SQL mismatch)");
         }
-        println!("{}", get_output(&case, &input, &expected, &actual));
-        panic!("Test corpus failure");
+
+        if let Some(expected_json) = expected_json {
+            // Compare only the `columnMetadata` portion, parsed into `serde_json::Value` so the
+            // comparison is insensitive to whitespace.
+            let actual_meta = serde_json::to_value(&result.column_metadata).unwrap();
+            let expected_value: serde_json::Value = serde_json::from_str(&expected_json)
+                .expect("expected JSON block is not valid JSON");
+            let expected_meta = expected_value
+                .get("columnMetadata")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            if actual_meta != expected_meta {
+                let actual_str = serde_json::to_string_pretty(&actual_meta).unwrap();
+                let expected_str = serde_json::to_string_pretty(&expected_meta).unwrap();
+                println!("{}", get_output(&case, &input, &expected_str, &actual_str));
+                panic!("Test corpus failure (metadata mismatch)");
+            }
+        }
     }
 
     fn name_or_heading_contains(case: &TestCase<Opts>, s: &str) -> bool {

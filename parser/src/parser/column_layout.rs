@@ -4,6 +4,7 @@ use crate::ast::*;
 use crate::tokens::*;
 
 use super::expr::{expr, path_to_one};
+use super::metadata::metadata;
 use super::utils::*;
 
 pub fn result_columns<'src>() -> impl Psr<'src, Vec<ResultColumnStatement>> {
@@ -62,10 +63,14 @@ fn column_spec<'src>() -> impl Psr<'src, ColumnSpec> {
                 )
                 .or_not(),
         )
-        .map(|((expr, alias), ctrl)| ColumnSpec {
+        // Metadata must come last in the spec — after the sorting/grouping flags and after the
+        // alias.
+        .then(whitespace().ignore_then(metadata()).or_not())
+        .map(|(((expr, alias), ctrl), metadata)| ColumnSpec {
             expr,
             alias,
             column_control: ctrl.unwrap_or_default(),
+            metadata,
         })
 }
 
@@ -184,6 +189,7 @@ mod tests {
                 column_control: ColumnControl::default(),
                 expr: Expr::Number("8".to_string()),
                 alias: None,
+                metadata: None,
             })
         );
         assert_eq!(
@@ -201,8 +207,47 @@ mod tests {
                 },
                 expr: Expr::Path(vec![PathPart::Column("foo".to_string())]),
                 alias: Some("bar".to_string()),
+                metadata: None,
             })
         );
+    }
+
+    #[test]
+    fn test_parse_column_spec_with_metadata() {
+        // Metadata is parsed after the alias and after the column control flags.
+        assert_eq!(
+            column_spec()
+                .then_ignore(end())
+                .parse(r"foo->bar\sd @{width:100}")
+                .into_result(),
+            Ok(ColumnSpec {
+                column_control: ColumnControl {
+                    sort: Some(SortSpec {
+                        ordinal: None,
+                        direction: SortDirection::Desc,
+                        nulls_sort: NullsSort::default(),
+                    }),
+                    group: None,
+                    is_partition_by: false,
+                    is_hidden: false,
+                },
+                expr: Expr::Path(vec![PathPart::Column("foo".to_string())]),
+                alias: Some("bar".to_string()),
+                metadata: Some(MetaValue::Object(vec![(
+                    "width".to_string(),
+                    MetaValue::Number("100".to_string())
+                )])),
+            })
+        );
+    }
+
+    #[test]
+    fn test_metadata_must_come_last() {
+        // Metadata before the column control flags is not allowed.
+        assert!(column_spec()
+            .then_ignore(end())
+            .parse(r"foo @{width:100}\sd")
+            .has_errors());
     }
 
     #[test]
@@ -228,6 +273,7 @@ mod tests {
                             },
                             expr: Expr::Path(vec![PathPart::Column("c".to_string())]),
                             alias: None,
+                            metadata: None,
                         },
                         ColumnSpec {
                             column_control: ColumnControl {
@@ -242,6 +288,7 @@ mod tests {
                             },
                             expr: Expr::Path(vec![PathPart::Column("d".to_string())]),
                             alias: None,
+                            metadata: None,
                         },
                     ]
                 }),
@@ -249,6 +296,7 @@ mod tests {
                     column_control: ColumnControl::default(),
                     expr: Expr::Path(vec![PathPart::Column("foo".to_string())]),
                     alias: None,
+                    metadata: None,
                 }),
                 ResultColumnStatement::Spec(ColumnSpec {
                     column_control: ColumnControl {
@@ -259,6 +307,7 @@ mod tests {
                     },
                     expr: Expr::Path(vec![PathPart::Column("bar".to_string())]),
                     alias: Some("B".to_string()),
+                    metadata: None,
                 }),
             ])
         );

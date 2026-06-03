@@ -42,6 +42,10 @@ pub(crate) const EXPR_MINUS: char = '-';
 pub(crate) const HAS_QUANTITY_AT_LEAST_ONE: &str = "++";
 pub(crate) const HAS_QUANTITY_ZERO: &str = "--";
 pub(crate) const LITERAL_NULL: &str = "null";
+pub(crate) const LITERAL_TRUE: &str = "true";
+pub(crate) const LITERAL_FALSE: &str = "false";
+/// Separates a key from its value within a metadata object entry, e.g. the `:` in `@{width:100}`.
+pub(crate) const METADATA_KEY_VALUE_SEPARATOR: char = ':';
 pub(crate) const PATH_SEPARATOR: char = '.';
 pub(crate) const PATH_TO_TABLE_WITH_ONE_PREFIX: &str = ">>";
 pub(crate) const STRING_ESCAPE_PREFIX: char = '\\';
