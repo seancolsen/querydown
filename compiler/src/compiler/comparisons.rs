@@ -197,7 +197,9 @@ fn convert_expression_vs_zero(
         };
         Ok(op(convert_expr(expr.to_owned(), scope)?, value::zero()))
     };
-    let Expr::Path(path_parts) = &expr else { return fallback(scope) };
+    let Expr::Path(path_parts) = &expr else {
+        return fallback(scope);
+    };
     let Ok(clarified_path) = clarify_path(path_parts.to_owned(), scope) else {
         return fallback(scope);
     };
@@ -205,7 +207,9 @@ fn convert_expression_vs_zero(
         return fallback(scope);
     };
     let join_result = scope.join_chain_to_many(&clarified_path.head, chain, None, cmp.into());
-    let Ok(pk) = join_result else { return fallback(scope) };
+    let Ok(pk) = join_result else {
+        return fallback(scope);
+    };
     match cmp {
         ComparisonVsZero::Eq => Ok(cmp::is_null(pk)),
         ComparisonVsZero::Gt => Ok(cmp::is_not_null(pk)),

@@ -34,10 +34,12 @@ pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath
     let chain_opt = linked_path.chain;
     let column_name_opt = linked_path.column;
     let Some(chain) = chain_opt else {
-        return column_name_opt.map(|column_name| ClarifiedPath {
-            head: None,
-            tail: Some(ClarifiedPathTail::Column(column_name)),
-        }).ok_or_else(msg::no_path_parts)
+        return column_name_opt
+            .map(|column_name| ClarifiedPath {
+                head: None,
+                tail: Some(ClarifiedPathTail::Column(column_name)),
+            })
+            .ok_or_else(msg::no_path_parts);
     };
     let mut head: Option<Chain<LinkToOne>> = None;
     let mut chain_to_many_opt: Option<Chain<FilteredLink>> = None;
@@ -207,7 +209,9 @@ fn get_chain_to_table_with_many(
     let mut result = ChainSearchResult::NoneFound;
     for link in base_table.get_links() {
         let max_len = get_max_len(&result);
-        let Ok(chain) = get_transitive_chain(link, max_len) else {continue};
+        let Ok(chain) = get_transitive_chain(link, max_len) else {
+            continue;
+        };
         if let ChainSearchResult::Winner(winner) = &result {
             if chain.len() == winner.len() {
                 result = ChainSearchResult::Tie(chain.len());
