@@ -3,16 +3,13 @@ use std::collections::HashMap;
 use crate::{sql::Dialect, utils::FlexMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum IdentifierResolution {
     Strict,
+    #[default]
     Flexible,
 }
 
-impl Default for IdentifierResolution {
-    fn default() -> Self {
-        IdentifierResolution::Flexible
-    }
-}
 
 pub struct Options {
     pub dialect: Box<dyn Dialect>,

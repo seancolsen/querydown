@@ -101,7 +101,7 @@ fn handle_glob(
         Ok(())
     })?;
 
-    let (table, table_alias) = if glob.head.len() == 0 {
+    let (table, table_alias) = if glob.head.is_empty() {
         let base_table = scope.get_base_table();
         (scope.get_base_table(), base_table.name.clone())
     } else {
@@ -135,9 +135,9 @@ fn handle_glob(
                 if let PathPart::Column(column_name) = first_path_part {
                     let column_id = scope
                         .options
-                        .resolve_identifier(&table.column_lookup, &column_name)
+                        .resolve_identifier(&table.column_lookup, column_name)
                         .copied()
-                        .ok_or_else(|| msg::col_not_in_table(&column_name, &table.name))?;
+                        .ok_or_else(|| msg::col_not_in_table(column_name, &table.name))?;
                     if spec.column_control.is_hidden {
                         hidden_columns.insert(column_id);
                     }
@@ -175,6 +175,12 @@ mod sorting {
 
     pub struct SortingStack {
         entries: Vec<UnplacedSortEntry>,
+    }
+
+    impl Default for SortingStack {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl SortingStack {

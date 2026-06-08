@@ -61,7 +61,7 @@ impl Render for Select {
 
 impl Render for Vec<Cte> {
     fn render(&self, scope: &mut Scope) -> String {
-        if self.len() == 0 {
+        if self.is_empty() {
             return String::new();
         }
         let ctes = indent(
@@ -111,7 +111,7 @@ impl Render for Join {
 
 impl Render for Vec<Column> {
     fn render(&self, scope: &mut Scope) -> String {
-        if self.len() == 0 {
+        if self.is_empty() {
             let base_table_name = scope
                 .options
                 .dialect

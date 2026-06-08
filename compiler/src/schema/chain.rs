@@ -114,11 +114,9 @@ impl<L: Link> Chain<L> {
             .intersection(&chain.stats.table_ids)
             .count()
             > 1
-        {
-            if self.intersecting == ChainIntersecting::Disallowed {
+            && self.intersecting == ChainIntersecting::Disallowed {
                 return Err("Chains would intersect.");
             }
-        }
         self.links.extend(chain.links);
         self.stats.ending_table_id = chain.stats.ending_table_id;
         self.stats.table_ids.extend(chain.stats.table_ids);

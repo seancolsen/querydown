@@ -92,16 +92,16 @@ fn convert_simple_comparison(
     use Operator::*;
 
     if left.is_zero() && operator == Eq {
-        return convert_expression_vs_zero(&right, ComparisonVsZero::Eq, scope);
+        return convert_expression_vs_zero(right, ComparisonVsZero::Eq, scope);
     }
     if left.is_zero() && operator == Lt {
-        return convert_expression_vs_zero(&right, ComparisonVsZero::Gt, scope);
+        return convert_expression_vs_zero(right, ComparisonVsZero::Gt, scope);
     }
     if right.is_zero() && operator == Eq {
-        return convert_expression_vs_zero(&left, ComparisonVsZero::Eq, scope);
+        return convert_expression_vs_zero(left, ComparisonVsZero::Eq, scope);
     }
     if right.is_zero() && operator == Gt {
-        return convert_expression_vs_zero(&left, ComparisonVsZero::Gt, scope);
+        return convert_expression_vs_zero(left, ComparisonVsZero::Gt, scope);
     }
 
     if right.is_null() && operator == Eq {

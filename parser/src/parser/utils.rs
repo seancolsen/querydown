@@ -73,7 +73,7 @@ pub fn escape<'src>(quote: char) -> impl Psr<'src, char> {
             .or(just('t').to('\t'))
             .or(just('u').ignore_then(
                 any()
-                    .filter(|c: &char| c.is_digit(16))
+                    .filter(|c: &char| c.is_ascii_hexdigit())
                     .repeated()
                     .exactly(4)
                     .collect::<String>()

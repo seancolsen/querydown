@@ -77,7 +77,7 @@ struct Part {
 }
 
 fn assemble(parts: Vec<Part>) -> Result<Duration, String> {
-    if parts.len() == 0 {
+    if parts.is_empty() {
         return Err("Duration must have at least one part".to_string());
     }
     let mut kinds_seen: HashSet<Kind> = HashSet::new();
@@ -97,7 +97,7 @@ fn assemble(parts: Vec<Part>) -> Result<Duration, String> {
         }
         kinds_seen.insert(part.kind);
     }
-    return Ok(duration);
+    Ok(duration)
 }
 
 #[cfg(test)]

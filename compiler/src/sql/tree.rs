@@ -1,6 +1,6 @@
 use querydown_parser::ast::{NullsSort, SortDirection};
 
-pub use super::expr::{SqlExpr, SqlExprPrecedence};
+pub use super::expr::SqlExpr;
 
 #[derive(Debug)]
 pub struct Select {

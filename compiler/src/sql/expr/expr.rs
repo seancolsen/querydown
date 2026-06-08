@@ -49,8 +49,10 @@ impl Display for SqlExpr {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 /// https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-PRECEDENCE
+#[derive(Default)]
 pub enum SqlExprPrecedence {
     /// A literal value, a column name, a function call, or parentheses.
+    #[default]
     Atom = 0,
     /// `*` `/` `%`
     Multiplication = -1,
@@ -66,8 +68,3 @@ pub enum SqlExprPrecedence {
     LogicalOr = -6,
 }
 
-impl Default for SqlExprPrecedence {
-    fn default() -> Self {
-        Self::Atom
-    }
-}

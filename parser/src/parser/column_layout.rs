@@ -94,7 +94,7 @@ fn column_control<'src>() -> impl Psr<'src, ColumnControl> {
         just(COLUMN_CONTROL_FLAG_SORT).to(Flag::Sort),
         just(COLUMN_CONTROL_FLAG_DESC).to(Flag::Desc),
         // TODO_ERR handle error if number is too large
-        int(10).from_str().unwrapped().map(|v| Flag::Ordinal(v)),
+        int(10).from_str().unwrapped().map(Flag::Ordinal),
         just(COLUMN_CONTROL_FLAG_GROUP).to(Flag::Group),
         just(COLUMN_CONTROL_FLAG_NULLS_FIRST).to(Flag::NullsFirst),
         just(COLUMN_CONTROL_FLAG_HIDE).to(Flag::Hide),

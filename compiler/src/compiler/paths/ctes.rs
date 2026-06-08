@@ -60,7 +60,7 @@ pub fn build_cte_select(
     let end = first_link.get_end();
     let base_table = schema.tables.get(&end.table_id).unwrap();
     let base_column = base_table.columns.get(&end.column_id).unwrap();
-    let mut cte_scope = parent_scope.spawn(&base_table);
+    let mut cte_scope = parent_scope.spawn(base_table);
     let mut select = Select::from(cte_scope.get_base_table().name.clone());
     let pk_expr = cte_scope.table_column_expr(&base_table.name, &base_column.name);
     select.grouping.push(pk_expr.clone());
@@ -78,7 +78,7 @@ pub fn build_cte_select(
         let link_end = link.get_end();
         if !link.condition_set.is_empty() {
             let link_table = schema.tables.get(&link.get_end().table_id).unwrap();
-            let mut link_scope = cte_scope.spawn(&link_table);
+            let mut link_scope = cte_scope.spawn(link_table);
             let converted = convert_condition_set(link.condition_set, &mut link_scope)?;
             select.conditions = cmp::and([select.conditions, converted]);
         }

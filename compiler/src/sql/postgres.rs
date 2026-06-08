@@ -92,7 +92,7 @@ impl Dialect for Postgres {
             part(convert(duration.hours,   SECONDS_PER_HOUR  ), "hours"),
             part(convert(duration.minutes, SECONDS_PER_MINUTE), "mins"),
             part(seconds, "secs"),
-        ].into_iter().filter_map(|v| v).collect::<Vec<String>>().join(", ");
+        ].into_iter().flatten().collect::<Vec<String>>().join(", ");
 
         format!("make_interval({args})")
     }

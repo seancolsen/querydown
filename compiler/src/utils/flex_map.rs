@@ -3,7 +3,7 @@ use std::collections::HashMap;
 fn ascii_alphanumeric(s: &str) -> impl Iterator<Item = u8> + '_ {
     s.chars()
         .filter(char::is_ascii_alphanumeric)
-        .map(|c| (c as u8))
+        .map(|c| c as u8)
 }
 
 /// Substitute for https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.eq_by which is

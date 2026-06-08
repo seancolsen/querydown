@@ -64,7 +64,7 @@ fn introspect() {
     todo!()
 }
 
-fn main() -> () {
+fn main() {
     let args = Cli::parse();
     match args.command {
         Command::Compile(args) => compile(args),

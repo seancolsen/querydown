@@ -26,7 +26,7 @@ pub fn pipe<'src>(
         |arg0, ((dimension, name), extra_args)| {
             let args = vec![arg0]
                 .into_iter()
-                .chain(extra_args.unwrap_or_default().into_iter())
+                .chain(extra_args.unwrap_or_default())
                 .collect();
             Expr::Call(Call {
                 name: name.to_string(),
