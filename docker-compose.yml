@@ -1,0 +1,34 @@
+# Development/testing container for Querydown. See docs/docker-dev.md.
+#
+# Usage:
+#   docker compose build
+#   docker compose run --rm dev
+services:
+  dev:
+    build:
+      context: .
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+    # Keep stdin/tty open for an interactive shell + Claude Code.
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    volumes:
+      # The project source, edited live from the host.
+      - .:/workspace
+      # Isolate build artifacts from the host's ./target (different cache,
+      # avoids churn) and persist them across container runs.
+      - target:/workspace/target
+      # Persist downloaded crates so rebuilds don't re-fetch every time.
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      # Share your authenticated Claude Code login + config with the container.
+      # Comment out if you'd rather log in separately inside the container.
+      - ${HOME}/.claude:/home/dev/.claude
+      - ${HOME}/.claude.json:/home/dev/.claude.json
+
+volumes:
+  target:
+  cargo-registry:
+  cargo-git:

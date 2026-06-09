@@ -1,0 +1,8 @@
+# The image doesn't COPY the source (it's bind-mounted at runtime), so this
+# just keeps the build context small and fast to send to the daemon.
+target/
+**/target/
+site/node_modules/
+site/build/
+bindings/js/pkg/
+.git/

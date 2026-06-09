@@ -1,0 +1,43 @@
+// VS Code / Codespaces dev container config. This is an optional, editor-
+// integrated front end on top of the existing Docker setup -- it reuses the
+// same docker-compose.yml (and therefore the Dockerfile, named-volume caches,
+// UID matching, and entrypoint.sh). See docs/docker-dev.md.
+//
+// Spec: https://containers.dev
+{
+  "name": "querydown-dev",
+
+  // Reuse the compose service we already built rather than redefining anything.
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+
+  // Run as the non-root user the image already defines.
+  "remoteUser": "dev",
+
+  // The compose service's command is an interactive `bash`, which isn't a
+  // reliable long-running process when VS Code starts the container detached.
+  // With this set, VS Code substitutes its own keep-alive command so the
+  // container stays up. Our entrypoint.sh still runs ahead of it, so the
+  // cache-volume ownership fix still happens.
+  "overrideCommand": true,
+
+  "customizations": {
+    "vscode": {
+      // Match the in-container editor to the host setup.
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "anthropic.claude-code"
+      ],
+      // Mirrors the relevant bits of the repo's .vscode/settings.json so
+      // rust-analyzer and formatting behave the same inside the container.
+      "settings": {
+        "rust-analyzer.linkedProjects": ["./compiler/Cargo.toml"],
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.tabSize": 4,
+        "editor.rulers": [98]
+      }
+    }
+  }
+}
