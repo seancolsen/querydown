@@ -2,14 +2,12 @@ use std::collections::HashMap;
 
 use crate::{sql::Dialect, utils::FlexMap};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IdentifierResolution {
     Strict,
     #[default]
     Flexible,
 }
-
 
 pub struct Options {
     pub dialect: Box<dyn Dialect>,

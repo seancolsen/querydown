@@ -52,7 +52,7 @@ fn test_corpus() {
         }
     }
 
-    fn get_dialect<'a>(toml_values: &'a Map<String, Value>) -> Option<&'a str> {
+    fn get_dialect(toml_values: &Map<String, Value>) -> Option<&str> {
         toml_values.get("dialect").map(|v| v.as_str())?
     }
 
@@ -89,7 +89,7 @@ fn test_corpus() {
             " ╭────────╮",
             "─┤ Input: ├──────────────────────────────",
             " ╰────────╯",
-            &input,
+            input,
             " ╭─────────────────╮",
             "─┤ Expected value: ├─────────────────────────",
             " ╰─────────────────╯",
@@ -106,7 +106,7 @@ fn test_corpus() {
     fn test(case: TestCase<Opts>) {
         // Args are the fenced code blocks in document order: the Querydown input first, then the
         // expected SQL, then optionally a JSON block with the expected column metadata.
-        let input = case.args.get(0).expect("missing input code block").clone();
+        let input = case.args.first().expect("missing input code block").clone();
         let expected_sql = case.args.get(1).expect("missing SQL code block").clone();
         let expected_json = case.args.get(2).cloned();
         let options = Options {

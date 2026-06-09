@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use querydown_parser::ast::ConditionSet;
 
-use crate::schema::schema::TableId;
+use crate::schema::TableId;
 
 use super::links::{FilteredLink, Link, MultiLink};
 
@@ -114,9 +114,10 @@ impl<L: Link> Chain<L> {
             .intersection(&chain.stats.table_ids)
             .count()
             > 1
-            && self.intersecting == ChainIntersecting::Disallowed {
-                return Err("Chains would intersect.");
-            }
+            && self.intersecting == ChainIntersecting::Disallowed
+        {
+            return Err("Chains would intersect.");
+        }
         self.links.extend(chain.links);
         self.stats.ending_table_id = chain.stats.ending_table_id;
         self.stats.table_ids.extend(chain.stats.table_ids);

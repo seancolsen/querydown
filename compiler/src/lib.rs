@@ -3,6 +3,7 @@ mod errors;
 mod options;
 mod schema;
 mod sql;
+#[cfg(test)]
 mod tests;
 mod utils;
 

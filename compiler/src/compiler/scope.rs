@@ -171,7 +171,6 @@ impl<'a, 'b> Scope<'a, 'b> {
         let cte = Cte {
             select,
             alias: cte_alias.clone(),
-            purpose,
             join_column_name: starting_column.name.clone(),
         };
         self.integrate_chain(head.as_ref(), Some(cte));

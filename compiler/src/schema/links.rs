@@ -1,8 +1,8 @@
-use std::ops::{BitAnd, Not};
+use std::ops::Not;
 
 use querydown_parser::ast::ConditionSet;
 
-use super::schema::{ColumnId, TableId};
+use super::{ColumnId, TableId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ForwardLinkToOne {
@@ -52,73 +52,29 @@ impl From<ForeignKey> for ReverseLinkToMany {
 pub trait Link {
     fn get_start(&self) -> Reference;
     fn get_end(&self) -> Reference;
-    fn get_base(&self) -> Reference;
-    fn get_target(&self) -> Reference;
-    fn get_direction(&self) -> LinkDirection;
-    fn get_join_quantity(&self) -> JoinQuantity;
 }
 
 impl Link for ForwardLinkToOne {
-    fn get_direction(&self) -> LinkDirection {
-        LinkDirection::Forward
-    }
-
-    fn get_join_quantity(&self) -> JoinQuantity {
-        One
-    }
-
     fn get_start(&self) -> Reference {
         self.base
     }
 
     fn get_end(&self) -> Reference {
-        self.target
-    }
-
-    fn get_base(&self) -> Reference {
-        self.base
-    }
-
-    fn get_target(&self) -> Reference {
         self.target
     }
 }
 
 impl Link for ReverseLinkToOne {
-    fn get_direction(&self) -> LinkDirection {
-        LinkDirection::Reverse
-    }
-
-    fn get_join_quantity(&self) -> JoinQuantity {
-        One
-    }
-
     fn get_start(&self) -> Reference {
         self.target
     }
 
     fn get_end(&self) -> Reference {
         self.base
-    }
-
-    fn get_base(&self) -> Reference {
-        self.base
-    }
-
-    fn get_target(&self) -> Reference {
-        self.target
     }
 }
 
 impl Link for ReverseLinkToMany {
-    fn get_direction(&self) -> LinkDirection {
-        LinkDirection::Reverse
-    }
-
-    fn get_join_quantity(&self) -> JoinQuantity {
-        Many
-    }
-
     fn get_start(&self) -> Reference {
         self.target
     }
@@ -126,40 +82,6 @@ impl Link for ReverseLinkToMany {
     fn get_end(&self) -> Reference {
         self.base
     }
-
-    fn get_base(&self) -> Reference {
-        self.base
-    }
-
-    fn get_target(&self) -> Reference {
-        self.target
-    }
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum JoinQuantity {
-    One,
-    Many,
-}
-use JoinQuantity::*;
-
-impl BitAnd for JoinQuantity {
-    type Output = Self;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (One, One) => One,
-            (One, Many) => Many,
-            (Many, One) => Many,
-            (Many, Many) => Many,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum LinkDirection {
-    Forward,
-    Reverse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -182,20 +104,6 @@ pub enum LinkToOne {
 }
 
 impl Link for LinkToOne {
-    fn get_direction(&self) -> LinkDirection {
-        match self {
-            LinkToOne::ForwardLinkToOne(link) => link.get_direction(),
-            LinkToOne::ReverseLinkToOne(link) => link.get_direction(),
-        }
-    }
-
-    fn get_join_quantity(&self) -> JoinQuantity {
-        match self {
-            LinkToOne::ForwardLinkToOne(link) => link.get_join_quantity(),
-            LinkToOne::ReverseLinkToOne(link) => link.get_join_quantity(),
-        }
-    }
-
     fn get_start(&self) -> Reference {
         match self {
             LinkToOne::ForwardLinkToOne(link) => link.get_start(),
@@ -207,20 +115,6 @@ impl Link for LinkToOne {
         match self {
             LinkToOne::ForwardLinkToOne(link) => link.get_end(),
             LinkToOne::ReverseLinkToOne(link) => link.get_end(),
-        }
-    }
-
-    fn get_base(&self) -> Reference {
-        match self {
-            LinkToOne::ForwardLinkToOne(link) => link.get_base(),
-            LinkToOne::ReverseLinkToOne(link) => link.get_base(),
-        }
-    }
-
-    fn get_target(&self) -> Reference {
-        match self {
-            LinkToOne::ForwardLinkToOne(link) => link.get_target(),
-            LinkToOne::ReverseLinkToOne(link) => link.get_target(),
         }
     }
 }
@@ -248,22 +142,6 @@ pub enum MultiLink {
 }
 
 impl Link for MultiLink {
-    fn get_direction(&self) -> LinkDirection {
-        match self {
-            MultiLink::ForwardLinkToOne(link) => link.get_direction(),
-            MultiLink::ReverseLinkToOne(link) => link.get_direction(),
-            MultiLink::ReverseLinkToMany(link) => link.get_direction(),
-        }
-    }
-
-    fn get_join_quantity(&self) -> JoinQuantity {
-        match self {
-            MultiLink::ForwardLinkToOne(link) => link.get_join_quantity(),
-            MultiLink::ReverseLinkToOne(link) => link.get_join_quantity(),
-            MultiLink::ReverseLinkToMany(link) => link.get_join_quantity(),
-        }
-    }
-
     fn get_start(&self) -> Reference {
         match self {
             MultiLink::ForwardLinkToOne(link) => link.get_start(),
@@ -277,22 +155,6 @@ impl Link for MultiLink {
             MultiLink::ForwardLinkToOne(link) => link.get_end(),
             MultiLink::ReverseLinkToOne(link) => link.get_end(),
             MultiLink::ReverseLinkToMany(link) => link.get_end(),
-        }
-    }
-
-    fn get_base(&self) -> Reference {
-        match self {
-            MultiLink::ForwardLinkToOne(link) => link.get_base(),
-            MultiLink::ReverseLinkToOne(link) => link.get_base(),
-            MultiLink::ReverseLinkToMany(link) => link.get_base(),
-        }
-    }
-
-    fn get_target(&self) -> Reference {
-        match self {
-            MultiLink::ForwardLinkToOne(link) => link.get_target(),
-            MultiLink::ReverseLinkToOne(link) => link.get_target(),
-            MultiLink::ReverseLinkToMany(link) => link.get_target(),
         }
     }
 }
@@ -313,27 +175,11 @@ impl From<MultiLink> for FilteredLink {
 }
 
 impl Link for FilteredLink {
-    fn get_direction(&self) -> LinkDirection {
-        self.link.get_direction()
-    }
-
-    fn get_join_quantity(&self) -> JoinQuantity {
-        self.link.get_join_quantity()
-    }
-
     fn get_start(&self) -> Reference {
         self.link.get_start()
     }
 
     fn get_end(&self) -> Reference {
         self.link.get_end()
-    }
-
-    fn get_base(&self) -> Reference {
-        self.link.get_base()
-    }
-
-    fn get_target(&self) -> Reference {
-        self.link.get_target()
     }
 }

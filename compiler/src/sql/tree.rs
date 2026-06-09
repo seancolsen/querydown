@@ -29,7 +29,6 @@ impl Column {
 pub struct Cte {
     pub alias: String,
     pub select: Select,
-    pub purpose: CtePurpose,
     /// The name of the column in the other table to which this CTE is joined. We don't need the
     /// table name because we already have that from the JoinTree. This column name is usually the
     /// primary key of that table.

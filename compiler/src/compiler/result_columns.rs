@@ -131,22 +131,20 @@ fn handle_glob(
 
     for spec in glob.specs {
         if let Expr::Path(ref path) = spec.expr {
-            if let Ok(first_path_part) = path.iter().exactly_one() {
-                if let PathPart::Column(column_name) = first_path_part {
-                    let column_id = scope
-                        .options
-                        .resolve_identifier(&table.column_lookup, column_name)
-                        .copied()
-                        .ok_or_else(|| msg::col_not_in_table(column_name, &table.name))?;
-                    if spec.column_control.is_hidden {
-                        hidden_columns.insert(column_id);
-                    }
-                    if let Some(alias) = spec.alias {
-                        column_aliases.insert(column_id, alias);
-                    }
-                    if let Some(metadata) = spec.metadata {
-                        column_metadata_map.insert(column_id, metadata);
-                    }
+            if let Ok(PathPart::Column(column_name)) = path.iter().exactly_one() {
+                let column_id = scope
+                    .options
+                    .resolve_identifier(&table.column_lookup, column_name)
+                    .copied()
+                    .ok_or_else(|| msg::col_not_in_table(column_name, &table.name))?;
+                if spec.column_control.is_hidden {
+                    hidden_columns.insert(column_id);
+                }
+                if let Some(alias) = spec.alias {
+                    column_aliases.insert(column_id, alias);
+                }
+                if let Some(metadata) = spec.metadata {
+                    column_metadata_map.insert(column_id, metadata);
                 }
             }
         }
