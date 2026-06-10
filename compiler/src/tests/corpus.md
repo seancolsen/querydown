@@ -786,6 +786,83 @@ ORDER BY
   "issues"."created_at" DESC NULLS LAST;
 ```
 
+## Sorting outside of result columns
+
+### Basic standalone sort
+
+> Issue titles, sorted with the most recently-created issues first, without showing the creation date
+
+```qd
+#issues
+\\created_at \d
+$title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  "issues"."created_at" DESC NULLS LAST;
+```
+
+### Multiple standalone sorts
+
+> Precedence follows the order in which the sorting expressions are listed. The `n` flag sorts NULL values first.
+
+```qd
+#issues
+\\status
+\\created_at \dn
+$title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  "issues"."status" ASC NULLS LAST,
+  "issues"."created_at" DESC NULLS FIRST;
+```
+
+### Standalone sort with a computed expression
+
+> Issue titles, sorted by the length of their description, longest first
+
+```qd
+#issues
+\\description|length \d
+$title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  char_length("issues"."description") DESC NULLS LAST;
+```
+
+### Mixing standalone and column sorts
+
+> Standalone `\\` sorts take precedence over column `\s` sorts, so they come first in the ORDER BY.
+
+```qd
+#issues
+\\created_at \d
+$title \s
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  "issues"."created_at" DESC NULLS LAST,
+  "issues"."title" ASC NULLS LAST;
+```
+
 ## Column globs
 
 ### Basic column glob

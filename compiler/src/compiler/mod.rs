@@ -21,7 +21,7 @@ use crate::{
 use self::{
     expr::convert_condition_set,
     rendering::Render,
-    result_columns::{convert_result_columns, ConvertedResultColumns},
+    result_columns::{convert_result_columns, convert_sort_exprs, ConvertedResultColumns},
     scope::Scope,
 };
 
@@ -63,14 +63,20 @@ impl Compiler {
 
         select.conditions = convert_condition_set(first_transformation.conditions, &mut scope)?;
 
+        let standalone_sorting = convert_sort_exprs(first_transformation.sorting, &mut scope)?;
+
         let result_columns = first_transformation.result_columns;
         let ConvertedResultColumns {
             columns,
-            sorting,
+            sorting: column_sorting,
             column_metadata,
         } = convert_result_columns(result_columns, &mut scope)?;
         select.columns = columns;
-        select.sorting = sorting;
+        // Standalone `\\` sorts take precedence over column `\s` sorts, hence they come first.
+        select.sorting = standalone_sorting
+            .into_iter()
+            .chain(column_sorting)
+            .collect();
 
         (select.joins, select.ctes) = scope.decompose_join_tree();
 

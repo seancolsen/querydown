@@ -60,7 +60,17 @@ pub struct Query {
 #[derive(Debug, PartialEq, Default)]
 pub struct Transformation {
     pub conditions: ConditionSet,
+    pub sorting: Vec<SortExpr>,
     pub result_columns: Vec<ResultColumnStatement>,
+}
+
+/// A standalone sorting expression, written with the `\\` prefix outside of the result columns,
+/// e.g. `\\created_at \d`. The order in which these are listed defines their sort precedence.
+#[derive(Debug, PartialEq)]
+pub struct SortExpr {
+    pub expr: Expr,
+    pub direction: SortDirection,
+    pub nulls_sort: NullsSort,
 }
 
 #[derive(Debug, Clone, PartialEq)]

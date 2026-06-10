@@ -74,6 +74,7 @@ Regex flags
 | `*( )` | [column globs](./language.md#column-globs) | ✅ |
 | `->` | [alias](./language.md#aliasing-result-columns) prefix | ✅ |
 | `\` | column control flags prefix | ✅ |
+| `\\` | [sorting expression](./language.md#sorting-outside-of-result-columns) prefix (followed by optional `\d` / `\n` flags) | ✅ |
 | `@{ }` | [column metadata](./language.md#column-level-metadata) (written last in the spec) | ✅ |
 
 Column control flags:

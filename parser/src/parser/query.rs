@@ -4,7 +4,7 @@ use crate::ast::*;
 use crate::tokens::*;
 
 use super::utils::*;
-use super::{column_layout::result_columns, expr::expr};
+use super::{column_layout::result_columns, expr::expr, sorting::sorting};
 
 pub fn query<'src>() -> impl Psr<'src, Query> {
     let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
@@ -30,9 +30,12 @@ pub fn query<'src>() -> impl Psr<'src, Query> {
 fn transformation<'src>() -> impl Psr<'src, Transformation> {
     top_level_condition_set()
         .then_ignore(whitespace())
+        .then(sorting())
+        .then_ignore(whitespace())
         .then(result_columns().or_not())
-        .map(|(conditions, cl)| Transformation {
+        .map(|((conditions, sorting), cl)| Transformation {
             conditions,
+            sorting,
             result_columns: cl.unwrap_or_default(),
         })
 }
@@ -59,6 +62,7 @@ mod tests {
             Ok(Query {
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
+                    sorting: vec![],
                     conditions: ConditionSet {
                         conjunction: Conjunction::And,
                         entries: vec![

@@ -48,6 +48,8 @@ pub(crate) const LITERAL_FALSE: &str = "false";
 pub(crate) const METADATA_KEY_VALUE_SEPARATOR: char = ':';
 pub(crate) const PATH_SEPARATOR: char = '.';
 pub(crate) const PATH_TO_TABLE_WITH_ONE_PREFIX: &str = ">>";
+/// Prefix denoting a standalone sorting expression, written as the literal `\\`.
+pub(crate) const SORT_EXPR_PREFIX: &str = "\\\\";
 pub(crate) const STRING_ESCAPE_PREFIX: char = '\\';
 pub(crate) const STRING_QUOTE_DOUBLE: char = '"';
 pub(crate) const STRING_QUOTE_SINGLE: char = '\'';

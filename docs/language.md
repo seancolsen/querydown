@@ -476,6 +476,32 @@ Use `\s` (and similar flags) to sort by columns, leaving their position in the t
 ```
 
 
+## Sorting outside of result columns
+
+The sorting shown above attaches sort flags to a result column. To sort by a value without showing it as a result column, use a standalone **sorting expression**, written with the `\\` prefix.
+
+> Issues sorted by their creation date, most recent first, without showing the creation date
+
+```
+#issues
+\\created_at \d
+$title
+```
+
+Sorting expressions are written between the filtering expressions and the result columns. A query may contain multiple sorting expressions; the order in which they are listed defines their sort precedence. Whitespace is allowed between `\\` and the expression.
+
+Because the `\\` prefix already means "sort", there is no `s` flag here. After the expression you may add the `\d` (descending) and `\n` (nulls first) flags, which may be combined as `\dn`. Without flags, sorting is ascending with NULL values last.
+
+```
+#issues
+\\status
+\\created_at \dn
+$title
+```
+
+A standalone sorting expression produces the same `ORDER BY` as the column-flag form, but without emitting a column. When a query mixes standalone `\\` sorts with column `\s` sorts, the standalone sorts take precedence and come first in the `ORDER BY`.
+
+
 ## Referencing _single_ related records
 
 ### Single related records via column name chains

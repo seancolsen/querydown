@@ -25,6 +25,26 @@ pub struct ConvertedResultColumns {
     pub column_metadata: Vec<Option<MetaValue>>,
 }
 
+/// Converts standalone `\\` sorting expressions into SQL sort entries, preserving the order in
+/// which they were listed (no ordinal handling — listed order is the precedence). Each expression
+/// is compiled directly; unlike column sorts, there is no result-column alias to resolve, since
+/// these are defined before the result columns.
+pub fn convert_sort_exprs(
+    sorting: Vec<SortExpr>,
+    scope: &mut Scope,
+) -> Result<Vec<SortEntry>, String> {
+    sorting
+        .into_iter()
+        .map(|sort_expr| {
+            Ok(SortEntry {
+                expr: convert_expr(sort_expr.expr, scope)?,
+                direction: sort_expr.direction,
+                nulls_sort: sort_expr.nulls_sort,
+            })
+        })
+        .collect()
+}
+
 pub fn convert_result_columns(
     result_columns: Vec<ResultColumnStatement>,
     scope: &mut Scope,
