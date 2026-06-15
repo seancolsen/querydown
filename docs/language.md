@@ -243,7 +243,7 @@ _(🚧 Not yet implemented)_
 ```qd
 #issues
 $title
-$due_date|away|days|(@d; ? @d:<0~"overdue" @d:<30~"due soon" ~~"due later")
+$due_date|away|days|(@d => ? @d:<0~"overdue" @d:<30~"due soon" ~~"due later")
 ```
 
 In the code above:
@@ -252,10 +252,10 @@ In the code above:
 1. That value is fed into the `@d` argument of the anonymous function:
 
     ```
-    (@d; ? @d:<0~"overdue" @d:<30~"due soon" ~~"due later")
+    (@d => ? @d:<0~"overdue" @d:<30~"due soon" ~~"due later")
     ```
 
-1. The anonymous function can `@d` in reference to the number of days until the issues due date, using the same value in multiple places with minimal repetition.
+1. The body of the anonymous function can reference `@d` as the number of days until the issues due date, using the same value in multiple places with minimal repetition.
 
 ### Function calling
 
@@ -840,7 +840,7 @@ _(🚧 Not yet implemented)_
 > Given a fiscal year which begins on February 1st, find issues that were opened in fiscal-year 2020 and marked due in 2021
 
 ```qd
-@@fiscal_year = @date; (@date - @1M)|year
+@@fiscal_year = @date => (@date - @1M)|year
 #issues created_at|fiscal_year:2020 due_date|fiscal_year:2021
 ```
 
@@ -849,7 +849,7 @@ _(🚧 Not yet implemented)_
 _(🚧 Not yet implemented)_
 
 ```qd
-@@generation = @birth_date;
+@@generation = @birth_date =>
   @birth_year = @birth_date|year
   ? @birth_year:>=2010 ~ "Alpha"
     @birth_year:>=1997 ~ "Z"
@@ -873,12 +873,12 @@ When functions are scoped to a specific table during definition, the function bo
 > Find issues that involve a user named "alice" (via assignment, comment, or authorship) and match the search terms "accessibility" (via title, description, or comment body).
 
 ```qd
-#issues.@@involves = @username; [
+#issues.@@involves = @username => [
   ++#assignments{user.username:@username}
   ++#comments{author.username:@username}
   author.username:@username
 ]
-#issues.@@matches = @term; [
+#issues.@@matches = @term => [
   ++#comments{body:~@term}
   title:~@term
   description:~@term
@@ -1001,7 +1001,7 @@ Examples:
     Use `===` export the definition of `#issues.@@involves` (a [user-defined table-scoped function](#table-scoped-functions))
 
     ```qd
-    === #issues.@@involves = @username; [
+    === #issues.@@involves = @username => [
       ++#assignments{user.username:@username}
       ++#comments{author.username:@username}
       author.username:@username

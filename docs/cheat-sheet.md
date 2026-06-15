@@ -115,7 +115,7 @@ See [case expressions](./language.md#case-expressions) docs.
 | `%` | pipe a value to an aggregate function | ✅ |
 | `@@` | [call a scalar function without piping](./language.md#function-calling) | ❌ |
 | `%%( )` | [window definition](./language.md#window-functions) | ❌ |
-| `;` | [anonymous scalar function](./language.md#anonymous-functions) | ❌ |
+| `=>` | [anonymous scalar function](./language.md#anonymous-functions) | ❌ |
 
 ## Variables
 
@@ -123,9 +123,9 @@ See [case expressions](./language.md#case-expressions) docs.
 | -- | -- | -- |
 | `@foo = 42` | [constant](./language.md#user-defined-constants) | ❌ |
 | `#foo.bar = baz + bat` | [computed column](./language.md#computed-columns) | ❌ |
-| `@@plus_one = @v; @v + 1` | [scalar function](./language.md#user-defined-functions) | ❌ |
-| `@@plus = @a @b; a + b` | function with two params | ❌ |
-| `#foo.@@bar = @a; @a + col` | [table-scoped function](./language.md#table-scoped-functions) | ❌ |
+| `@@plus_one = @v => @v + 1` | [scalar function](./language.md#user-defined-functions) | ❌ |
+| `@@plus = @a @b => a + b` | function with two params | ❌ |
+| `#foo.@@bar = @a => @a + col` | [table-scoped function](./language.md#table-scoped-functions) | ❌ |
 | `#foo = #( )` | [temporary table](./language.md#user-defined-tables) | ❌ |
 
 ## Transformations
@@ -155,5 +155,6 @@ See [modules](./language.md#modules) docs.
 ## Not used
 
 - `&`
+- `;`
 - `,`
 
