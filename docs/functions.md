@@ -9,6 +9,7 @@ Applied via `|`
 - `ago`
 - `away`
 - `ceil`
+- `concat`
 - `days`
 - `divide`
 - `else`
@@ -19,6 +20,7 @@ Applied via `|`
 - `length`
 - `lowercase`
 - `max`
+- `md5`
 - `min`
 - `minus`
 - `minutes`
