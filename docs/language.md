@@ -933,29 +933,7 @@ $#comments @{formattingConditions:[
   {gte:5 bg:'#d5d2ff'}
 ]}
 ```
-
-This compiles to the following SQL:
-
-```sql
-WITH
-  "cte0" AS (
-    SELECT
-      "comments"."issue" AS "pk",
-      count(*) AS "v1"
-    FROM "comments"
-    GROUP BY "comments"."issue"
-  )
-SELECT
-  "issues"."title",
-  "issues"."created_at",
-  "issues"."due_date",
-  "cte0"."v1"
-FROM "issues"
-LEFT JOIN "cte0" ON
-  "issues"."id" = "cte0"."pk";
-```
-
-…and to the following metadata, returned by the compiler separately from the SQL:
+In additon to the query SQL, this also produces the following metadata:
 
 ```json
 {
