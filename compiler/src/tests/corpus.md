@@ -340,6 +340,24 @@ WHERE
   ("cte0"."pk" IS NOT NULL OR "cte1"."pk" IS NOT NULL);
 ```
 
+### OR shorthand with comma
+
+The comma is shorthand for an "OR" condition set, equivalent to wrapping the conditions in `[ ]`.
+
+> Issues that are open or created after 2023-03-04
+
+```qd
+#issues status:"open",created_at:>@2023-03-04
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  ("issues"."status" = 'open' OR "issues"."created_at" > DATE '2023-03-04');
+```
+
 ## Paths to one
 
 ### Joined column in related table

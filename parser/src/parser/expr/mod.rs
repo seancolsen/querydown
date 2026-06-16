@@ -43,29 +43,47 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
     //
     // [1]: https://github.com/zesterer/chumsky/blob/0.9/examples/foo.rs#L33
 
-    recursive(|prec_comparison| {
+    recursive(|prec_comma| {
         let prec_atom = choice((
             number().map(Expr::Number),
             date().map(Expr::Date),
             duration().map(Expr::Duration),
             string().map(Expr::String),
             variable().map(Expr::Variable),
-            path(prec_comparison.clone()).map(Expr::Path),
-            has_quantity(prec_comparison.clone()).map(Expr::HasQuantity),
-            condition_set(prec_comparison.clone()).map(Expr::ConditionSet),
-            parenthetical(prec_comparison.clone()),
+            path(prec_comma.clone()).map(Expr::Path),
+            has_quantity(prec_comma.clone()).map(Expr::HasQuantity),
+            condition_set(prec_comma.clone()).map(Expr::ConditionSet),
+            parenthetical(prec_comma.clone()),
         ));
 
-        let prec_pipe = pipe(prec_atom.clone(), prec_comparison.clone());
+        let prec_pipe = pipe(prec_atom.clone(), prec_comma.clone());
 
         let prec_multiplication = multiplication(prec_pipe);
 
         let prec_addition = addition(prec_multiplication);
 
-        comparison(prec_addition.clone(), prec_comparison, prec_atom)
+        let prec_comparison = comparison(prec_addition.clone(), prec_comma, prec_atom)
             .map(|c| Expr::Comparison(Box::new(c)))
-            .or(prec_addition)
+            .or(prec_addition);
+
+        or_condition_set(prec_comparison)
     })
+}
+
+/// Joins comma-separated expressions into an "OR" condition set, e.g. `foo:1,bar:2`. This is the
+/// lowest-precedence operator in the language. A single expression with no trailing comma is passed
+/// through unchanged, so this rule is transparent when no comma is present.
+fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+    e.separated_by(just(CONDITION_SET_OR_SHORTHAND).padded())
+        .at_least(1)
+        .collect::<Vec<Expr>>()
+        .map(|mut entries| {
+            if entries.len() == 1 {
+                entries.pop().unwrap()
+            } else {
+                Expr::ConditionSet(ConditionSet::via_or(entries))
+            }
+        })
 }
 
 fn operator<'src>(
@@ -200,6 +218,73 @@ mod tests {
                 ]
             }))
         );
+
+        // The comma is shorthand for an "OR" condition set.
+        assert_eq!(
+            p("a,b"),
+            Ok(Expr::ConditionSet(ConditionSet {
+                conjunction: Conjunction::Or,
+                entries: vec![
+                    Expr::Path(vec![PathPart::Column("a".to_string())]),
+                    Expr::Path(vec![PathPart::Column("b".to_string())]),
+                ]
+            }))
+        );
+
+        // Whitespace is allowed around the comma, and it joins three or more expressions.
+        assert_eq!(
+            p("a , b ,c"),
+            Ok(Expr::ConditionSet(ConditionSet {
+                conjunction: Conjunction::Or,
+                entries: vec![
+                    Expr::Path(vec![PathPart::Column("a".to_string())]),
+                    Expr::Path(vec![PathPart::Column("b".to_string())]),
+                    Expr::Path(vec![PathPart::Column("c".to_string())]),
+                ]
+            }))
+        );
+
+        // The comma has lower precedence than comparison, so each comparison becomes its own entry.
+        assert_eq!(
+            p("foo:1,bar:2"),
+            Ok(Expr::ConditionSet(ConditionSet {
+                conjunction: Conjunction::Or,
+                entries: vec![
+                    Expr::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                            "foo".to_string()
+                        )])),
+                        operator: Operator::Eq,
+                        right: ComparisonSide::Expr(Expr::Number("1".to_string())),
+                    })),
+                    Expr::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                            "bar".to_string()
+                        )])),
+                        operator: Operator::Eq,
+                        right: ComparisonSide::Expr(Expr::Number("2".to_string())),
+                    })),
+                ]
+            }))
+        );
+
+        // The comma also has lower precedence than addition.
+        assert_eq!(
+            p("1+2,3"),
+            Ok(Expr::ConditionSet(ConditionSet {
+                conjunction: Conjunction::Or,
+                entries: vec![
+                    Expr::Sum(
+                        Box::new(Expr::Number("1".to_string())),
+                        Box::new(Expr::Number("2".to_string()))
+                    ),
+                    Expr::Number("3".to_string()),
+                ]
+            }))
+        );
+
+        // A trailing comma is not allowed.
+        assert!(p("a,").is_err());
 
         assert_eq!(
             p("5*7"),

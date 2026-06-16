@@ -310,6 +310,12 @@ Square brackets `[ ]` enclose `OR` conditions.
 #issues [status:"open" created_at:>@2023-03-04]
 ```
 
+A shorthand syntax is also available using the comma `,` operator:
+
+```qd
+#issues status:"open",created_at:>@2023-03-04
+```
+
 ### Nested condition sets
 
 Conditions can be nested

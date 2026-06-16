@@ -31,6 +31,9 @@ pub(crate) const CONDITION_SET_AND_BRACE_L: char = '{';
 pub(crate) const CONDITION_SET_AND_BRACE_R: char = '}';
 pub(crate) const CONDITION_SET_OR_BRACE_L: char = '[';
 pub(crate) const CONDITION_SET_OR_BRACE_R: char = ']';
+/// Shorthand operator for joining expressions into an "OR" condition set without brackets, e.g.
+/// `foo:1,bar:2`. This has the lowest precedence of any operator.
+pub(crate) const CONDITION_SET_OR_SHORTHAND: char = ',';
 pub(crate) const CONST_SIGIL: char = '@';
 pub(crate) const DB_IDENTIFIER_QUOTE: char = '`';
 pub(crate) const EXPR_PAREN_L: char = '(';

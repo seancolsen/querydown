@@ -14,6 +14,12 @@ repository = "https://github.com/seancolsen/querydown"
 version = "0.0.1"
 rust-version = "1.67.0"
 
+[profile.dev]
+# Full debug info (`debug = 2`) makes the combined `.debug_info` sections exceed 4 GB, which
+# overflows the 32-bit `R_X86_64_32` relocations the linker uses for them and breaks linking.
+# Line tables keep backtraces useful while staying well under that limit.
+debug = "line-tables-only"
+
 [profile.release]
 lto = true
 opt-level = 'z'
