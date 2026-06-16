@@ -44,6 +44,7 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
             convert_expr(*b, scope)?,
         )),
         Expr::Comparison(c) => convert_comparison(*c, scope),
+        Expr::Not(e) => Ok(cond::not(convert_expr(*e, scope)?)),
     }
 }
 

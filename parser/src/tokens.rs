@@ -17,9 +17,6 @@ pub(crate) const COMPARE_LIKE: &str = ":~~";
 pub(crate) const COMPARE_LT: &str = ":<";
 pub(crate) const COMPARE_LTE: &str = ":<=";
 pub(crate) const COMPARE_MATCH: &str = ":~";
-pub(crate) const COMPARE_NEQ: &str = "!";
-pub(crate) const COMPARE_NOT_LIKE: &str = "!~~";
-pub(crate) const COMPARE_NOT_MATCH: &str = "!~";
 pub(crate) const COMPARISON_EXPAND: &str = "..";
 pub(crate) const COMPARISON_RANGE_BOUND_SEPARATOR: &str = "..";
 pub(crate) const COMPARISON_RANGE_BOUND_EXCLUSIVE: &str = "<";
@@ -49,6 +46,8 @@ pub(crate) const LITERAL_TRUE: &str = "true";
 pub(crate) const LITERAL_FALSE: &str = "false";
 /// Separates a key from its value within a metadata object entry, e.g. the `:` in `@{width:100}`.
 pub(crate) const METADATA_KEY_VALUE_SEPARATOR: char = ':';
+/// Prefix for boolean negation of an expression, e.g. `!foo:2` or `!is_deleted`.
+pub(crate) const NEGATE: char = '!';
 pub(crate) const PATH_SEPARATOR: char = '.';
 pub(crate) const PATH_TO_TABLE_WITH_ONE_PREFIX: &str = ">>";
 /// Prefix denoting a standalone sorting expression, written as the literal `\\`.

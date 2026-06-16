@@ -47,7 +47,7 @@ SELECT "Patrons".* FROM "Patrons";
 created_at:>@6M|ago
 --#assignments
 ++#labels{name:..["Regression" "Bug"]}
-10..20:#comments{user.team.name!"Backend"}
+10..20:#comments{!user.team.name:"Backend"}
 $*
 $author.username
 $#comments.created_at%min \sd
@@ -189,6 +189,55 @@ WHERE
 ```
 
 ## Comparisons
+
+### Negated comparison
+
+> Issues whose status is not "open"
+
+```qd
+#issues !status:"open"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  NOT "issues"."status" = 'open';
+```
+
+### Negated expression as a result column
+
+> Whether each issue is not yet assigned a project, as a boolean column
+
+```qd
+#issues $!project->unassigned
+```
+
+```sql
+SELECT
+  NOT "issues"."project" AS "unassigned"
+FROM "issues";
+```
+
+### Negated condition set
+
+> Issues that are not both open and high priority
+
+```qd
+#issues !{status:"open" status:"high"}
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  NOT (
+    "issues"."status" = 'open' AND
+    "issues"."status" = 'high'
+  );
+```
 
 ### Regex
 

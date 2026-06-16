@@ -109,10 +109,6 @@ pub mod cmp {
         comparison(a, "=", b)
     }
 
-    pub fn neq(a: SqlExpr, b: SqlExpr) -> SqlExpr {
-        comparison(a, "<>", b)
-    }
-
     pub fn gt(a: SqlExpr, b: SqlExpr) -> SqlExpr {
         comparison(a, ">", b)
     }
@@ -131,10 +127,6 @@ pub mod cmp {
 
     pub fn like(a: SqlExpr, b: SqlExpr) -> SqlExpr {
         comparison(a, "LIKE", b)
-    }
-
-    pub fn nlike(a: SqlExpr, b: SqlExpr) -> SqlExpr {
-        comparison(a, "NOT LIKE", b)
     }
 
     pub fn is_null(a: SqlExpr) -> SqlExpr {
@@ -161,7 +153,10 @@ pub mod cond {
 
     pub fn not(a: SqlExpr) -> SqlExpr {
         SqlExpr {
-            content: format!("NOT {}", a.content),
+            content: format!(
+                "NOT {}",
+                a.for_precedence(SqlExprPrecedence::LogicalNot).content
+            ),
             precedence: SqlExprPrecedence::LogicalNot,
         }
     }

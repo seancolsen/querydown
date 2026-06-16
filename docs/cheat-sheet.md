@@ -60,7 +60,8 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `:~` | match regex | ✅ |
 | `:\c~` | match regex with flags | ❌ |
 | `:~~` | LIKE | ❌ |
-| `!` | negate any comparison by using `!` instead of `:` | ✅ |
+
+The `!` operator negates any comparison (or expression) e.g. `!foo:2`
 
 Regex flags
 
@@ -151,6 +152,7 @@ See [modules](./language.md#modules) docs.
 1. `*` `/` Multiplication and division
 1. `+` `-` Addition and subtraction
 1. `:` _(and all other [comparison operators](#comparisons))_ Comparison
+1. `!` Boolean negation
 1. `,` Shorthand for joining experssions into an ["OR" condition set](./language.md#or-condition-sets)
 
 ## Not used

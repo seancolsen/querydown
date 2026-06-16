@@ -89,6 +89,9 @@ pub enum Expr {
     Sum(Box<Expr>, Box<Expr>),
     Difference(Box<Expr>, Box<Expr>),
     Comparison(Box<Comparison>),
+    /// Boolean negation of an expression, written with a `!` prefix, e.g. `!foo:2` or `!is_deleted`.
+    /// This binds more loosely than comparison, so `!foo:2` negates the whole comparison.
+    Not(Box<Expr>),
 }
 
 impl Expr {
@@ -231,10 +234,7 @@ pub enum Operator {
     Lt,
     Lte,
     Like,
-    Neq,
-    NLike,
     Match,
-    NMatch,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

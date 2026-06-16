@@ -66,8 +66,21 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             .map(|c| Expr::Comparison(Box::new(c)))
             .or(prec_addition);
 
-        or_condition_set(prec_comparison)
+        let prec_negation = negation(prec_comparison);
+
+        or_condition_set(prec_negation)
     })
+}
+
+/// Negates an expression with a `!` prefix, producing [`Expr::Not`]. This binds more loosely than
+/// comparison (so `!foo:2` negates the whole comparison) but more tightly than the comma shorthand.
+/// The prefix may be repeated, e.g. `!!foo`. When no `!` is present, the expression passes through
+/// unchanged, so this rule is transparent.
+fn negation<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+    just(NEGATE)
+        .then_ignore(whitespace())
+        .repeated()
+        .foldr(e, |_, expr| Expr::Not(Box::new(expr)))
 }
 
 /// Joins comma-separated expressions into an "OR" condition set, e.g. `foo:1,bar:2`. This is the
@@ -459,7 +472,7 @@ mod tests {
         );
 
         assert_eq!(
-            p("[a b] ..! 2 + foo * @bar | baz"),
+            p("[a b] ..: 2 + foo * @bar | baz"),
             Ok(Expr::Comparison(Box::new(Comparison {
                 left: ComparisonSide::Expansion(ConditionSet {
                     entries: vec![
@@ -468,7 +481,7 @@ mod tests {
                     ],
                     conjunction: Conjunction::Or,
                 }),
-                operator: Operator::Neq,
+                operator: Operator::Eq,
                 right: ComparisonSide::Expr(Expr::Sum(
                     Box::new(Expr::Number("2".to_string())),
                     Box::new(Expr::Product(
@@ -482,6 +495,60 @@ mod tests {
                     )),
                 )),
             })))
+        );
+
+        // A `!` prefix negates a bare expression.
+        assert_eq!(
+            p("!foo"),
+            Ok(Expr::Not(Box::new(Expr::Path(vec![PathPart::Column(
+                "foo".to_string()
+            )]))))
+        );
+
+        // Negation binds more loosely than comparison, so `!foo:2` negates the whole comparison.
+        assert_eq!(
+            p("!foo:2"),
+            Ok(Expr::Not(Box::new(Expr::Comparison(Box::new(
+                Comparison {
+                    left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                        "foo".to_string()
+                    )])),
+                    operator: Operator::Eq,
+                    right: ComparisonSide::Expr(Expr::Number("2".to_string())),
+                }
+            )))))
+        );
+
+        // The `!` prefix can be repeated.
+        assert_eq!(
+            p("!!foo"),
+            Ok(Expr::Not(Box::new(Expr::Not(Box::new(Expr::Path(vec![
+                PathPart::Column("foo".to_string())
+            ]))))))
+        );
+
+        // Negation binds more tightly than the comma shorthand, so only the first entry is negated.
+        assert_eq!(
+            p("!foo:1,bar:2"),
+            Ok(Expr::ConditionSet(ConditionSet {
+                conjunction: Conjunction::Or,
+                entries: vec![
+                    Expr::Not(Box::new(Expr::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                            "foo".to_string()
+                        )])),
+                        operator: Operator::Eq,
+                        right: ComparisonSide::Expr(Expr::Number("1".to_string())),
+                    })))),
+                    Expr::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                            "bar".to_string()
+                        )])),
+                        operator: Operator::Eq,
+                        right: ComparisonSide::Expr(Expr::Number("2".to_string())),
+                    })),
+                ]
+            }))
         );
     }
 }

@@ -107,24 +107,18 @@ fn convert_simple_comparison(
     if right.is_null() && operator == Eq {
         return convert_expr(left.to_owned(), scope).map(cmp::is_null);
     }
-    if right.is_null() && operator == Neq {
-        return convert_expr(left.to_owned(), scope).map(cmp::is_not_null);
-    }
     if left.is_null() && operator == Eq {
         return convert_expr(right.to_owned(), scope).map(cmp::is_null);
-    }
-    if left.is_null() && operator == Neq {
-        return convert_expr(right.to_owned(), scope).map(cmp::is_not_null);
     }
 
     let left_converted = convert_expr(left.to_owned(), scope)?;
     let right_converted = convert_expr(right.to_owned(), scope)?;
 
-    let match_regex = |a: SqlExpr, b: SqlExpr, is_positive: bool, scope: &mut Scope| {
+    let match_regex = |a: SqlExpr, b: SqlExpr, scope: &mut Scope| {
         let flags = RegExFlags {
             is_case_sensitive: false,
         };
-        scope.options.dialect.match_regex(a, b, is_positive, &flags)
+        scope.options.dialect.match_regex(a, b, true, &flags)
     };
 
     match &operator {
@@ -134,10 +128,7 @@ fn convert_simple_comparison(
         Lt => Ok(cmp::lt(left_converted, right_converted)),
         Lte => Ok(cmp::lte(left_converted, right_converted)),
         Like => Ok(cmp::like(left_converted, right_converted)),
-        Neq => Ok(cmp::neq(left_converted, right_converted)),
-        NLike => Ok(cmp::nlike(left_converted, right_converted)),
-        Match => Ok(match_regex(left_converted, right_converted, true, scope)),
-        NMatch => Ok(match_regex(left_converted, right_converted, false, scope)),
+        Match => Ok(match_regex(left_converted, right_converted, scope)),
     }
 }
 
