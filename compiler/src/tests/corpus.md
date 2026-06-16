@@ -993,10 +993,10 @@ ORDER BY
   "issues"."title" DESC NULLS LAST;
 ```
 
-## Column metadata
+## Column annotations
 
 A test case may include an optional ` ```json ` block after the SQL block. When
-present, the harness compares its `columnMetadata` against the compiler output.
+present, the harness compares its `columnAnnotations` against the compiler output.
 
 ### Full example
 
@@ -1032,7 +1032,7 @@ LEFT JOIN "cte0" ON
 
 ```json
 {
-  "columnMetadata": [
+  "columnAnnotations": [
     { "width": 100 },
     { "formatter": "timeElapsed", "textColor": "light" },
     { "format": "YYYY-MM-DD", "datePicker": true },
@@ -1046,9 +1046,9 @@ LEFT JOIN "cte0" ON
 }
 ```
 
-### Null slot for a column without metadata
+### Null slot for a column without annotation
 
-> A column without metadata gets a `null` slot, keeping the array aligned with the columns.
+> A column without annotation gets a `null` slot, keeping the array aligned with the columns.
 
 ```qd
 #issues $title @{width:100} $id
@@ -1063,16 +1063,16 @@ FROM "issues";
 
 ```json
 {
-  "columnMetadata": [
+  "columnAnnotations": [
     { "width": 100 },
     null
   ]
 }
 ```
 
-### Metadata on a globbed column
+### Annotation on a globbed column
 
-> Metadata attached to a column inside a glob is associated with that one expanded column.
+> Annotation attached to a column inside a glob is associated with that one expanded column.
 
 ```qd
 #issues $*(title @{width:100})
@@ -1094,7 +1094,7 @@ FROM "issues";
 
 ```json
 {
-  "columnMetadata": [
+  "columnAnnotations": [
     null,
     { "width": 100 },
     null,

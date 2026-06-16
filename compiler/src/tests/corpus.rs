@@ -105,7 +105,7 @@ fn test_corpus() {
 
     fn test(case: TestCase<Opts>) {
         // Args are the fenced code blocks in document order: the Querydown input first, then the
-        // expected SQL, then optionally a JSON block with the expected column metadata.
+        // expected SQL, then optionally a JSON block with the expected column annotation.
         let input = case.args.first().expect("missing input code block").clone();
         let expected_sql = case.args.get(1).expect("missing SQL code block").clone();
         let expected_json = case.args.get(2).cloned();
@@ -126,20 +126,20 @@ fn test_corpus() {
         }
 
         if let Some(expected_json) = expected_json {
-            // Compare only the `columnMetadata` portion, parsed into `serde_json::Value` so the
+            // Compare only the `columnAnnotations` portion, parsed into `serde_json::Value` so the
             // comparison is insensitive to whitespace.
-            let actual_meta = serde_json::to_value(&result.column_metadata).unwrap();
+            let actual_meta = serde_json::to_value(&result.column_annotations).unwrap();
             let expected_value: serde_json::Value = serde_json::from_str(&expected_json)
                 .expect("expected JSON block is not valid JSON");
             let expected_meta = expected_value
-                .get("columnMetadata")
+                .get("columnAnnotations")
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
             if actual_meta != expected_meta {
                 let actual_str = serde_json::to_string_pretty(&actual_meta).unwrap();
                 let expected_str = serde_json::to_string_pretty(&expected_meta).unwrap();
                 println!("{}", get_output(&case, &input, &expected_str, &actual_str));
-                panic!("Test corpus failure (metadata mismatch)");
+                panic!("Test corpus failure (annotation mismatch)");
             }
         }
     }

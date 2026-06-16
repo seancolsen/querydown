@@ -44,8 +44,8 @@ pub(crate) const HAS_QUANTITY_ZERO: &str = "--";
 pub(crate) const LITERAL_NULL: &str = "null";
 pub(crate) const LITERAL_TRUE: &str = "true";
 pub(crate) const LITERAL_FALSE: &str = "false";
-/// Separates a key from its value within a metadata object entry, e.g. the `:` in `@{width:100}`.
-pub(crate) const METADATA_KEY_VALUE_SEPARATOR: char = ':';
+/// Separates a key from its value within an annotation object entry, e.g. the `:` in `@{width:100}`.
+pub(crate) const ANNOTATION_KEY_VALUE_SEPARATOR: char = ':';
 /// Prefix for boolean negation of an expression, e.g. `!foo:2` or `!is_deleted`.
 pub(crate) const NEGATE: char = '!';
 pub(crate) const PATH_SEPARATOR: char = '.';

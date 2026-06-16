@@ -54,7 +54,7 @@
     function handle_change() {
       let sql = '';
       try {
-        // `compile` returns a JSON string of `{ sql, columnMetadata }`. The playground only
+        // `compile` returns a JSON string of `{ sql, columnAnnotations }`. The playground only
         // displays the SQL for now.
         const result = JSON.parse(compile(schema_code, 'postgres', qd_code));
         sql = result.sql;

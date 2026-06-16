@@ -3,44 +3,44 @@ use serde::{Serialize, Serializer};
 
 use crate::tokens::LITERAL_NULL;
 
-/// A value in Querydown's JSON-like metadata sub-language. Used to carry arbitrary,
-/// application-defined metadata for result columns from the source code through to the compiler
+/// A value in Querydown's JSON-like annotation sub-language. Used to carry arbitrary,
+/// application-defined annotations for result columns from the source code through to the compiler
 /// output, separate from the generated SQL.
 #[derive(Debug, Clone, PartialEq)]
-pub enum MetaValue {
+pub enum AnnotationValue {
     Null,
     Bool(bool),
     /// The number is kept as a string (like [`Expr::Number`]) so that we preserve the exact way it
     /// was written. It is serialized as a JSON number.
     Number(String),
     String(String),
-    Array(Vec<MetaValue>),
+    Array(Vec<AnnotationValue>),
     /// Object entries are stored in a `Vec` (rather than a map) so that key order is preserved in
     /// the serialized output.
-    Object(Vec<(String, MetaValue)>),
+    Object(Vec<(String, AnnotationValue)>),
 }
 
-impl Serialize for MetaValue {
+impl Serialize for AnnotationValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         match self {
-            MetaValue::Null => serializer.serialize_none(),
-            MetaValue::Bool(b) => serializer.serialize_bool(*b),
-            MetaValue::Number(n) => {
+            AnnotationValue::Null => serializer.serialize_none(),
+            AnnotationValue::Bool(b) => serializer.serialize_bool(*b),
+            AnnotationValue::Number(n) => {
                 let number: serde_json::Number = n.parse().map_err(serde::ser::Error::custom)?;
                 number.serialize(serializer)
             }
-            MetaValue::String(s) => serializer.serialize_str(s),
-            MetaValue::Array(items) => {
+            AnnotationValue::String(s) => serializer.serialize_str(s),
+            AnnotationValue::Array(items) => {
                 let mut seq = serializer.serialize_seq(Some(items.len()))?;
                 for item in items {
                     seq.serialize_element(item)?;
                 }
                 seq.end()
             }
-            MetaValue::Object(entries) => {
+            AnnotationValue::Object(entries) => {
                 let mut map = serializer.serialize_map(Some(entries.len()))?;
                 for (key, value) in entries {
                     map.serialize_entry(key, value)?;
@@ -313,9 +313,9 @@ pub struct ColumnSpec {
     pub expr: Expr,
     pub alias: Option<String>,
     pub column_control: ColumnControl,
-    /// Optional column-level metadata, written last in the spec as `@{ ... }`. When present, this
-    /// is always a [`MetaValue::Object`].
-    pub metadata: Option<MetaValue>,
+    /// Optional column-level annotation, written last in the spec as `@{ ... }`. When present, this
+    /// is always a [`AnnotationValue::Object`].
+    pub annotation: Option<AnnotationValue>,
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -366,8 +366,8 @@ pub struct ColumnGlob {
 mod tests {
     use super::*;
 
-    fn obj(entries: Vec<(&str, MetaValue)>) -> MetaValue {
-        MetaValue::Object(
+    fn obj(entries: Vec<(&str, AnnotationValue)>) -> AnnotationValue {
+        AnnotationValue::Object(
             entries
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v))
@@ -379,17 +379,20 @@ mod tests {
     fn test_meta_value_serialization() {
         // Numbers are unquoted, booleans are real JSON booleans, null is null, and object key order
         // is preserved.
-        let value = MetaValue::Array(vec![
-            obj(vec![("width", MetaValue::Number("100".to_string()))]),
+        let value = AnnotationValue::Array(vec![
+            obj(vec![("width", AnnotationValue::Number("100".to_string()))]),
             obj(vec![
-                ("formatter", MetaValue::String("timeElapsed".to_string())),
-                ("textColor", MetaValue::String("light".to_string())),
+                (
+                    "formatter",
+                    AnnotationValue::String("timeElapsed".to_string()),
+                ),
+                ("textColor", AnnotationValue::String("light".to_string())),
             ]),
             obj(vec![
-                ("format", MetaValue::String("YYYY-MM-DD".to_string())),
-                ("datePicker", MetaValue::Bool(true)),
+                ("format", AnnotationValue::String("YYYY-MM-DD".to_string())),
+                ("datePicker", AnnotationValue::Bool(true)),
             ]),
-            obj(vec![("missing", MetaValue::Null)]),
+            obj(vec![("missing", AnnotationValue::Null)]),
         ]);
         let json = serde_json::to_string(&value).unwrap();
         assert_eq!(
@@ -400,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_meta_value_float_serialization() {
-        let value = MetaValue::Number("-2.5".to_string());
+        let value = AnnotationValue::Number("-2.5".to_string());
         assert_eq!(serde_json::to_string(&value).unwrap(), "-2.5");
     }
 }

@@ -16,13 +16,13 @@ use self::sorting::SortingStack;
 
 use super::{expr::convert_expr, scope::Scope};
 
-/// The result of converting result columns: the SQL columns, the sorting, and a `column_metadata`
+/// The result of converting result columns: the SQL columns, the sorting, and a `column_annotations`
 /// vector that is positionally aligned with `columns` (one entry per emitted column, `None` where
-/// the column has no metadata).
+/// the column has no annotation).
 pub struct ConvertedResultColumns {
     pub columns: Vec<Column>,
     pub sorting: Vec<SortEntry>,
-    pub column_metadata: Vec<Option<MetaValue>>,
+    pub column_annotations: Vec<Option<AnnotationValue>>,
 }
 
 /// Converts standalone `\\` sorting expressions into SQL sort entries, preserving the order in
@@ -50,7 +50,7 @@ pub fn convert_result_columns(
     scope: &mut Scope,
 ) -> Result<ConvertedResultColumns, String> {
     let mut columns = Vec::<Column>::new();
-    let mut column_metadata = Vec::<Option<MetaValue>>::new();
+    let mut column_annotations = Vec::<Option<AnnotationValue>>::new();
     let mut sorting_stack = SortingStack::new();
     for column_statement in result_columns {
         match column_statement {
@@ -58,7 +58,7 @@ pub fn convert_result_columns(
                 handle_spec(
                     spec,
                     &mut columns,
-                    &mut column_metadata,
+                    &mut column_annotations,
                     &mut sorting_stack,
                     scope,
                 )?;
@@ -67,7 +67,7 @@ pub fn convert_result_columns(
                 handle_glob(
                     glob,
                     &mut columns,
-                    &mut column_metadata,
+                    &mut column_annotations,
                     &mut sorting_stack,
                     scope,
                 )?;
@@ -77,14 +77,14 @@ pub fn convert_result_columns(
     Ok(ConvertedResultColumns {
         columns,
         sorting: sorting_stack.into(),
-        column_metadata,
+        column_annotations,
     })
 }
 
 fn handle_spec(
     spec: ColumnSpec,
     columns: &mut Vec<Column>,
-    column_metadata: &mut Vec<Option<MetaValue>>,
+    column_annotations: &mut Vec<Option<AnnotationValue>>,
     sorting_stack: &mut SortingStack,
     scope: &mut Scope,
 ) -> Result<(), String> {
@@ -98,7 +98,7 @@ fn handle_spec(
         sorting_stack.push(sorting_expr, sort_spec);
     }
     columns.push(Column { expr, alias });
-    column_metadata.push(spec.metadata);
+    column_annotations.push(spec.annotation);
     // TODO convert GroupSpec into GROUP BY
     Ok(())
 }
@@ -106,7 +106,7 @@ fn handle_spec(
 fn handle_glob(
     glob: ColumnGlob,
     columns: &mut Vec<Column>,
-    column_metadata: &mut Vec<Option<MetaValue>>,
+    column_annotations: &mut Vec<Option<AnnotationValue>>,
     sorting_stack: &mut SortingStack,
     scope: &mut Scope,
 ) -> Result<(), String> {
@@ -147,7 +147,7 @@ fn handle_glob(
 
     let mut hidden_columns: HashSet<usize> = HashSet::new();
     let mut column_aliases: HashMap<usize, String> = HashMap::new();
-    let mut column_metadata_map: HashMap<usize, MetaValue> = HashMap::new();
+    let mut column_annotations_map: HashMap<usize, AnnotationValue> = HashMap::new();
 
     for spec in glob.specs {
         if let Expr::Path(ref path) = spec.expr {
@@ -163,8 +163,8 @@ fn handle_glob(
                 if let Some(alias) = spec.alias {
                     column_aliases.insert(column_id, alias);
                 }
-                if let Some(metadata) = spec.metadata {
-                    column_metadata_map.insert(column_id, metadata);
+                if let Some(annotation) = spec.annotation {
+                    column_annotations_map.insert(column_id, annotation);
                 }
             }
         }
@@ -175,7 +175,7 @@ fn handle_glob(
         let alias = column_aliases.get(&column.id).cloned();
         if !hidden_columns.contains(&column.id) {
             columns.push(Column { expr, alias });
-            column_metadata.push(column_metadata_map.get(&column.id).cloned());
+            column_annotations.push(column_annotations_map.get(&column.id).cloned());
         }
     }
     Ok(())

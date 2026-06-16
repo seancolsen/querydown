@@ -5,28 +5,28 @@ use crate::tokens::*;
 
 use super::utils::*;
 
-/// Parses column-level metadata: a top-level object introduced by `@`, e.g. `@{width:100}`.
+/// Parses a column-level annotation: a top-level object introduced by `@`, e.g. `@{width:100}`.
 ///
-/// The metadata sub-language is a JSON-like variant in which:
+/// The annotation sub-language is a JSON-like variant in which:
 /// - object entries and array elements are whitespace-delimited (no commas),
 /// - strings may be left unquoted if they are identifiers,
 /// - and the values `null`, `true`, and `false` are written with a `@` sigil.
 ///
 /// The top level must be an object. Nested objects do not take the `@` sigil.
-pub fn metadata<'src>() -> impl Psr<'src, MetaValue> {
+pub fn annotation<'src>() -> impl Psr<'src, AnnotationValue> {
     just(CONST_SIGIL).ignore_then(object(value()))
 }
 
-/// A recursive parser for any metadata value (object, array, number, string, or `@`-constant).
-fn value<'src>() -> impl Psr<'src, MetaValue> {
+/// A recursive parser for any annotation value (object, array, number, string, or `@`-constant).
+fn value<'src>() -> impl Psr<'src, AnnotationValue> {
     recursive(|value| {
         // `@true`, `@false`, and `@null`. Note that only these three constants are permitted here
         // — unlike elsewhere in the language, `@`-prefixed dates, durations, and other constants
-        // are intentionally not accepted, because metadata must be JSON-representable.
+        // are intentionally not accepted, because annotations must be JSON-representable.
         let constant = just(CONST_SIGIL).ignore_then(choice((
-            exactly(LITERAL_TRUE).to(MetaValue::Bool(true)),
-            exactly(LITERAL_FALSE).to(MetaValue::Bool(false)),
-            exactly(LITERAL_NULL).to(MetaValue::Null),
+            exactly(LITERAL_TRUE).to(AnnotationValue::Bool(true)),
+            exactly(LITERAL_FALSE).to(AnnotationValue::Bool(false)),
+            exactly(LITERAL_NULL).to(AnnotationValue::Null),
         )));
 
         let number = just('-')
@@ -34,26 +34,26 @@ fn value<'src>() -> impl Psr<'src, MetaValue> {
             .then(int(10))
             .then(just('.').then(digits(10)).or_not())
             .to_slice()
-            .map(|s: &str| MetaValue::Number(s.to_string()));
+            .map(|s: &str| AnnotationValue::Number(s.to_string()));
 
         let quoted_string = quoted(STRING_QUOTE_SINGLE)
             .or(quoted(STRING_QUOTE_DOUBLE))
-            .map(MetaValue::String);
+            .map(AnnotationValue::String);
 
         // An unquoted identifier is treated as a string. This is also why bare `true`/`false`/
         // `null` (without the `@` sigil) parse as the strings `"true"`/`"false"`/`"null"`.
-        let ident_string = ident().map(|s: &str| MetaValue::String(s.to_string()));
+        let ident_string = ident().map(|s: &str| AnnotationValue::String(s.to_string()));
 
         let array = value
             .clone()
             .padded()
             .repeated()
-            .collect::<Vec<MetaValue>>()
+            .collect::<Vec<AnnotationValue>>()
             .delimited_by(
                 just(CONDITION_SET_OR_BRACE_L),
                 just(CONDITION_SET_OR_BRACE_R),
             )
-            .map(MetaValue::Array);
+            .map(AnnotationValue::Array);
 
         choice((
             object(value),
@@ -66,43 +66,43 @@ fn value<'src>() -> impl Psr<'src, MetaValue> {
     })
 }
 
-/// Parses a metadata object `{ key:value ... }` given a parser for its values. Used both for the
+/// Parses an annotation object `{ key:value ... }` given a parser for its values. Used both for the
 /// top-level object and for nested objects.
-fn object<'src>(value: impl Psr<'src, MetaValue>) -> impl Psr<'src, MetaValue> {
+fn object<'src>(value: impl Psr<'src, AnnotationValue>) -> impl Psr<'src, AnnotationValue> {
     let key = ident()
         .map(|s: &str| s.to_string())
         .or(quoted(STRING_QUOTE_SINGLE))
         .or(quoted(STRING_QUOTE_DOUBLE));
 
     let entry = key
-        .then_ignore(just(METADATA_KEY_VALUE_SEPARATOR).padded())
+        .then_ignore(just(ANNOTATION_KEY_VALUE_SEPARATOR).padded())
         .then(value);
 
     entry
         .padded()
         .repeated()
-        .collect::<Vec<(String, MetaValue)>>()
+        .collect::<Vec<(String, AnnotationValue)>>()
         .delimited_by(
             just(CONDITION_SET_AND_BRACE_L),
             just(CONDITION_SET_AND_BRACE_R),
         )
-        .map(MetaValue::Object)
+        .map(AnnotationValue::Object)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn p(s: &str) -> Result<MetaValue, ()> {
-        metadata()
+    fn p(s: &str) -> Result<AnnotationValue, ()> {
+        annotation()
             .then_ignore(end())
             .parse(s)
             .into_result()
             .map_err(|_| ())
     }
 
-    fn obj(entries: Vec<(&str, MetaValue)>) -> MetaValue {
-        MetaValue::Object(
+    fn obj(entries: Vec<(&str, AnnotationValue)>) -> AnnotationValue {
+        AnnotationValue::Object(
             entries
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v))
@@ -110,12 +110,12 @@ mod tests {
         )
     }
 
-    fn num(n: &str) -> MetaValue {
-        MetaValue::Number(n.to_string())
+    fn num(n: &str) -> AnnotationValue {
+        AnnotationValue::Number(n.to_string())
     }
 
-    fn s(v: &str) -> MetaValue {
-        MetaValue::String(v.to_string())
+    fn s(v: &str) -> AnnotationValue {
+        AnnotationValue::String(v.to_string())
     }
 
     #[test]
@@ -128,12 +128,15 @@ mod tests {
         );
         assert_eq!(p("@{a:'foo'}"), Ok(obj(vec![("a", s("foo"))])));
         assert_eq!(p("@{a:\"foo\"}"), Ok(obj(vec![("a", s("foo"))])));
-        assert_eq!(p("@{a:@true}"), Ok(obj(vec![("a", MetaValue::Bool(true))])));
+        assert_eq!(
+            p("@{a:@true}"),
+            Ok(obj(vec![("a", AnnotationValue::Bool(true))]))
+        );
         assert_eq!(
             p("@{a:@false}"),
-            Ok(obj(vec![("a", MetaValue::Bool(false))]))
+            Ok(obj(vec![("a", AnnotationValue::Bool(false))]))
         );
-        assert_eq!(p("@{a:@null}"), Ok(obj(vec![("a", MetaValue::Null)])));
+        assert_eq!(p("@{a:@null}"), Ok(obj(vec![("a", AnnotationValue::Null)])));
         // Bare `true` (without the sigil) is a string.
         assert_eq!(p("@{a:true}"), Ok(obj(vec![("a", s("true"))])));
     }
@@ -160,7 +163,7 @@ mod tests {
             p("@{formattingConditions:[\n  {gte:10 bg:'#fbc9ff'}\n  {gte:5 bg:'#d5d2ff'}\n]}"),
             Ok(obj(vec![(
                 "formattingConditions",
-                MetaValue::Array(vec![
+                AnnotationValue::Array(vec![
                     obj(vec![("gte", num("10")), ("bg", s("#fbc9ff"))]),
                     obj(vec![("gte", num("5")), ("bg", s("#d5d2ff"))]),
                 ])

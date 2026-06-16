@@ -68,9 +68,9 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Table-scoped functions](#table-scoped-functions)
   - [Function call expansion](#function-call-expansion)
   - [User-defined tables](#user-defined-tables)
-- [Metadata](#metadata)
-  - [Column-level metadata](#column-level-metadata)
-  - [Query-level metadata](#query-level-metadata)
+- [Annotations](#annotations)
+  - [Column-level annotations](#column-level-annotations)
+  - [Query-level annotations](#query-level-annotations)
 - [Limit and offset](#limit-and-offset)
 - [Modules](#modules)
 
@@ -921,13 +921,13 @@ _(🚧 Not yet implemented)_
 #project_months issue_count:>=10 $project \g $%count
 ```
 
-## Metadata
+## Annotations
 
-### Column-level metadata
+### Column-level annotations
 
-You can associate arbitrary, application-defined metadata with any result column by writing an object prefixed with a `@` sigil. The metadata must come **last** in the column spec — after any sorting/grouping flags and after the column alias.
+You can associate arbitrary, application-defined annotations with any result column by writing an object prefixed with a `@` sigil. The annotation must come **last** in the column spec — after any sorting/grouping flags and after the column alias.
 
-> Show several columns from the `issues` table, attaching display metadata to each.
+> Show several columns from the `issues` table, attaching display annotations to each.
 
 ```qd
 #issues
@@ -939,11 +939,11 @@ $#comments @{formattingConditions:[
   {gte:5 bg:'#d5d2ff'}
 ]}
 ```
-In additon to the query SQL, this also produces the following metadata:
+In additon to the query SQL, this also produces the following annotations:
 
 ```json
 {
-  "columnMetadata": [
+  "columnAnnotations": [
     { "width": 100 },
     { "formatter": "timeElapsed", "textColor": "light" },
     { "format": "YYYY-MM-DD", "datePicker": true },
@@ -957,32 +957,32 @@ In additon to the query SQL, this also produces the following metadata:
 }
 ```
 
-The exact structure of the metadata is entirely up to you. Querydown does not interpret it — it only provides a way to specify arbitrary metadata for any column and pass it through to the output.
+The exact structure of the annotation is entirely up to you. Querydown does not interpret it — it only provides a way to specify arbitrary annotations for any column and pass them through to the output.
 
-#### The metadata output
+#### The annotation output
 
-The `columnMetadata` array is **positional**: it has one entry per output column, in the same order as the columns in the result set. A column with no metadata gets `null` in its slot. This means a column glob like `$*` contributes one `null` (or its adjustment metadata) per expanded column, and hidden columns (`\h`) contribute nothing.
+The `columnAnnotations` array is **positional**: it has one entry per output column, in the same order as the columns in the result set. A column with no annotation gets `null` in its slot. This means a column glob like `$*` contributes one `null` (or its adjustment annotation) per expanded column, and hidden columns (`\h`) contribute nothing.
 
 #### Querydown's JSON variant
 
-The metadata is written in a JSON-like syntax with a few differences from standard JSON:
+Annotations are written in a JSON-like syntax with a few differences from standard JSON:
 
 - Object entries and array elements are delimited with **whitespace** instead of commas.
 - Strings can be left **unquoted** if they are identifiers (e.g. `timeElapsed`). They can also be quoted with single or double quotes.
 - The values `null`, `true`, and `false` are written with a `@` sigil: `@null`, `@true`, `@false`.
-- Only the top-level metadata object takes the `@` sigil. Nested objects do not.
+- Only the top-level annotation object takes the `@` sigil. Nested objects do not.
 
 A few things to watch out for:
 
 - Bare `true`, `false`, and `null` (without the `@` sigil) are parsed as the **strings** `"true"`, `"false"`, and `"null"`.
-- Inside metadata, the `@` sigil accepts **only** `true`/`false`/`null` — not dates (`@2000-01-01`), durations (`@2y`), or other constants.
+- Inside an annotation, the `@` sigil accepts **only** `true`/`false`/`null` — not dates (`@2000-01-01`), durations (`@2y`), or other constants.
 - A value that begins with a digit is parsed as a number, and a value that begins with `#` (such as a color like `#fbc9ff`) must be quoted.
 
-### Query-level metadata
+### Query-level annotations
 
 _(🚧 Not yet implemented)_
 
-> Show all issues. Also associate `{"foo": 100}` as JSON metadata with the query. This metadata will get passed through as output from the Querydown compiler, separate from the SQL output.
+> Show all issues. Also associate `{"foo": 100}` as a JSON annotation with the query. This annotation will get passed through as output from the Querydown compiler, separate from the SQL output.
 
 ```qd
 #issues \\\{"foo": 100}

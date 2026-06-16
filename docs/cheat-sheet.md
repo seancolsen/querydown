@@ -34,7 +34,7 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `"` or `'` | string quote | ✅ |
 | `^` | [string flag](./language.md#flagged-strings) prefix | ❌ |
 | `{ }` | [string interpolation](./language.md#flagged-strings) | ❌ |
-| `@{ }` | [column metadata](./language.md#column-level-metadata) object (`@true`/`@false`/`@null`, whitespace-delimited, `:` between key and value) | ✅ |
+| `@{ }` | [column annotations](./language.md#column-level-annotations) object (`@true`/`@false`/`@null`, whitespace-delimited, `:` between key and value) | ✅ |
 | `\` | string escape sequence prefix | ✅ |
 | `` ` `` | [identifier quote](./language.md#identifiers-table-names-and-column-names) | ✅ |
 
@@ -76,7 +76,7 @@ Regex flags
 | `->` | [alias](./language.md#aliasing-result-columns) prefix | ✅ |
 | `\` | column control flags prefix | ✅ |
 | `\\` | [sorting expression](./language.md#sorting-outside-of-result-columns) prefix (followed by optional `\d` / `\n` flags) | ✅ |
-| `@{ }` | [column metadata](./language.md#column-level-metadata) (written last in the spec) | ✅ |
+| `@{ }` | [column annotations](./language.md#column-level-annotations) (written last in the spec) | ✅ |
 
 Column control flags:
 

@@ -91,7 +91,7 @@ mod tests {
                             is_hidden: false
                         },
                         expr: Expr::Path(vec![PathPart::Column("c".to_string())]),
-                        metadata: None,
+                        annotation: None,
                     })],
                 }],
             })
