@@ -15,7 +15,7 @@ fn binary_op(a: SqlExpr, op: &str, b: SqlExpr, precedence: SqlExprPrecedence) ->
     }
 }
 
-fn sql_func(name: &str, args: impl IntoIterator<Item = SqlExpr>) -> SqlExpr {
+pub fn sql_func(name: &str, args: impl IntoIterator<Item = SqlExpr>) -> SqlExpr {
     SqlExpr::atom(format!("{}({})", name, args.into_iter().join(", ")))
 }
 

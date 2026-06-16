@@ -27,6 +27,9 @@ struct CompileArgs {
     /// the SQL along with the column metadata.
     #[arg(short, long, value_enum, default_value_t = OutputFormat::Sql)]
     format: OutputFormat,
+    /// The SQL dialect to target.
+    #[arg(short, long, value_enum, default_value_t = DialectOption::Postgres)]
+    dialect: DialectOption,
     /// The querydown query to execute. If empty, stdin will be used.
     query: Option<String>,
 }
@@ -35,6 +38,12 @@ struct CompileArgs {
 enum OutputFormat {
     Sql,
     Json,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DialectOption {
+    Postgres,
+    Duckdb,
 }
 
 fn get_stdin() -> String {
@@ -46,8 +55,12 @@ fn get_stdin() -> String {
 fn compile(args: CompileArgs) {
     let querydown_code = args.query.unwrap_or_else(get_stdin);
     let schema_json = std::fs::read_to_string(args.schema).unwrap();
+    let dialect: Box<dyn Dialect> = match args.dialect {
+        DialectOption::Postgres => Box::new(Postgres()),
+        DialectOption::Duckdb => Box::new(DuckDB()),
+    };
     let options = Options {
-        dialect: Box::new(Postgres()),
+        dialect,
         identifier_resolution: IdentifierResolution::Flexible,
     };
     let compiler = Compiler::new(&schema_json, options).unwrap();

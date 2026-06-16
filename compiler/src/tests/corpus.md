@@ -284,6 +284,26 @@ WHERE
   ("issues"."description" ~* 'color' OR "issues"."description" ~* 'colour');
 ```
 
+### Regex (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Issues with titles containing "foo", targeting DuckDB
+
+```qd
+#issues title:~"foo"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  regexp_matches("issues"."title", 'foo', 'i');
+```
+
 ### Simple range
 
 ```qd

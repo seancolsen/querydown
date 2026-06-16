@@ -6,6 +6,7 @@ fn test_corpus() {
     // preventing me from writing these imports at the top of the file like normal.
     use crate::options::{IdentifierResolution, Options};
     use crate::Compiler;
+    use crate::DuckDB;
     use crate::Postgres;
 
     use super::get_test_resource;
@@ -113,6 +114,7 @@ fn test_corpus() {
             identifier_resolution: case.options.identifier_resolution,
             dialect: match case.options.dialect.as_str() {
                 "postgres" => Box::new(Postgres()),
+                "duckdb" => Box::new(DuckDB()),
                 _ => panic!("Unknown dialect"),
             },
         };

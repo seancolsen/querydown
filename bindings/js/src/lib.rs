@@ -3,8 +3,9 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub fn compile(schema_json: &str, dialect: &str, input: String) -> Result<String, String> {
-    let dialect = match dialect {
+    let dialect: Box<dyn Dialect> = match dialect {
         "postgres" => Box::new(Postgres()),
+        "duckdb" => Box::new(DuckDB()),
         _ => return Err("Invalid dialect".to_string()),
     };
     let options = Options {

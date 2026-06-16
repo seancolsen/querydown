@@ -10,4 +10,4 @@ mod utils;
 pub use compiler::{CompileResult, Compiler};
 pub use options::{IdentifierResolution, Options};
 pub use querydown_parser::ast::MetaValue;
-pub use sql::Postgres;
+pub use sql::{Dialect, DuckDB, Postgres};
