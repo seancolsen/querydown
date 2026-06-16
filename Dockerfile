@@ -51,6 +51,11 @@ RUN groupadd --gid "${USER_GID}" "${USERNAME}" 2>/dev/null || true \
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Script to append a timestamp to the Claude notification queue.
+RUN printf '#!/bin/sh\necho "$(date \047+%%Y-%%m-%%d %%H:%%M:%%S\047)" >> ~/.claude/notification-queue.txt\n' \
+    > /usr/local/bin/ding \
+    && chmod +x /usr/local/bin/ding
+
 USER ${USERNAME}
 WORKDIR /workspace
 
