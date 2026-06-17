@@ -8,7 +8,7 @@ mod rendering;
 mod result_columns;
 mod scope;
 
-use querydown_parser::ast::MetaValue;
+use querydown_parser::ast::AnnotationValue;
 use querydown_parser::parse;
 use serde::Serialize;
 
@@ -25,15 +25,15 @@ use self::{
     scope::Scope,
 };
 
-/// The output of compiling Querydown code: the generated SQL plus column-level metadata.
+/// The output of compiling Querydown code: the generated SQL plus column-level annotation.
 ///
-/// `column_metadata` is positionally aligned with the columns of the result set — one entry per
-/// output column, in order, with `null` for any column that has no metadata.
+/// `column_annotations` is positionally aligned with the columns of the result set — one entry per
+/// output column, in order, with `null` for any column that has no annotation.
 #[derive(Debug, Serialize)]
 pub struct CompileResult {
     pub sql: String,
-    #[serde(rename = "columnMetadata")]
-    pub column_metadata: Vec<Option<MetaValue>>,
+    #[serde(rename = "columnAnnotations")]
+    pub column_annotations: Vec<Option<AnnotationValue>>,
 }
 
 pub struct Compiler {
@@ -69,7 +69,7 @@ impl Compiler {
         let ConvertedResultColumns {
             columns,
             sorting: column_sorting,
-            column_metadata,
+            column_annotations,
         } = convert_result_columns(result_columns, &mut scope)?;
         select.columns = columns;
         // Standalone `\\` sorts take precedence over column `\s` sorts, hence they come first.
@@ -82,7 +82,7 @@ impl Compiler {
 
         Ok(CompileResult {
             sql: format!("{};", select.render(&mut scope)),
-            column_metadata,
+            column_annotations,
         })
     }
 }

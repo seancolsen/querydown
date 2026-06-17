@@ -24,7 +24,7 @@ struct CompileArgs {
     #[arg(short, long)]
     schema: String,
     /// Output format. `sql` prints only the generated SQL. `json` prints a JSON object containing
-    /// the SQL along with the column metadata.
+    /// the SQL along with the column annotation.
     #[arg(short, long, value_enum, default_value_t = OutputFormat::Sql)]
     format: OutputFormat,
     /// The SQL dialect to target.
