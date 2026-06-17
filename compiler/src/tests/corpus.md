@@ -358,14 +358,9 @@ WHERE
 
 ```toml options
 dialect = "duckdb"
-db_skip = ["postgres"]
 ```
 
 > DuckDB escapes a single-quote by doubling it, rather than with a backslash.
-
-`db_skip` excludes Postgres from the database test here: the Postgres dialect backslash-escapes the
-quote (`'can\'t'`), which is invalid under Postgres's default `standard_conforming_strings=on`. See the
-TODO in `compiler/src/sql/postgres.rs`.
 
 ```qd
 #issues title:"can't"

@@ -8,16 +8,20 @@ use super::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Postgres();
 
-// TODO: we need to make sure other escape sequences which find their way into the string value
-// stored in the AST are not unintentionally processed as escape sequences by Postgres. See
-// https://www.postgresql.org/docs/current/sql-syntax-lexical.html for continued research.
+// TODO: `quote_identifier` still backslash-escapes embedded quotes/backslashes, whereas standard
+// Postgres escapes a `"` inside a quoted identifier by doubling it. No current input exercises an
+// identifier containing those characters, so this is left for later.
 impl Dialect for Postgres {
     fn quote_identifier(&self, ident: &str) -> String {
         format!(r#""{}""#, ident.replace(r"\", r"\\").replace('"', r#"\""#))
     }
 
     fn quote_string(&self, string: &str) -> String {
-        format!("'{}'", string.replace(r"\", r"\\").replace("'", r"\'"))
+        // Postgres uses standard-conforming string literals by default
+        // (standard_conforming_strings=on), so backslashes are literal and a single-quote is
+        // escaped by doubling it. Backslash-escaping a quote (`\'`) is only valid inside an
+        // `E'...'` string and produces a syntax error under the default setting.
+        format!("'{}'", string.replace('\'', "''"))
     }
 
     fn date(&self, date: &Date) -> String {
