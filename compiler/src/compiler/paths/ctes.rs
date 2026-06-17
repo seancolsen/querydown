@@ -1,7 +1,9 @@
+use querydown_parser::ast::{NullsSort, SortDirection, SortExpr};
+
 use crate::{
     compiler::{
         constants::{CTE_PK_COLUMN_ALIAS, CTE_VALUE_COLUMN_PREFIX},
-        expr::convert_condition_set,
+        expr::{convert_condition_set, convert_expr},
         join_tree::make_join_from_link,
         scope::Scope,
     },
@@ -24,28 +26,51 @@ pub struct ValueViaCte {
 
 pub struct AggregateExprTemplate {
     column_name: String,
-    /// This is a function that accepts a table.column expression and returns a wrapped expression
-    /// that is used as the aggregate expression. E.g. it might be:
+    /// This is a function that accepts a table.column expression and a pre-rendered ORDER BY
+    /// clause (empty string when no ORDER BY was specified) and returns a wrapped expression
+    /// that is used as the aggregate expression. E.g. it might produce:
     ///
-    /// ```rs
-    /// fn max(a: SqlExpr) -> SqlExpr {
-    ///     SqlExpr::atom(format!("max({})", a))
-    /// }
-    /// ```
+    /// `array_agg("col" ORDER BY "col" ASC NULLS LAST)`
     ///
     /// When this AggregateExprTemplate instance is rendered within a CTE, the column_name is
     /// resolved to a table.column expression, and then the agg_wrapper is applied to that
-    /// expression.
-    agg_wrapper: fn(SqlExpr) -> SqlExpr,
+    /// expression along with the compiled ORDER BY string.
+    agg_wrapper: fn(SqlExpr, String) -> SqlExpr,
+    order_by: Vec<SortExpr>,
 }
 
 impl AggregateExprTemplate {
-    pub fn new(column_name: String, agg_wrapper: fn(SqlExpr) -> SqlExpr) -> Self {
+    pub fn new(
+        column_name: String,
+        agg_wrapper: fn(SqlExpr, String) -> SqlExpr,
+        order_by: Vec<SortExpr>,
+    ) -> Self {
         Self {
             column_name,
             agg_wrapper,
+            order_by,
         }
     }
+}
+
+fn render_order_by(order_by: Vec<SortExpr>, scope: &mut Scope) -> Result<String, String> {
+    if order_by.is_empty() {
+        return Ok(String::new());
+    }
+    let mut parts = Vec::with_capacity(order_by.len());
+    for sort_expr in order_by {
+        let sql_expr = convert_expr(sort_expr.expr, scope)?;
+        let direction = match sort_expr.direction {
+            SortDirection::Asc => "ASC",
+            SortDirection::Desc => "DESC",
+        };
+        let nulls_sort = match sort_expr.nulls_sort {
+            NullsSort::First => "NULLS FIRST",
+            NullsSort::Last => "NULLS LAST",
+        };
+        parts.push(format!("{} {} {}", sql_expr, direction, nulls_sort));
+    }
+    Ok(parts.join(", "))
 }
 
 pub fn build_cte_select(
@@ -112,8 +137,16 @@ pub fn build_cte_select(
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &ending_table.name))?;
                 let column = ending_table.columns.get(column_id).unwrap();
                 let reference = cte_scope.table_column_expr(&ending_table.name, &column.name);
+                let order_by_str = {
+                    let mut ob_scope = cte_scope.spawn(ending_table);
+                    let s = render_order_by(template.order_by, &mut ob_scope)?;
+                    let (ob_joins, ob_ctes) = ob_scope.decompose_join_tree();
+                    select.joins.extend(ob_joins);
+                    select.ctes.extend(ob_ctes);
+                    s
+                };
                 let wrapper = template.agg_wrapper;
-                wrapper(reference)
+                wrapper(reference, order_by_str)
             }
             None => build::agg::count_star(),
         };

@@ -22,51 +22,62 @@ pub fn sql_func(name: &str, args: impl IntoIterator<Item = SqlExpr>) -> SqlExpr 
 pub mod agg {
     use super::*;
 
-    pub fn bool_and(a: SqlExpr) -> SqlExpr {
-        sql_func("bool_and", [a])
+    fn with_order(name: &str, a: SqlExpr, order_by: String) -> SqlExpr {
+        if order_by.is_empty() {
+            sql_func(name, [a])
+        } else {
+            SqlExpr::atom(format!("{}({} ORDER BY {})", name, a.content, order_by))
+        }
     }
 
-    pub fn bool_or(a: SqlExpr) -> SqlExpr {
-        sql_func("bool_or", [a])
+    pub fn array_agg(a: SqlExpr, order_by: String) -> SqlExpr {
+        with_order("array_agg", a, order_by)
     }
 
-    pub fn avg(a: SqlExpr) -> SqlExpr {
-        sql_func("avg", [a])
+    pub fn bool_and(a: SqlExpr, order_by: String) -> SqlExpr {
+        with_order("bool_and", a, order_by)
     }
 
-    pub fn count(a: SqlExpr) -> SqlExpr {
-        sql_func("count", [a])
+    pub fn bool_or(a: SqlExpr, order_by: String) -> SqlExpr {
+        with_order("bool_or", a, order_by)
+    }
+
+    pub fn avg(a: SqlExpr, order_by: String) -> SqlExpr {
+        with_order("avg", a, order_by)
+    }
+
+    pub fn count(a: SqlExpr, order_by: String) -> SqlExpr {
+        with_order("count", a, order_by)
     }
 
     pub fn count_star() -> SqlExpr {
         SqlExpr::atom("count(*)".to_string())
     }
 
-    pub fn count_distinct(a: SqlExpr) -> SqlExpr {
+    pub fn count_distinct(a: SqlExpr, order_by: String) -> SqlExpr {
         // TODO: We should alter the query at a higher level to use an approach like this for
         // better performance:
         // https://stackoverflow.com/questions/11250253/postgresql-countdistinct-very-slow
-        SqlExpr::atom(format!("count(DISTINCT {})", a.content))
+        if order_by.is_empty() {
+            SqlExpr::atom(format!("count(DISTINCT {})", a.content))
+        } else {
+            SqlExpr::atom(format!(
+                "count(DISTINCT {} ORDER BY {})",
+                a.content, order_by
+            ))
+        }
     }
 
-    pub fn max(a: SqlExpr) -> SqlExpr {
-        sql_func("max", [a])
+    pub fn max(a: SqlExpr, order_by: String) -> SqlExpr {
+        with_order("max", a, order_by)
     }
 
-    pub fn min(a: SqlExpr) -> SqlExpr {
-        sql_func("min", [a])
+    pub fn min(a: SqlExpr, order_by: String) -> SqlExpr {
+        with_order("min", a, order_by)
     }
 
-    pub fn string_agg(a: SqlExpr) -> SqlExpr {
-        // TODO:
-        // - Let user customize the separator
-        // - Use dialect-specific string quoting logic
-        let separator = SqlExpr::atom("', '".to_string());
-        sql_func("string_agg", [a, separator])
-    }
-
-    pub fn sum(a: SqlExpr) -> SqlExpr {
-        sql_func("sum", [a])
+    pub fn sum(a: SqlExpr, order_by: String) -> SqlExpr {
+        with_order("sum", a, order_by)
     }
 }
 

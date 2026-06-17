@@ -66,7 +66,7 @@ pub struct Transformation {
 
 /// A standalone sorting expression, written with the `\\` prefix outside of the result columns,
 /// e.g. `\\created_at \d`. The order in which these are listed defines their sort precedence.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SortExpr {
     pub expr: Expr,
     pub direction: SortDirection,
@@ -288,6 +288,7 @@ pub struct Call {
     pub dimension: FunctionDimension,
     pub args: Vec<Expr>,
     pub syntax: CallSyntax,
+    pub order_by: Vec<SortExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

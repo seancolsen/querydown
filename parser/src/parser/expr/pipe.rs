@@ -1,38 +1,84 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::parser::sorting::sort_flags;
 use crate::parser::utils::*;
 use crate::tokens::*;
+
+fn agg_sort_expr<'src>(expr_parser: impl Psr<'src, Expr>) -> impl Psr<'src, SortExpr> {
+    just(SORT_EXPR_PREFIX)
+        .ignore_then(whitespace())
+        .ignore_then(expr_parser)
+        .then(whitespace().ignore_then(sort_flags()).or_not())
+        .map(|(expr, flags)| {
+            let (direction, nulls_sort) = flags.unwrap_or_default();
+            SortExpr {
+                expr,
+                direction,
+                nulls_sort,
+            }
+        })
+}
 
 pub fn pipe<'src>(
     arg0_expr: impl Psr<'src, Expr>,
     extra_args_expr: impl Psr<'src, Expr>,
 ) -> impl Psr<'src, Expr> {
-    let args = just(COMPOSITION_ARGUMENT_BRACE_L)
-        .ignore_then(extra_args_expr.padded().repeated().collect::<Vec<Expr>>())
+    let scalar_args = just(COMPOSITION_ARGUMENT_BRACE_L)
+        .ignore_then(
+            extra_args_expr
+                .clone()
+                .padded()
+                .repeated()
+                .collect::<Vec<Expr>>(),
+        )
         .then_ignore(just(COMPOSITION_ARGUMENT_BRACE_R));
 
-    let dimension = choice((
-        just(COMPOSITION_PIPE_SCALAR).to(FunctionDimension::Scalar),
-        just(COMPOSITION_PIPE_AGGREGATE).to(FunctionDimension::Aggregate),
-    ));
+    let aggregate_order_by = just(COMPOSITION_ARGUMENT_BRACE_L)
+        .ignore_then(
+            agg_sort_expr(extra_args_expr)
+                .padded()
+                .repeated()
+                .collect::<Vec<SortExpr>>(),
+        )
+        .then_ignore(just(COMPOSITION_ARGUMENT_BRACE_R));
+
+    let scalar_call = just(COMPOSITION_PIPE_SCALAR)
+        .padded()
+        .ignore_then(ident())
+        .then(scalar_args.or_not())
+        .map(|(name, extra_args)| {
+            (
+                FunctionDimension::Scalar,
+                name.to_string(),
+                extra_args.unwrap_or_default(),
+                vec![],
+            )
+        });
+
+    let aggregate_call = just(COMPOSITION_PIPE_AGGREGATE)
+        .padded()
+        .ignore_then(ident())
+        .then(aggregate_order_by.or_not())
+        .map(|(name, order_by)| {
+            (
+                FunctionDimension::Aggregate,
+                name.to_string(),
+                vec![],
+                order_by.unwrap_or_default(),
+            )
+        });
 
     arg0_expr.foldl(
-        dimension
-            .padded()
-            .then(ident())
-            .then(args.or_not())
-            .repeated(),
-        |arg0, ((dimension, name), extra_args)| {
-            let args = vec![arg0]
-                .into_iter()
-                .chain(extra_args.unwrap_or_default())
-                .collect();
+        choice((scalar_call, aggregate_call)).repeated(),
+        |arg0, (dimension, name, extra_args, order_by)| {
+            let args = std::iter::once(arg0).chain(extra_args).collect();
             Expr::Call(Call {
-                name: name.to_string(),
+                name,
                 dimension,
                 syntax: CallSyntax::Piped,
                 args,
+                order_by,
             })
         },
     )

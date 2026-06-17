@@ -34,7 +34,7 @@ fn sort_expr<'src>() -> impl Psr<'src, SortExpr> {
 /// Parses the optional `\d` / `\n` flags that may follow a standalone sorting expression. Only `d`
 /// (descending) and `n` (nulls first) are accepted — `s` is implied by the `\\` prefix. Flags may
 /// be combined within a single backslash group, e.g. `\dn`.
-fn sort_flags<'src>() -> impl Psr<'src, (SortDirection, NullsSort)> {
+pub(crate) fn sort_flags<'src>() -> impl Psr<'src, (SortDirection, NullsSort)> {
     #[derive(Clone)]
     enum Flag {
         Desc,

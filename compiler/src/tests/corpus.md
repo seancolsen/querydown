@@ -669,6 +669,87 @@ LEFT JOIN "cte0" ON
   "projects"."id" = "cte0"."pk";
 ```
 
+### List aggregate (array_agg)
+
+> Issues with an array of their label names.
+
+```qd
+#issues $id $#issue_labels.label.name%list
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg("labels"."name") AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate with ORDER BY
+
+> Issues with an array of their label names sorted alphabetically.
+
+```qd
+#issues $id $#issue_labels.label.name%list(\\name)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg("labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate with descending ORDER BY
+
+> Issues with an array of their label names sorted reverse-alphabetically.
+
+```qd
+#issues $id $#issue_labels.label.name%list(\\name \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg("labels"."name" ORDER BY "labels"."name" DESC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
 ### Multiple CTEs
 
 > Issues that have comments and assignments
