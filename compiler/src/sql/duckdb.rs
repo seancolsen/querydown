@@ -1,7 +1,7 @@
 use querydown_parser::ast::{Date, Duration};
 
 use super::{
-    dialect::{Dialect, RegExFlags},
+    dialect::{duration_part, Dialect, NormalizedDuration, RegExFlags},
     expr::{
         build::{cond, sql_func},
         SqlExpr,
@@ -19,11 +19,17 @@ impl Dialect for DuckDB {
     // replaced with DuckDB-specific implementations.
 
     fn quote_identifier(&self, ident: &str) -> String {
-        Postgres().quote_identifier(ident)
+        // Unlike Postgres, DuckDB does not support backslash escapes within quoted identifiers. It
+        // uses standard SQL escaping, where an embedded double-quote is doubled and a backslash is
+        // a literal character.
+        format!(r#""{}""#, ident.replace('"', r#""""#))
     }
 
     fn quote_string(&self, string: &str) -> String {
-        Postgres().quote_string(string)
+        // Unlike Postgres, DuckDB does not support backslash escapes within string literals. It
+        // uses standard SQL escaping, where an embedded single-quote is doubled and a backslash is
+        // a literal character.
+        format!("'{}'", string.replace('\'', "''"))
     }
 
     fn date(&self, date: &Date) -> String {
@@ -31,7 +37,33 @@ impl Dialect for DuckDB {
     }
 
     fn duration(&self, duration: &Duration) -> String {
-        Postgres().duration(duration)
+        // DuckDB has no equivalent to Postgres's `make_interval` function. Instead it provides a
+        // family of `to_*` functions, each producing an interval for a single unit, which we add
+        // together. We omit parts that are zero, falling back to `to_seconds(0)` when the entire
+        // duration is zero.
+        let d = NormalizedDuration::new(duration);
+
+        let func = |name: &'static str| move |value: String| format!("{name}({value})");
+
+        #[rustfmt::skip]
+        let parts = [
+            duration_part(d.years,   func("to_years")),
+            duration_part(d.months,  func("to_months")),
+            duration_part(d.weeks,   func("to_weeks")),
+            duration_part(d.days,    func("to_days")),
+            duration_part(d.hours,   func("to_hours")),
+            duration_part(d.minutes, func("to_minutes")),
+            duration_part(d.seconds, func("to_seconds")),
+        ].into_iter().flatten().collect::<Vec<String>>();
+
+        match parts.len() {
+            0 => "to_seconds(0)".to_string(),
+            1 => parts.into_iter().next().unwrap(),
+            // Parenthesize a multi-part sum so that the duration behaves as a single atomic value
+            // in surrounding expressions. Without this, `NOW() - to_years(1) + to_months(1)` would
+            // wrongly parse as `(NOW() - to_years(1)) + to_months(1)`.
+            _ => format!("({})", parts.join(" + ")),
+        }
     }
 
     fn match_regex(

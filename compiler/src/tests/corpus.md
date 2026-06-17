@@ -304,6 +304,66 @@ WHERE
   regexp_matches("issues"."title", 'foo', 'i');
 ```
 
+### Duration (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> DuckDB has no `make_interval`, so a single-part duration uses a `to_*` function.
+
+```qd
+#issues created_at:>@6Y|ago
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."created_at" > NOW() - to_years(6);
+```
+
+### Multi-part duration (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> A multi-part duration sums `to_*` functions, parenthesized so it stays atomic when subtracted.
+
+```qd
+#issues created_at:>@1Y2D|ago
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."created_at" > NOW() - (to_years(1) + to_days(2));
+```
+
+### String escaping (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> DuckDB escapes a single-quote by doubling it, rather than with a backslash.
+
+```qd
+#issues title:"can't"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."title" = 'can''t';
+```
+
 ### Simple range
 
 ```qd
