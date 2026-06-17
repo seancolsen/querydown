@@ -14,7 +14,10 @@ use crate::{
 
 use super::{
     constants::*,
-    functions::{get_standard_aggregate_functions, get_standard_scalar_functions, Func, FuncMap},
+    functions::{
+        get_standard_aggregate_functions, get_standard_scalar_functions, AggregateFunc,
+        AggregateFuncMap, ScalarFunc, ScalarFuncMap,
+    },
     join_tree::JoinTree,
     paths::{build_cte_select, AggregateExprTemplate, ValueViaCte},
 };
@@ -28,8 +31,8 @@ pub struct Scope<'a, 'b> {
     pub path_prefix: Vec<PathPart>,
     aliases: HashSet<String>,
     cte_naming_index: usize,
-    scalar_functions: FuncMap,
-    aggregate_functions: FuncMap,
+    scalar_functions: ScalarFuncMap,
+    aggregate_functions: AggregateFuncMap,
 }
 
 impl<'a, 'b> Scope<'a, 'b> {
@@ -192,14 +195,14 @@ impl<'a, 'b> Scope<'a, 'b> {
         get_table_by_name(self.options, self.schema, name)
     }
 
-    pub fn get_scalar_function(&self, name: &str) -> Option<&Func> {
+    pub fn get_scalar_function(&self, name: &str) -> Option<&ScalarFunc> {
         self.scalar_functions.get(name).or_else(|| {
             self.parent
                 .and_then(|parent| parent.get_scalar_function(name))
         })
     }
 
-    pub fn get_aggregate_function(&self, name: &str) -> Option<&Func> {
+    pub fn get_aggregate_function(&self, name: &str) -> Option<&AggregateFunc> {
         self.aggregate_functions.get(name).or_else(|| {
             self.parent
                 .and_then(|parent| parent.get_aggregate_function(name))

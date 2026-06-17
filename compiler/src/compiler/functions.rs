@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
-use querydown_parser::ast::{Call, Expr, FunctionDimension};
+use querydown_parser::ast::{Call, Expr, FunctionDimension, SortExpr};
 
 use crate::{
     compiler::{
@@ -17,7 +17,9 @@ use crate::{
 pub fn convert_call(call: Call, scope: &mut Scope) -> Result<SqlExpr, String> {
     match call.dimension {
         FunctionDimension::Scalar => convert_scalar_call(&call.name, call.args, scope),
-        FunctionDimension::Aggregate => convert_aggregate_call(&call.name, call.args, scope),
+        FunctionDimension::Aggregate => {
+            convert_aggregate_call(&call.name, call.args, call.order_by, scope)
+        }
     }
 }
 
@@ -28,15 +30,23 @@ fn convert_scalar_call(name: &str, e: Vec<Expr>, s: &mut Scope) -> Result<SqlExp
     func(e, s)
 }
 
-fn convert_aggregate_call(name: &str, e: Vec<Expr>, s: &mut Scope) -> Result<SqlExpr, String> {
+fn convert_aggregate_call(
+    name: &str,
+    e: Vec<Expr>,
+    order_by: Vec<SortExpr>,
+    s: &mut Scope,
+) -> Result<SqlExpr, String> {
     let func = s
         .get_aggregate_function(name)
         .ok_or_else(|| unknown_aggregate_function(name))?;
-    func(e, s)
+    func(e, order_by, s)
 }
 
-pub type FuncMap = HashMap<String, Func>;
-pub type Func = fn(Vec<Expr>, &mut Scope) -> Result<SqlExpr, String>;
+pub type ScalarFuncMap = HashMap<String, ScalarFunc>;
+pub type ScalarFunc = fn(Vec<Expr>, &mut Scope) -> Result<SqlExpr, String>;
+
+pub type AggregateFuncMap = HashMap<String, AggregateFunc>;
+pub type AggregateFunc = fn(Vec<Expr>, Vec<SortExpr>, &mut Scope) -> Result<SqlExpr, String>;
 
 /// Get the first item out of an Iterator, ensuring it has no more
 fn iter_one<T>(items: impl IntoIterator<Item = T>) -> Option<T> {
@@ -89,9 +99,9 @@ fn args_2(
     Ok(f(convert_expr(a, scope)?, convert_expr(b, scope)?))
 }
 
-pub fn get_standard_scalar_functions() -> FuncMap {
+pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     #[rustfmt::skip]
-    let templates: [(&str, Func); 24] = [
+    let templates: [(&str, ScalarFunc); 24] = [
         ("abs",         |e, s| args_1(e, s, abs)),
         ("age",         |e, s| args_1(e, s, |a| subtract(now(), a))),
         ("ago",         |e, s| args_1(e, s, |a| subtract(now(), a))),
@@ -126,8 +136,9 @@ pub fn get_standard_scalar_functions() -> FuncMap {
 /// Used for an aggregate function that takes one argument
 fn agg_1(
     args: Vec<Expr>,
+    order_by: Vec<SortExpr>,
     scope: &mut Scope,
-    agg_wrapper: fn(SqlExpr) -> SqlExpr,
+    agg_wrapper: fn(SqlExpr, String) -> SqlExpr,
 ) -> Result<SqlExpr, String> {
     let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let Expr::Path(path_parts) = arg0 else {
@@ -142,7 +153,7 @@ fn agg_1(
     let Some(column_name) = column_name_opt else {
         return Err(msg::aggregate_fn_applied_to_a_path_without_a_column());
     };
-    let aggregate_expr_template = AggregateExprTemplate::new(column_name, agg_wrapper);
+    let aggregate_expr_template = AggregateExprTemplate::new(column_name, agg_wrapper, order_by);
     scope.join_chain_to_many(
         &clarified_path.head,
         chain_to_many,
@@ -151,18 +162,18 @@ fn agg_1(
     )
 }
 
-pub fn get_standard_aggregate_functions() -> FuncMap {
+pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
     #[rustfmt::skip]
-    let templates: [(&str, Func); 9] = [
-        ("all_true", |e, s| agg_1(e, s, bool_and)),
-        ("any_true", |e, s| agg_1(e, s, bool_or)),
-        ("avg",      |e, s| agg_1(e, s, avg)),
-        ("count",    |e, s| agg_1(e, s, count)),
-        ("distinct", |e, s| agg_1(e, s, count_distinct)),
-        ("list",     |e, s| agg_1(e, s, string_agg)),
-        ("max",      |e, s| agg_1(e, s, max)),
-        ("min",      |e, s| agg_1(e, s, min)),
-        ("sum",      |e, s| agg_1(e, s, sum)),
+    let templates: [(&str, AggregateFunc); 9] = [
+        ("all_true", |e, ob, s| agg_1(e, ob, s, bool_and)),
+        ("any_true", |e, ob, s| agg_1(e, ob, s, bool_or)),
+        ("avg",      |e, ob, s| agg_1(e, ob, s, avg)),
+        ("count",    |e, ob, s| agg_1(e, ob, s, count)),
+        ("distinct", |e, ob, s| agg_1(e, ob, s, count_distinct)),
+        ("list",     |e, ob, s| agg_1(e, ob, s, array_agg)),
+        ("max",      |e, ob, s| agg_1(e, ob, s, max)),
+        ("min",      |e, ob, s| agg_1(e, ob, s, min)),
+        ("sum",      |e, ob, s| agg_1(e, ob, s, sum)),
     ];
     templates
         .into_iter()

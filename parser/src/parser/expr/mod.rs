@@ -461,13 +461,16 @@ mod tests {
                                 dimension: FunctionDimension::Scalar,
                                 syntax: CallSyntax::Piped,
                                 args: vec![Expr::Number("1".to_string())],
+                                order_by: vec![],
                             }),
                             Expr::Number("2".to_string())
                         ],
+                        order_by: vec![],
                     }),
                     Expr::Number("3".to_string()),
                     Expr::Number("4".to_string()),
                 ],
+                order_by: vec![],
             }))
         );
 
@@ -491,6 +494,7 @@ mod tests {
                             dimension: FunctionDimension::Scalar,
                             syntax: CallSyntax::Piped,
                             args: vec![Expr::Variable("bar".to_string())],
+                            order_by: vec![],
                         })),
                     )),
                 )),
