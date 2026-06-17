@@ -37,7 +37,8 @@ CREATE TABLE "blocks" (
 CREATE TABLE "projects" (
   "id" integer,
   "name" text,
-  "product" integer
+  "product" integer,
+  "is_active" boolean
 );
 
 CREATE TABLE "labels" (

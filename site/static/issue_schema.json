@@ -88,6 +88,9 @@
         },
         {
           "name": "product"
+        },
+        {
+          "name": "is_active"
         }
       ]
     },

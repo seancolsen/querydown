@@ -210,24 +210,16 @@ WHERE
 
 ### Negated expression as a result column
 
-```toml options
-db_skip = ["postgres"]
-```
-
-> Whether each issue is not yet assigned a project, as a boolean column
-
-`db_skip` excludes Postgres from the database test here: `!project` negates an integer foreign-key
-column, which DuckDB implicitly casts to boolean but Postgres rejects (`argument of NOT must be type
-boolean`). The example is contrived; Querydown has no column type information.
+> Whether each project is inactive, as a boolean column
 
 ```qd
-#issues $!project->unassigned
+#projects $!is_active->inactive
 ```
 
 ```sql
 SELECT
-  NOT "issues"."project" AS "unassigned"
-FROM "issues";
+  NOT "projects"."is_active" AS "inactive"
+FROM "projects";
 ```
 
 ### Negated condition set
