@@ -63,6 +63,38 @@ cd site && npm install && npm run dev
 
 The dev server binds inside the container; add a port mapping to `docker-compose.yml` (e.g. `ports: ["5173:5173"]`) and run Vite with `--host` if you want to reach it from the host browser.
 
+## Database tests (`db-tests` feature)
+
+The corpus tests in [compiler/src/tests/corpus.md](../compiler/src/tests/corpus.md) normally just assert
+that compiled SQL matches an expected string. The optional **`db-tests`** feature goes further: it runs
+each case's compiled SQL against **real Postgres and DuckDB** databases to catch syntax and
+query-planning bugs a string comparison can't.
+
+```sh
+cargo test --features db-tests
+```
+
+How it works:
+
+- Every case is compiled under **both** dialects (Postgres and DuckDB) — not just the dialect it
+  declares for its string-match assertion — and each result is validated with `EXPLAIN`, so queries are
+  planned but never executed. No data is inserted; empty, correctly typed tables are enough.
+- The test starts a throwaway Postgres server (unix socket in a temp dir) and a temporary DuckDB
+  database once, loads the schemas, runs all cases, then tears everything down.
+- Table structure comes from hand-authored DDL in
+  [compiler/resources/test/](../compiler/resources/test/): `issue_schema.sql` and `library_schema.sql`.
+  **When you add or rename a column in a `*_schema.json`, make the matching change in its `*_schema.sql`**
+  (an unknown column surfaces as an `EXPLAIN` failure).
+- The `postgres` and `duckdb` binaries are installed by the [Dockerfile](../Dockerfile); the feature is
+  off by default so a plain `cargo test` doesn't need them.
+
+To exclude a specific case that intentionally produces SQL which won't plan against the minimal schema,
+add a `db_skip` to its ```` ```toml options ```` block: `db_skip = true` (all engines) or
+`db_skip = ["duckdb"]` (one dialect). The case still runs its normal SQL string-match assertion.
+
+This setup is also the foundation for future data-driven E2E tests: seed rows into the tables and assert
+on result sets instead of just running `EXPLAIN`.
+
 ## Optional: VS Code / Codespaces dev container
 
 If you use VS Code, [.devcontainer/devcontainer.json](../.devcontainer/devcontainer.json) lets you run your **whole editor** inside this same container instead of opening a shell with `docker compose run`. It's a supplement — it reuses the exact same `docker-compose.yml` (Dockerfile, cache volumes, UID matching, entrypoint), so nothing about the CLI workflow above changes.

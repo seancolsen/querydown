@@ -113,6 +113,16 @@ WHERE
 
 ### Complex flexible identifiers
 
+```toml options
+db_skip = true
+```
+
+`db_skip` excludes this case from the database test: the expected SQL below is **invalid** — the `cte0`
+subquery references `"Patrons"."First Name"` but never joins `Patrons` into its `FROM` clause, so both
+Postgres and DuckDB reject it (`missing FROM-clause entry for table "Patrons"`). This is a real
+compiler bug in join resolution for paths inside an aggregation block; the string-match assertion
+currently enshrines the buggy output.
+
 ```qd
 #items
 ++#checkouts{check_in_time:@null patron.first_name:"Foo"}
@@ -208,7 +218,15 @@ WHERE
 
 ### Negated expression as a result column
 
+```toml options
+db_skip = ["postgres"]
+```
+
 > Whether each issue is not yet assigned a project, as a boolean column
+
+`db_skip` excludes Postgres from the database test here: `!project` negates an integer foreign-key
+column, which DuckDB implicitly casts to boolean but Postgres rejects (`argument of NOT must be type
+boolean`). The example is contrived; Querydown has no column type information.
 
 ```qd
 #issues $!project->unassigned
@@ -348,9 +366,14 @@ WHERE
 
 ```toml options
 dialect = "duckdb"
+db_skip = ["postgres"]
 ```
 
 > DuckDB escapes a single-quote by doubling it, rather than with a backslash.
+
+`db_skip` excludes Postgres from the database test here: the Postgres dialect backslash-escapes the
+quote (`'can\'t'`), which is invalid under Postgres's default `standard_conforming_strings=on`. See the
+TODO in `compiler/src/sql/postgres.rs`.
 
 ```qd
 #issues title:"can't"
