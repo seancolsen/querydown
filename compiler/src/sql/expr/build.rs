@@ -258,7 +258,9 @@ pub mod value {
     use super::*;
 
     pub fn infinity() -> SqlExpr {
-        SqlExpr::atom("INFINITY".to_string())
+        // A bare `INFINITY` keyword is not valid in either Postgres or DuckDB; both require casting
+        // the `'infinity'` string literal to a floating-point type.
+        SqlExpr::atom("CAST('infinity' AS double precision)".to_string())
     }
 
     pub fn null() -> SqlExpr {

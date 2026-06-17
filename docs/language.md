@@ -125,7 +125,7 @@ _(This behavior will likely be configurable in a future version.)_
 | Querydown | SQL |
 | -- | -- |
 | `@now`      | `now()`    |
-| `@infinity` | `INFINITY` |
+| `@infinity` | `CAST('infinity' AS double precision)` |
 | `@true`     | `TRUE`     |
 | `@false`    | `FALSE`    |
 | `@null`     | `NULL`     |

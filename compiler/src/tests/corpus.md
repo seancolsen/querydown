@@ -364,6 +364,22 @@ WHERE
   "issues"."title" = 'can''t';
 ```
 
+### Infinity
+
+> The `@infinity` constant casts the `'infinity'` string literal, since a bare keyword is invalid.
+
+```qd
+#issues id:<@infinity
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."id" < CAST('infinity' AS double precision);
+```
+
 ### Simple range
 
 ```qd
