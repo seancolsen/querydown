@@ -94,6 +94,14 @@ pub fn build_cte_select(
         starting_alias = ending_alias;
     }
 
+    // Fold any to-one joins resolved while converting the filter's condition set (e.g. a
+    // `patron.first_name` path) into the CTE's own SELECT. Without this, those joins accumulate in
+    // the CTE scope's join tree and are silently dropped, producing SQL that references a table
+    // absent from the FROM clause.
+    let (cte_joins, cte_ctes) = cte_scope.decompose_join_tree();
+    select.joins.extend(cte_joins);
+    select.ctes.extend(cte_ctes);
+
     if purpose == CtePurpose::AggregateValue {
         let value_expr = match aggregate_expr_template_opt {
             Some(template) => {

@@ -113,16 +113,6 @@ WHERE
 
 ### Complex flexible identifiers
 
-```toml options
-db_skip = true
-```
-
-`db_skip` excludes this case from the database test: the expected SQL below is **invalid** — the `cte0`
-subquery references `"Patrons"."First Name"` but never joins `Patrons` into its `FROM` clause, so both
-Postgres and DuckDB reject it (`missing FROM-clause entry for table "Patrons"`). This is a real
-compiler bug in join resolution for paths inside an aggregation block; the string-match assertion
-currently enshrines the buggy output.
-
 ```qd
 #items
 ++#checkouts{check_in_time:@null patron.first_name:"Foo"}
@@ -135,6 +125,8 @@ WITH
     SELECT
       "Checkouts"."Item" AS "pk"
     FROM "Checkouts"
+    LEFT JOIN "Patrons" ON
+      "Checkouts"."Patron" = "Patrons"."id"
     WHERE
       "Checkouts"."Check In Time" IS NULL AND
       "Patrons"."First Name" = 'Foo'
