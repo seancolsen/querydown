@@ -562,6 +562,96 @@ WHERE
   "issues"."title" IS NULL;
 ```
 
+## Case expressions
+
+### Basic case expression
+
+> Categorize each issue by its status.
+
+```qd
+#issues
+$title
+$ ? status:="open"   ~ "Open"
+    status:="closed" ~ "Closed"
+    ~~                 "Other"
+->category
+```
+
+```sql
+SELECT
+  "issues"."title",
+  CASE
+    WHEN "issues"."status" = 'open' THEN 'Open'
+    WHEN "issues"."status" = 'closed' THEN 'Closed'
+    ELSE 'Other'
+  END AS "category"
+FROM "issues";
+```
+
+### Case expression with comparison conditions
+
+> Bucket each issue by its id.
+
+```qd
+#issues $ ? id:<10 ~ "low" id:<100 ~ "medium" ~~ "high" ->bucket
+```
+
+```sql
+SELECT
+  CASE
+    WHEN "issues"."id" < 10 THEN 'low'
+    WHEN "issues"."id" < 100 THEN 'medium'
+    ELSE 'high'
+  END AS "bucket"
+FROM "issues";
+```
+
+### Case expression with computed values
+
+> The conditions and the values can each be any expression, including computed ones.
+
+```qd
+#issues $id $ ? id:<10 ~ id * 2 ~~ id ->v
+```
+
+```sql
+SELECT
+  "issues"."id",
+  CASE
+    WHEN "issues"."id" < 10 THEN "issues"."id" * 2
+    ELSE "issues"."id"
+  END AS "v"
+FROM "issues";
+```
+
+### Case expression (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The `CASE` syntax is identical for Postgres and DuckDB.
+
+```qd
+#issues
+$title
+$ ? status:="open"   ~ "Open"
+    status:="closed" ~ "Closed"
+    ~~                 "Other"
+->category
+```
+
+```sql
+SELECT
+  "issues"."title",
+  CASE
+    WHEN "issues"."status" = 'open' THEN 'Open'
+    WHEN "issues"."status" = 'closed' THEN 'Closed'
+    ELSE 'Other'
+  END AS "category"
+FROM "issues";
+```
+
 ## Condition sets
 
 ### "Has some" with "OR"

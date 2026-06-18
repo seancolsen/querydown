@@ -1,3 +1,4 @@
+mod case;
 mod comparison;
 mod condition_set;
 mod date;
@@ -16,8 +17,8 @@ use crate::parser::utils::*;
 use crate::tokens::*;
 
 use self::{
-    comparison::comparison, condition_set::condition_set, date::date, duration::duration,
-    has_quantity::has_quantity, number::number, path::path, pipe::pipe,
+    case::case, comparison::comparison, condition_set::condition_set, date::date,
+    duration::duration, has_quantity::has_quantity, number::number, path::path, pipe::pipe,
 };
 
 pub fn expr<'src>() -> impl Psr<'src, Expr> {
@@ -56,6 +57,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             variable().map(Expr::Variable),
             path(prec_comma.clone()).map(Expr::Path),
             has_quantity(prec_comma.clone()).map(Expr::HasQuantity),
+            case(prec_comma.clone()).map(Expr::Case),
             condition_set(prec_comma.clone()).map(Expr::ConditionSet),
             parenthetical(prec_comma.clone()),
         ))

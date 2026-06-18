@@ -83,6 +83,7 @@ pub enum Expr {
     Path(Vec<PathPart>),
     ConditionSet(ConditionSet),
     HasQuantity(HasQuantity),
+    Case(Case),
     Call(Call),
     Product(Box<Expr>, Box<Expr>),
     Quotient(Box<Expr>, Box<Expr>),
@@ -285,6 +286,22 @@ pub struct HasQuantity {
 pub enum Quantity {
     AtLeastOne,
     Zero,
+}
+
+/// A case expression, e.g. `? a:1 ~ "one" a:2 ~ "two" ~~ "other"`. Each [`CaseVariant`] pairs a
+/// condition with a value; the `fallback` supplies the value used when no condition matches. This
+/// compiles to a SQL searched `CASE` expression.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Case {
+    pub variants: Vec<CaseVariant>,
+    pub fallback: Box<Expr>,
+}
+
+/// One `condition ~ value` arm of a [`Case`] expression.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaseVariant {
+    pub condition: Expr,
+    pub value: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq)]

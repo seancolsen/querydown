@@ -106,9 +106,9 @@ See [case expressions](./language.md#case-expressions) docs.
 
 | Code | Usage | Implemented |
 | -- | -- | -- |
-| `?` | if | ❌ |
-| `~` | then (can occur many times without nesting) | ❌ |
-| `~~` | else | ❌ |
+| `?` | if | ✅ |
+| `~` | then (can occur many times without nesting) | ✅ |
+| `~~` | else | ✅ |
 
 ## Functions
 

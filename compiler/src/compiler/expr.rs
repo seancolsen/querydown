@@ -26,6 +26,7 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
         Expr::Path(p) => convert_path(p, scope),
         Expr::ConditionSet(cs) => convert_condition_set(cs, scope),
         Expr::HasQuantity(h) => convert_has_quantity(h, scope),
+        Expr::Case(c) => convert_case(c, scope),
         Expr::Call(c) => convert_call(c, scope),
         Expr::Product(a, b) => Ok(math::multiply(
             convert_expr(*a, scope)?,
@@ -103,6 +104,17 @@ pub fn convert_condition_set(
         .map(|expr| convert_expr(expr, scope))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(cmp::condition_set(conditions, &condition_set.conjunction))
+}
+
+fn convert_case(case: Case, scope: &mut Scope) -> Result<SqlExpr, String> {
+    let mut variants = Vec::with_capacity(case.variants.len());
+    for variant in case.variants {
+        let condition = convert_expr(variant.condition, scope)?;
+        let value = convert_expr(variant.value, scope)?;
+        variants.push((condition, value));
+    }
+    let fallback = convert_expr(*case.fallback, scope)?;
+    Ok(cond::case(variants, fallback))
 }
 
 fn convert_has_quantity(has_quantity: HasQuantity, scope: &mut Scope) -> Result<SqlExpr, String> {
