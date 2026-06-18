@@ -1,0 +1,10 @@
+[build]
+# Cap parallel codegen/link jobs to flatten this project's peak memory use during compilation.
+# This is a link-heavy workspace (see the note in Cargo.toml about debug sections exceeding 4 GB,
+# and a target/ dir tens of GB in size). Linking many crates' test binaries at once — as
+# `cargo test` does — can otherwise spike RAM hard enough to push the host into swap thrashing and
+# freeze the desktop. Both terminal cargo builds and rust-analyzer's background checks respect this.
+#
+# 2 is a balance of build speed vs. memory headroom on a 4-core / 15 GiB box. Raise it if you have
+# more RAM and cores; drop to 1 for the tightest possible memory use.
+jobs = 2

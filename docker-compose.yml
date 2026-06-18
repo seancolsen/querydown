@@ -13,6 +13,13 @@ services:
     # Keep stdin/tty open for an interactive shell + Claude Code.
     stdin_open: true
     tty: true
+    # Cap container memory so a runaway build (e.g. parallel test-binary linking) is OOM-killed
+    # *inside the container* rather than exhausting host RAM and freezing the host desktop via swap
+    # thrashing. memswap_limit == mem_limit disables container swap, so it fails fast instead of
+    # thrashing. Tune to leave a few GB of headroom for your host; combine with `.cargo/config.toml`
+    # (jobs cap), which lowers the peak this needs to absorb. Takes effect on container recreate.
+    mem_limit: 12g
+    memswap_limit: 12g
     working_dir: /workspace
     volumes:
       # The project source, edited live from the host.
