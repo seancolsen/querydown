@@ -1,4 +1,4 @@
-use chumsky::{prelude::*, text::*};
+use chumsky::prelude::*;
 
 use crate::ast::*;
 use crate::tokens::*;
@@ -9,17 +9,13 @@ use super::{column_layout::result_columns, expr::expr, sorting::sorting};
 pub fn query<'src>() -> impl Psr<'src, Query> {
     let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
     let transformations = transformation()
-        .separated_by(
-            whitespace()
-                .then(exactly(TRANSFORMATION_DELIMITER))
-                .then(whitespace()),
-        )
+        .separated_by(pad().then(exactly(TRANSFORMATION_DELIMITER)).then(pad()))
         .collect::<Vec<Transformation>>();
-    whitespace().ignore_then(
+    pad().ignore_then(
         base_table
-            .then_ignore(whitespace())
+            .then_ignore(pad())
             .then(transformations)
-            .then_ignore(whitespace().then(end()))
+            .then_ignore(pad().then(end()))
             .map(|(base_table, transformations)| Query {
                 base_table,
                 transformations,
@@ -29,9 +25,9 @@ pub fn query<'src>() -> impl Psr<'src, Query> {
 
 fn transformation<'src>() -> impl Psr<'src, Transformation> {
     top_level_condition_set()
-        .then_ignore(whitespace())
+        .then_ignore(pad())
         .then(sorting())
-        .then_ignore(whitespace())
+        .then_ignore(pad())
         .then(result_columns().or_not())
         .map(|((conditions, sorting), cl)| Transformation {
             conditions,
@@ -42,7 +38,7 @@ fn transformation<'src>() -> impl Psr<'src, Transformation> {
 
 fn top_level_condition_set<'src>() -> impl Psr<'src, ConditionSet> {
     expr()
-        .padded()
+        .padded_by(pad())
         .repeated()
         .collect::<Vec<Expr>>()
         .map(|entries| ConditionSet {
@@ -96,5 +92,17 @@ mod tests {
                 }],
             })
         );
+    }
+
+    #[test]
+    fn test_parse_query_with_comments() {
+        // Comments are permitted anywhere whitespace is, and are not propagated into the AST, so a
+        // query peppered with comments parses identically to the same query without them.
+        let commented = query()
+            .parse("#foo // pick rows\n a:1 /* nested /* block */ comment */ b:2 $c")
+            .into_result();
+        let plain = query().parse("#foo a:1 b:2 $c").into_result();
+        assert!(commented.is_ok());
+        assert_eq!(commented, plain);
     }
 }

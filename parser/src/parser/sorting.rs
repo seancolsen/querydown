@@ -1,4 +1,4 @@
-use chumsky::{prelude::*, text::*};
+use chumsky::prelude::*;
 
 use crate::ast::*;
 use crate::tokens::*;
@@ -11,16 +11,16 @@ use super::utils::*;
 /// they are listed defines their sort precedence. Yields an empty vector when none are present.
 pub fn sorting<'src>() -> impl Psr<'src, Vec<SortExpr>> {
     sort_expr()
-        .then_ignore(whitespace())
+        .then_ignore(pad())
         .repeated()
         .collect::<Vec<SortExpr>>()
 }
 
 fn sort_expr<'src>() -> impl Psr<'src, SortExpr> {
     just(SORT_EXPR_PREFIX)
-        .then(whitespace())
+        .then(pad())
         .ignore_then(expr())
-        .then(whitespace().ignore_then(sort_flags()).or_not())
+        .then(pad().ignore_then(sort_flags()).or_not())
         .map(|(expr, flags)| {
             let (direction, nulls_sort) = flags.unwrap_or_default();
             SortExpr {

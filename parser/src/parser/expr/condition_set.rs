@@ -19,7 +19,7 @@ fn specific_condition_set<'src>(
         Conjunction::And => (CONDITION_SET_AND_BRACE_L, CONDITION_SET_AND_BRACE_R),
         Conjunction::Or => (CONDITION_SET_OR_BRACE_L, CONDITION_SET_OR_BRACE_R),
     };
-    expr.padded()
+    expr.padded_by(pad())
         .repeated()
         .collect::<Vec<Expr>>()
         .delimited_by(just(brace_l), just(brace_r))

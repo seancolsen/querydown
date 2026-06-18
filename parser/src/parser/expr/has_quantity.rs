@@ -1,4 +1,4 @@
-use chumsky::{prelude::*, text::*};
+use chumsky::prelude::*;
 
 use crate::ast::*;
 use crate::parser::utils::*;
@@ -12,7 +12,7 @@ pub fn has_quantity<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, HasQuant
         exactly(HAS_QUANTITY_ZERO).to(Quantity::Zero),
     ));
     quantity
-        .then_ignore(whitespace())
+        .then_ignore(pad())
         .then(path(expr))
         .map(|(quantity, path_parts)| HasQuantity {
             quantity,

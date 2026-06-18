@@ -26,7 +26,7 @@ _See the **[Language Guide](./language.md)** for more detail._
 
 | Code | Usage | Implemented? |
 | -- | -- | -- |
-| `//` `/* */` | code comments | ❌ |
+| `//` `/* */` | code comments | ✅ |
 | `@2000-01-01` | [dates](./language.md#date-literals) | ✅ |
 | `@1y` | [durations](./language.md#duration-literals) | ✅ |
 | `@` | sigil for [built-in](./language.md#built-in-constants) and [user-defined](./language.md#user-defined-constants) constants | ✅ |

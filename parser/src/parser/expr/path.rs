@@ -1,4 +1,4 @@
-use chumsky::{prelude::*, text::*};
+use chumsky::prelude::*;
 
 use crate::ast::*;
 use crate::parser::utils::*;
@@ -9,7 +9,7 @@ use super::condition_set::condition_set;
 pub fn path<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Vec<PathPart>> {
     path_part(expr.clone())
         .then(
-            whitespace()
+            pad()
                 .then(just(PATH_SEPARATOR))
                 .ignore_then(path_part(expr))
                 .repeated()
@@ -25,7 +25,7 @@ pub fn path<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Vec<PathPart>> {
 pub fn path_to_one<'src>() -> impl Psr<'src, Vec<PathPart>> {
     path_part_to_one()
         .then(
-            whitespace()
+            pad()
                 .then(just(PATH_SEPARATOR))
                 .ignore_then(path_part_to_one())
                 .repeated()
@@ -59,8 +59,8 @@ fn table_with_one<'src>() -> impl Psr<'src, String> {
 
 fn table_with_many<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, TableWithMany> {
     let column = db_identifier().delimited_by(
-        just(TABLE_WITH_MANY_COLUMN_BRACE_L).then(whitespace()),
-        whitespace().then(just(TABLE_WITH_MANY_COLUMN_BRACE_R)),
+        just(TABLE_WITH_MANY_COLUMN_BRACE_L).then(pad()),
+        pad().then(just(TABLE_WITH_MANY_COLUMN_BRACE_R)),
     );
     just(TABLE_SIGIL).ignore_then(
         db_identifier()

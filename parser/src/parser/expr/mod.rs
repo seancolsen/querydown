@@ -43,6 +43,10 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
     //
     // [1]: https://github.com/zesterer/chumsky/blob/0.9/examples/foo.rs#L33
 
+    // Each precedence level is `.boxed()` to type-erase it. Chumsky combinator types grow
+    // multiplicatively as they nest, and this parser nests deeply; without these boxing
+    // "firewalls" the fully monomorphized type — and rustc's memory use compiling it — balloons
+    // far enough to OOM the build. Boxing is semantically transparent and also speeds up compiles.
     recursive(|prec_comma| {
         let prec_atom = choice((
             number().map(Expr::Number),
@@ -54,21 +58,23 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             has_quantity(prec_comma.clone()).map(Expr::HasQuantity),
             condition_set(prec_comma.clone()).map(Expr::ConditionSet),
             parenthetical(prec_comma.clone()),
-        ));
+        ))
+        .boxed();
 
-        let prec_pipe = pipe(prec_atom.clone(), prec_comma.clone());
+        let prec_pipe = pipe(prec_atom.clone(), prec_comma.clone()).boxed();
 
-        let prec_multiplication = multiplication(prec_pipe);
+        let prec_multiplication = multiplication(prec_pipe).boxed();
 
-        let prec_addition = addition(prec_multiplication);
+        let prec_addition = addition(prec_multiplication).boxed();
 
         let prec_comparison = comparison(prec_addition.clone(), prec_comma, prec_atom)
             .map(|c| Expr::Comparison(Box::new(c)))
-            .or(prec_addition);
+            .or(prec_addition)
+            .boxed();
 
-        let prec_negation = negation(prec_comparison);
+        let prec_negation = negation(prec_comparison).boxed();
 
-        or_condition_set(prec_negation)
+        or_condition_set(prec_negation).boxed()
     })
 }
 
@@ -78,7 +84,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
 /// unchanged, so this rule is transparent.
 fn negation<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     just(NEGATE)
-        .then_ignore(whitespace())
+        .then_ignore(pad())
         .repeated()
         .foldr(e, |_, expr| Expr::Not(Box::new(expr)))
 }
@@ -87,7 +93,7 @@ fn negation<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
 /// lowest-precedence operator in the language. A single expression with no trailing comma is passed
 /// through unchanged, so this rule is transparent when no comma is present.
 fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
-    e.separated_by(just(CONDITION_SET_OR_SHORTHAND).padded())
+    e.separated_by(just(CONDITION_SET_OR_SHORTHAND).padded_by(pad()))
         .at_least(1)
         .collect::<Vec<Expr>>()
         .map(|mut entries| {
@@ -103,7 +109,7 @@ fn operator<'src>(
     c: char,
     expr_enum_constructor: fn(Box<Expr>, Box<Expr>) -> Expr,
 ) -> impl Psr<'src, fn(Box<Expr>, Box<Expr>) -> Expr> {
-    just(c).padded().to(expr_enum_constructor)
+    just(c).padded_by(pad()).to(expr_enum_constructor)
 }
 
 fn variable<'src>() -> impl Psr<'src, String> {
@@ -115,7 +121,7 @@ fn string<'src>() -> impl Psr<'src, String> {
 }
 
 fn parenthetical<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
-    e.padded()
+    e.padded_by(pad())
         .delimited_by(just(EXPR_PAREN_L), just(EXPR_PAREN_R))
 }
 

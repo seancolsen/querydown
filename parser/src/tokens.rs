@@ -10,6 +10,12 @@ pub(crate) const COLUMN_GLOB_ADJUSTMENT_BRACE_L: char = '(';
 pub(crate) const COLUMN_GLOB_ADJUSTMENT_BRACE_R: char = ')';
 pub(crate) const COLUMN_GLOB: char = '*';
 pub(crate) const COLUMN_SPEC_PREFIX: char = '$';
+/// Introduces a single-line comment, running to the end of the line.
+pub(crate) const COMMENT_LINE: &str = "//";
+/// Opens a block comment. Block comments may be nested.
+pub(crate) const COMMENT_BLOCK_L: &str = "/*";
+/// Closes a block comment.
+pub(crate) const COMMENT_BLOCK_R: &str = "*/";
 pub(crate) const COMPARE_MATCH: &str = ":";
 pub(crate) const COMPARE_EQ: &str = ":=";
 pub(crate) const COMPARE_GT: &str = ":>";

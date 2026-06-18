@@ -7,9 +7,9 @@ use crate::tokens::*;
 
 fn agg_sort_expr<'src>(expr_parser: impl Psr<'src, Expr>) -> impl Psr<'src, SortExpr> {
     just(SORT_EXPR_PREFIX)
-        .ignore_then(whitespace())
+        .ignore_then(pad())
         .ignore_then(expr_parser)
-        .then(whitespace().ignore_then(sort_flags()).or_not())
+        .then(pad().ignore_then(sort_flags()).or_not())
         .map(|(expr, flags)| {
             let (direction, nulls_sort) = flags.unwrap_or_default();
             SortExpr {
@@ -28,7 +28,7 @@ pub fn pipe<'src>(
         .ignore_then(
             extra_args_expr
                 .clone()
-                .padded()
+                .padded_by(pad())
                 .repeated()
                 .collect::<Vec<Expr>>(),
         )
@@ -37,14 +37,14 @@ pub fn pipe<'src>(
     let aggregate_order_by = just(COMPOSITION_ARGUMENT_BRACE_L)
         .ignore_then(
             agg_sort_expr(extra_args_expr)
-                .padded()
+                .padded_by(pad())
                 .repeated()
                 .collect::<Vec<SortExpr>>(),
         )
         .then_ignore(just(COMPOSITION_ARGUMENT_BRACE_R));
 
     let scalar_call = just(COMPOSITION_PIPE_SCALAR)
-        .padded()
+        .padded_by(pad())
         .ignore_then(ident())
         .then(scalar_args.or_not())
         .map(|(name, extra_args)| {
@@ -57,7 +57,7 @@ pub fn pipe<'src>(
         });
 
     let aggregate_call = just(COMPOSITION_PIPE_AGGREGATE)
-        .padded()
+        .padded_by(pad())
         .ignore_then(ident())
         .then(aggregate_order_by.or_not())
         .map(|(name, order_by)| {

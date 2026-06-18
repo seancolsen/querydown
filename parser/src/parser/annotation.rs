@@ -46,7 +46,7 @@ fn value<'src>() -> impl Psr<'src, AnnotationValue> {
 
         let array = value
             .clone()
-            .padded()
+            .padded_by(pad())
             .repeated()
             .collect::<Vec<AnnotationValue>>()
             .delimited_by(
@@ -75,11 +75,11 @@ fn object<'src>(value: impl Psr<'src, AnnotationValue>) -> impl Psr<'src, Annota
         .or(quoted(STRING_QUOTE_DOUBLE));
 
     let entry = key
-        .then_ignore(just(ANNOTATION_KEY_VALUE_SEPARATOR).padded())
+        .then_ignore(just(ANNOTATION_KEY_VALUE_SEPARATOR).padded_by(pad()))
         .then(value);
 
     entry
-        .padded()
+        .padded_by(pad())
         .repeated()
         .collect::<Vec<(String, AnnotationValue)>>()
         .delimited_by(

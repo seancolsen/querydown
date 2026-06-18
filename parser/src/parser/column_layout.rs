@@ -9,18 +9,16 @@ use super::utils::*;
 
 pub fn result_columns<'src>() -> impl Psr<'src, Vec<ResultColumnStatement>> {
     result_column_statement()
-        .then_ignore(whitespace())
+        .then_ignore(pad())
         .repeated()
         .collect::<Vec<ResultColumnStatement>>()
 }
 
 fn result_column_statement<'src>() -> impl Psr<'src, ResultColumnStatement> {
-    just(COLUMN_SPEC_PREFIX)
-        .then(whitespace())
-        .ignore_then(choice((
-            column_glob().map(ResultColumnStatement::Glob),
-            column_spec().map(ResultColumnStatement::Spec),
-        )))
+    just(COLUMN_SPEC_PREFIX).then(pad()).ignore_then(choice((
+        column_glob().map(ResultColumnStatement::Glob),
+        column_spec().map(ResultColumnStatement::Spec),
+    )))
 }
 
 fn column_glob<'src>() -> impl Psr<'src, ColumnGlob> {
@@ -30,7 +28,7 @@ fn column_glob<'src>() -> impl Psr<'src, ColumnGlob> {
         .map(|p| p.unwrap_or_default());
 
     let specs = column_spec()
-        .padded()
+        .padded_by(pad())
         .repeated()
         .collect::<Vec<ColumnSpec>>()
         .delimited_by(
@@ -48,14 +46,14 @@ fn column_glob<'src>() -> impl Psr<'src, ColumnGlob> {
 fn column_spec<'src>() -> impl Psr<'src, ColumnSpec> {
     expr()
         .then(
-            whitespace()
+            pad()
                 .then(just(COLUMN_ALIAS_PREFIX))
-                .then(whitespace())
+                .then(pad())
                 .ignore_then(db_identifier())
                 .or_not(),
         )
         .then(
-            whitespace()
+            pad()
                 .ignore_then(
                     column_control()
                         .or_not()
@@ -65,7 +63,7 @@ fn column_spec<'src>() -> impl Psr<'src, ColumnSpec> {
         )
         // Annotation must come last in the spec — after the sorting/grouping flags and after the
         // alias.
-        .then(whitespace().ignore_then(annotation()).or_not())
+        .then(pad().ignore_then(annotation()).or_not())
         .map(|(((expr, alias), ctrl), annotation)| ColumnSpec {
             expr,
             alias,

@@ -1,4 +1,4 @@
-use chumsky::{prelude::*, text::*};
+use chumsky::prelude::*;
 
 use crate::ast::*;
 use crate::parser::expr::condition_set::condition_set;
@@ -12,20 +12,20 @@ pub fn comparison<'src>(
 ) -> impl Psr<'src, Comparison> {
     let left = choice((
         condition_set(condition_set_expr.clone())
-            .then_ignore(whitespace().then(just(COMPARISON_EXPAND)))
+            .then_ignore(pad().then(just(COMPARISON_EXPAND)))
             .map(ComparisonSide::Expansion),
         range(range_expr.clone()).map(ComparisonSide::Range),
         comparison_side_expr.clone().map(ComparisonSide::Expr),
     ));
     let right = choice((
         just(COMPARISON_EXPAND)
-            .then(whitespace())
+            .then(pad())
             .ignore_then(condition_set(condition_set_expr.clone()).map(ComparisonSide::Expansion)),
         range(range_expr.clone()).map(ComparisonSide::Range),
         comparison_side_expr.clone().map(ComparisonSide::Expr),
     ));
 
-    left.then(operator().padded())
+    left.then(operator().padded_by(pad()))
         .then(right)
         .map(|((left, operator), right)| Comparison {
             left,
@@ -44,17 +44,17 @@ fn range<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Range> {
 
     let lower = expr
         .clone()
-        .then_ignore(whitespace())
+        .then_ignore(pad())
         .then(exclusivity)
         .map(|(expr, exclusivity)| RangeBound { expr, exclusivity });
 
     let upper = exclusivity
-        .then_ignore(whitespace())
+        .then_ignore(pad())
         .then(expr.clone())
         .map(|(exclusivity, expr)| RangeBound { expr, exclusivity });
 
     lower
-        .then_ignore(just(COMPARISON_RANGE_BOUND_SEPARATOR).padded())
+        .then_ignore(just(COMPARISON_RANGE_BOUND_SEPARATOR).padded_by(pad()))
         .then(upper)
         .map(|(lower, upper)| Range { lower, upper })
 }
