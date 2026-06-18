@@ -67,10 +67,38 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
 
         let prec_addition = addition(prec_multiplication).boxed();
 
-        let prec_comparison = comparison(prec_addition.clone(), prec_comma, prec_atom)
-            .map(|c| Expr::Comparison(Box::new(c)))
-            .or(prec_addition)
-            .boxed();
+        // The right-hand side of a comparison uses a parallel precedence chain that is identical to
+        // the one above in every respect except its atom: a bare (unquoted) word on the right-hand
+        // side is interpreted as a string literal rather than a column reference. See
+        // `comparison_rhs_value` for details.
+        let prec_atom_rhs = choice((
+            number().map(Expr::Number),
+            date().map(Expr::Date),
+            duration().map(Expr::Duration),
+            string().map(Expr::String),
+            variable().map(Expr::Variable),
+            comparison_rhs_value(prec_comma.clone()),
+            has_quantity(prec_comma.clone()).map(Expr::HasQuantity),
+            condition_set(prec_comma.clone()).map(Expr::ConditionSet),
+            parenthetical(prec_comma.clone()),
+        ))
+        .boxed();
+
+        let prec_pipe_rhs = pipe(prec_atom_rhs, prec_comma.clone()).boxed();
+
+        let prec_multiplication_rhs = multiplication(prec_pipe_rhs).boxed();
+
+        let prec_addition_rhs = addition(prec_multiplication_rhs).boxed();
+
+        let prec_comparison = comparison(
+            prec_addition.clone(),
+            prec_addition_rhs,
+            prec_comma,
+            prec_atom,
+        )
+        .map(|c| Expr::Comparison(Box::new(c)))
+        .or(prec_addition)
+        .boxed();
 
         let prec_negation = negation(prec_comparison).boxed();
 
@@ -118,6 +146,22 @@ fn variable<'src>() -> impl Psr<'src, String> {
 
 fn string<'src>() -> impl Psr<'src, String> {
     quoted(STRING_QUOTE_SINGLE).or(quoted(STRING_QUOTE_DOUBLE))
+}
+
+/// Parses the value on the right-hand side of a comparison, where a bare (unquoted) word is
+/// interpreted as a string literal rather than a column reference. This matches the behavior users
+/// expect from tools like GitHub, where e.g. `description:title` searches for the literal text
+/// "title". To refer to a column on the right-hand side, the identifier can either be quoted with
+/// backticks (e.g. `` `title` ``) or written as a multi-part path (e.g. `foo.bar`).
+///
+/// A bare word is only treated as a string when it stands alone. If it is the head of a longer path
+/// (e.g. `foo.bar`), the whole path is parsed as a column reference instead. Everywhere other than
+/// the right-hand side of a comparison, bare words continue to be parsed as column references.
+fn comparison_rhs_value<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+    let bare_string = ident()
+        .then_ignore(pad().then(just(PATH_SEPARATOR)).not())
+        .map(|s: &str| Expr::String(s.to_string()));
+    choice((bare_string, path(expr).map(Expr::Path)))
 }
 
 fn parenthetical<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
@@ -494,7 +538,8 @@ mod tests {
                 right: ComparisonSide::Expr(Expr::Sum(
                     Box::new(Expr::Number("2".to_string())),
                     Box::new(Expr::Product(
-                        Box::new(Expr::Path(vec![PathPart::Column("foo".to_string())])),
+                        // A bare word on the right-hand side of a comparison is a string literal.
+                        Box::new(Expr::String("foo".to_string())),
                         Box::new(Expr::Call(Call {
                             name: "baz".to_string(),
                             dimension: FunctionDimension::Scalar,
@@ -559,6 +604,75 @@ mod tests {
                     })),
                 ]
             }))
+        );
+    }
+
+    #[test]
+    fn test_bare_text_on_comparison_rhs_is_a_string() {
+        let p = |s: &str| {
+            expr()
+                .then_ignore(end())
+                .parse(s)
+                .into_result()
+                .map_err(|_| ())
+        };
+
+        // A bare word on the left-hand side of a comparison is a column reference, while a bare
+        // word on the right-hand side is a string literal.
+        assert_eq!(
+            p("description:title"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                    "description".to_string()
+                )])),
+                operator: Operator::Match,
+                right: ComparisonSide::Expr(Expr::String("title".to_string())),
+            })))
+        );
+
+        // A bare word on the right-hand side behaves identically to a quoted string.
+        assert_eq!(p("description:title"), p("description:\"title\""));
+
+        // Backtick-quoting the right-hand side designates it as a column reference instead.
+        assert_eq!(
+            p("description:`title`"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                    "description".to_string()
+                )])),
+                operator: Operator::Match,
+                right: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                    "title".to_string()
+                )])),
+            })))
+        );
+
+        // A multi-part path on the right-hand side remains a column reference, since it is not a
+        // bare, standalone word.
+        assert_eq!(
+            p("description:foo.bar"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                    "description".to_string()
+                )])),
+                operator: Operator::Match,
+                right: ComparisonSide::Expr(Expr::Path(vec![
+                    PathPart::Column("foo".to_string()),
+                    PathPart::Column("bar".to_string()),
+                ])),
+            })))
+        );
+
+        // The rule applies to other comparison operators too, not just match.
+        assert_eq!(
+            p("status:=open"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                    "status".to_string()
+                )])),
+                operator: Operator::Eq,
+                right: ComparisonSide::Expr(Expr::String("open".to_string())),
+            })))
         );
     }
 }

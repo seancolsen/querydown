@@ -6,7 +6,8 @@ use crate::parser::utils::*;
 use crate::tokens::*;
 
 pub fn comparison<'src>(
-    comparison_side_expr: impl Psr<'src, Expr>,
+    left_side_expr: impl Psr<'src, Expr>,
+    right_side_expr: impl Psr<'src, Expr>,
     condition_set_expr: impl Psr<'src, Expr>,
     range_expr: impl Psr<'src, Expr>,
 ) -> impl Psr<'src, Comparison> {
@@ -15,14 +16,14 @@ pub fn comparison<'src>(
             .then_ignore(pad().then(just(COMPARISON_EXPAND)))
             .map(ComparisonSide::Expansion),
         range(range_expr.clone()).map(ComparisonSide::Range),
-        comparison_side_expr.clone().map(ComparisonSide::Expr),
+        left_side_expr.map(ComparisonSide::Expr),
     ));
     let right = choice((
         just(COMPARISON_EXPAND)
             .then(pad())
-            .ignore_then(condition_set(condition_set_expr.clone()).map(ComparisonSide::Expansion)),
-        range(range_expr.clone()).map(ComparisonSide::Range),
-        comparison_side_expr.clone().map(ComparisonSide::Expr),
+            .ignore_then(condition_set(condition_set_expr).map(ComparisonSide::Expansion)),
+        range(range_expr).map(ComparisonSide::Range),
+        right_side_expr.map(ComparisonSide::Expr),
     ));
 
     left.then(operator().padded_by(pad()))

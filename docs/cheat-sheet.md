@@ -62,6 +62,8 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `:\c~` | match regex with flags | ❌ |
 | `:~~` | LIKE | ❌ |
 
+A bare (unquoted) word on the right-hand-side of a comparison is a [string literal](./language.md#bare-text-on-the-right-hand-side-of-a-comparison), e.g. `title:performance` is the same as `title:"performance"`. Quote it with backticks to reference a column instead.
+
 The `!` operator negates any comparison (or expression) e.g. `!foo:2`
 
 Regex flags
