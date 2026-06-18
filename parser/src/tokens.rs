@@ -1,3 +1,8 @@
+pub(crate) const CASE_BEGIN: char = '?';
+/// Separates a case variant's condition (first) from its value (second), e.g. the `~` in `a:1 ~ "x"`.
+pub(crate) const CASE_VARIANT_SEPARATOR: char = '~';
+/// Prefixes the fallback value of a case expression and marks its end, e.g. the `~~` in `~~ "other"`.
+pub(crate) const CASE_FALLBACK: &str = "~~";
 pub(crate) const COLUMN_ALIAS_PREFIX: &str = "->";
 pub(crate) const COLUMN_CONTROL_FLAG_DESC: char = 'd';
 pub(crate) const COLUMN_CONTROL_FLAG_GROUP: char = 'g';

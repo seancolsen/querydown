@@ -158,6 +158,22 @@ pub mod cmp {
 pub mod cond {
     use super::*;
 
+    /// Build a searched `CASE` expression. Each `(condition, value)` pair becomes a `WHEN ... THEN
+    /// ...` arm, and `fallback` becomes the `ELSE`. The syntax is identical for Postgres and DuckDB.
+    ///
+    /// The result is atomic (delimited by `CASE`/`END`), so it never needs parenthesizing.
+    pub fn case(variants: Vec<(SqlExpr, SqlExpr)>, fallback: SqlExpr) -> SqlExpr {
+        let mut content = String::from("CASE");
+        for (condition, value) in variants {
+            content.push_str(&format!(
+                "\n  WHEN {} THEN {}",
+                condition.content, value.content
+            ));
+        }
+        content.push_str(&format!("\n  ELSE {}\nEND", fallback.content));
+        SqlExpr::atom(content)
+    }
+
     pub fn coalesce(a: SqlExpr) -> SqlExpr {
         sql_func("COALESCE", [a])
     }

@@ -217,11 +217,11 @@ Functions can be applied to values via `|` (pipe) syntax.
 
 ### Case expressions
 
-_(🚧 Not yet implemented)_
-
 - `?` begins a case expression.
 - `~` denotes a case variant and separates a test expression (first) from a corresponding value expression (second).
 - `~~` prefixes the fallback value and indicates the end of the case expression.
+
+A case expression requires at least one variant and a fallback. It compiles to a SQL searched `CASE` expression, evaluating the variants in order and yielding the value of the first variant whose test expression is true, or the fallback if none are. The test expressions, value expressions, and fallback may each be any expression.
 
 > Categorize each issue into being either "overdue", "due soon", or "due later".
 
