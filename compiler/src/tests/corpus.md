@@ -1313,6 +1313,118 @@ ORDER BY
   "issues"."title" ASC NULLS LAST;
 ```
 
+## Grouping and aggregation
+
+### Basic grouping
+
+> For each issue status, show the number of issues and the date of the most recently created issue
+
+```qd
+#issues $status \g $%count $created_at%max
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(*),
+  max("issues"."created_at")
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Grouping by multiple columns
+
+> Grouping ordinals (`\g1`, `\g2`) control the order of the `GROUP BY` columns, independent of the
+> order in which the columns appear in the result.
+
+```qd
+#issues $status \g2 $author \g1 $%count
+```
+
+```sql
+SELECT
+  "issues"."status",
+  "issues"."author",
+  count(*)
+FROM "issues"
+GROUP BY "issues"."author", "issues"."status";
+```
+
+### Grouping with an aliased aggregate
+
+> For each status, count the issues and show the earliest and latest creation dates.
+
+```qd
+#issues
+$status \g
+$%count -> total
+$created_at%min -> earliest
+$created_at%max -> latest
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(*) AS "total",
+  min("issues"."created_at") AS "earliest",
+  max("issues"."created_at") AS "latest"
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Grouping by a column on a related table
+
+> For each author, count their issues.
+
+```qd
+#issues $author.username \g $%count
+```
+
+```sql
+SELECT
+  "users"."username",
+  count(*)
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+GROUP BY "users"."username";
+```
+
+### Grouping combined with sorting
+
+> For each status, count the issues, showing the most populous statuses first.
+
+```qd
+#issues $status \g $%count \sd
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(*)
+FROM "issues"
+GROUP BY "issues"."status"
+ORDER BY
+  count(*) DESC NULLS LAST;
+```
+
+### Aggregating with sum and avg over base columns
+
+> For each status, show the sum and average of the issue ids.
+
+```qd
+#issues $status \g $id%sum $id%avg
+```
+
+```sql
+SELECT
+  "issues"."status",
+  sum("issues"."id"),
+  avg("issues"."id")
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
 ## Column globs
 
 ### Basic column glob

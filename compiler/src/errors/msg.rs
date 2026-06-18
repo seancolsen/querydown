@@ -33,8 +33,11 @@ pub fn path_to_many_with_column_name_and_no_agg_fn(column_name: &str) -> String 
     )
 }
 
-pub fn aggregate_fn_applied_to_path_to_one() -> String {
-    "Aggregate functions can only be applied to data that joins many records.".to_string()
+pub fn aggregate_fn_without_argument(function_name: &str) -> String {
+    format!(
+        "The aggregate function `{}` requires an argument. Only `count` may be used on its own.",
+        function_name
+    )
 }
 
 pub fn aggregate_fn_applied_to_a_non_path() -> String {
@@ -66,6 +69,10 @@ pub fn column_glob_after_non_fk_column(column_name: &str) -> String {
 /// TODO: we should improve the ClarifiedPath data structure to make this impossible
 pub fn empty_path() -> String {
     "Bug: Empty path.".to_string()
+}
+
+pub fn ungrouped_unaggregated_column() -> String {
+    "In a grouped query, every result column must either be a grouping column (marked with `\\g`) or contain an aggregate function.".to_string()
 }
 
 pub fn compare_two_ranges() -> String {

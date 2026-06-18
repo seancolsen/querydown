@@ -20,6 +20,20 @@ fn agg_sort_expr<'src>(expr_parser: impl Psr<'src, Expr>) -> impl Psr<'src, Sort
         })
 }
 
+/// An aggregate's optional ORDER BY clause, e.g. the `(\name)` in `labels.name%list(\name)`. Built
+/// from a fresh copy of the extra-args expression parser at each use site because the parser is
+/// consumed when constructed.
+fn aggregate_order_by<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Vec<SortExpr>> {
+    just(COMPOSITION_ARGUMENT_BRACE_L)
+        .ignore_then(
+            agg_sort_expr(args_expr)
+                .padded_by(pad())
+                .repeated()
+                .collect::<Vec<SortExpr>>(),
+        )
+        .then_ignore(just(COMPOSITION_ARGUMENT_BRACE_R))
+}
+
 pub fn pipe<'src>(
     arg0_expr: impl Psr<'src, Expr>,
     extra_args_expr: impl Psr<'src, Expr>,
@@ -31,15 +45,6 @@ pub fn pipe<'src>(
                 .padded_by(pad())
                 .repeated()
                 .collect::<Vec<Expr>>(),
-        )
-        .then_ignore(just(COMPOSITION_ARGUMENT_BRACE_R));
-
-    let aggregate_order_by = just(COMPOSITION_ARGUMENT_BRACE_L)
-        .ignore_then(
-            agg_sort_expr(extra_args_expr)
-                .padded_by(pad())
-                .repeated()
-                .collect::<Vec<SortExpr>>(),
         )
         .then_ignore(just(COMPOSITION_ARGUMENT_BRACE_R));
 
@@ -59,7 +64,7 @@ pub fn pipe<'src>(
     let aggregate_call = just(COMPOSITION_PIPE_AGGREGATE)
         .padded_by(pad())
         .ignore_then(ident())
-        .then(aggregate_order_by.or_not())
+        .then(aggregate_order_by(extra_args_expr.clone()).or_not())
         .map(|(name, order_by)| {
             (
                 FunctionDimension::Aggregate,
@@ -69,7 +74,24 @@ pub fn pipe<'src>(
             )
         });
 
-    arg0_expr.foldl(
+    // A standalone (leading) aggregate, e.g. `%count`, which has no `arg0` to its left. This is how
+    // `count(*)` is written. It produces a [`Call`] with an empty `args` vector, distinguishing it
+    // from a piped aggregate like `created_at%max` whose `args` contains the piped-in expression.
+    let leading_aggregate = just(COMPOSITION_PIPE_AGGREGATE)
+        .padded_by(pad())
+        .ignore_then(ident())
+        .then(aggregate_order_by(extra_args_expr).or_not())
+        .map(|(name, order_by)| {
+            Expr::Call(Call {
+                name: name.to_string(),
+                dimension: FunctionDimension::Aggregate,
+                syntax: CallSyntax::Piped,
+                args: vec![],
+                order_by: order_by.unwrap_or_default(),
+            })
+        });
+
+    choice((leading_aggregate, arg0_expr)).foldl(
         choice((scalar_call, aggregate_call)).repeated(),
         |arg0, (dimension, name, extra_args, order_by)| {
             let args = std::iter::once(arg0).chain(extra_args).collect();

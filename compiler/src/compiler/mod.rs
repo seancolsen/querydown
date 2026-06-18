@@ -69,9 +69,11 @@ impl Compiler {
         let ConvertedResultColumns {
             columns,
             sorting: column_sorting,
+            grouping,
             column_annotations,
         } = convert_result_columns(result_columns, &mut scope)?;
         select.columns = columns;
+        select.grouping = grouping;
         // Standalone `\\` sorts take precedence over column `\s` sorts, hence they come first.
         select.sorting = standalone_sorting
             .into_iter()
