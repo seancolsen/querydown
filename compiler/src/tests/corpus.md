@@ -468,6 +468,26 @@ WHERE
   COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('performance' COLLATE "C")) > 0, FALSE);
 ```
 
+### Text match (contains, bare word on right-hand side)
+
+A bare (unquoted) word on the right-hand side of a comparison is a string literal, so this is
+equivalent to quoting `performance`. To refer to a column on the right-hand side instead, the
+identifier can be quoted with backticks or written as a multi-part path.
+
+> Issues whose title contains "performance", written without quotes
+
+```qd
+#issues title:performance
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('performance' COLLATE "C")) > 0, FALSE);
+```
+
 ### Text match (contains, DuckDB)
 
 ```toml options

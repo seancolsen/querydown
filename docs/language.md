@@ -111,6 +111,7 @@ Base table          Conditions               Result columns       */
     - begin with a lowercase letter or uppercase letter or underscore
     - include only letters, numbers, and underscores.
 - Unlike SQL, column names like `group` and `year` don't need quotes because there are no keywords and functions names are always clear to the parser from other syntax.
+- Note that a bare (unquoted) word on the [right-hand-side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison) is parsed as a string literal, not a column reference. Use backticks there if you need to reference a column.
 
 ### Flexible identifiers
 
@@ -346,6 +347,23 @@ The `:` comparison operator (aka "match") behaves differently according to the t
 - Other values (e.g. numbers, dates, etc) are compared using strict equality.
 
 If you need to search text values using exact equality, use the `:=` comparison instead of the match comparison.
+
+### Bare text on the right-hand-side of a comparison
+
+A bare (unquoted) word on the **right-hand-side** of a comparison is interpreted as a **string literal** rather than a column reference. This matches the behavior you may expect from tools like GitHub.
+
+> Find issues where the title contains the word "performance"
+
+```qd
+#issues title:performance
+```
+
+The query above is equivalent to `#issues title:"performance"`.
+
+This only applies to the right-hand-side. Bare text elsewhere (e.g. on the left-hand-side) continues to be parsed as a column reference. If you need to reference a column on the right-hand-side, you can either:
+
+- quote the identifier with backticks, e.g. ``#issues description:`title` ``, or
+- write it as a multi-part path, e.g. `#issues description:foo.bar`.
 
 ### All comparison operators
 
