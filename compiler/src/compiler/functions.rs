@@ -6,11 +6,13 @@ use querydown_parser::ast::{Call, Expr, FunctionDimension, SortExpr};
 use crate::{
     compiler::{
         expr::convert_expr,
-        paths::{clarify_path, AggregateExprTemplate, ClarifiedPathTail},
+        paths::{
+            clarify_path, render_order_by, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail,
+        },
         scope::Scope,
     },
     errors::msg::{self, unknown_aggregate_function, unknown_scalar_function},
-    sql::expr::build::{agg::*, cond::*, date_time::*, func::*, math::*, strings::*},
+    sql::expr::build::{self, agg::*, cond::*, date_time::*, func::*, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
 };
 
@@ -36,6 +38,14 @@ fn convert_aggregate_call(
     order_by: Vec<SortExpr>,
     s: &mut Scope,
 ) -> Result<SqlExpr, String> {
+    // A standalone aggregate with no argument, e.g. `%count`, which is shorthand for `count(*)`.
+    // Only `count` is meaningful without an argument.
+    if e.is_empty() {
+        if name == "count" {
+            return Ok(build::agg::count_star());
+        }
+        return Err(msg::aggregate_fn_without_argument(name));
+    }
     let func = s
         .get_aggregate_function(name)
         .ok_or_else(|| unknown_aggregate_function(name))?;
@@ -144,22 +154,36 @@ fn agg_1(
     let Expr::Path(path_parts) = arg0 else {
         return Err(msg::aggregate_fn_applied_to_a_non_path());
     };
-    let clarified_path = clarify_path(path_parts, scope)?;
-    let Some(ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) =
-        clarified_path.tail
-    else {
-        return Err(msg::aggregate_fn_applied_to_path_to_one());
-    };
-    let Some(column_name) = column_name_opt else {
-        return Err(msg::aggregate_fn_applied_to_a_path_without_a_column());
-    };
-    let aggregate_expr_template = AggregateExprTemplate::new(column_name, agg_wrapper, order_by);
-    scope.join_chain_to_many(
-        &clarified_path.head,
-        chain_to_many,
-        Some(aggregate_expr_template),
-        CtePurpose::AggregateValue,
-    )
+    let ClarifiedPath { head, tail } = clarify_path(path_parts, scope)?;
+    match tail {
+        // Aggregating data that joins many records (e.g. `#issues.created_at%max`). This is handled
+        // by building a CTE that performs the aggregation grouped by the linking column.
+        Some(ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) => {
+            let Some(column_name) = column_name_opt else {
+                return Err(msg::aggregate_fn_applied_to_a_path_without_a_column());
+            };
+            let aggregate_expr_template =
+                AggregateExprTemplate::new(column_name, agg_wrapper, order_by);
+            scope.join_chain_to_many(
+                &head,
+                chain_to_many,
+                Some(aggregate_expr_template),
+                CtePurpose::AggregateValue,
+            )
+        }
+        // Aggregating a column on the base table or a to-one related table (e.g. `created_at%max`).
+        // This produces a direct SQL aggregate expression used in conjunction with `GROUP BY`.
+        Some(ClarifiedPathTail::Column(column_name)) => {
+            let table_name = match head {
+                Some(chain_to_one) => scope.join_chain_to_one(&chain_to_one),
+                None => scope.get_base_table().name.clone(),
+            };
+            let reference = scope.table_column_expr(&table_name, &column_name);
+            let order_by_str = render_order_by(order_by, scope)?;
+            Ok(agg_wrapper(reference, order_by_str))
+        }
+        None => Err(msg::aggregate_fn_applied_to_a_path_without_a_column()),
+    }
 }
 
 pub fn get_standard_aggregate_functions() -> AggregateFuncMap {

@@ -447,8 +447,6 @@ By default, `NULL` values are sorted last, but this behavior can be modified usi
 
 ### Grouping and aggregation
 
-_(🚧 Not yet implemented)_
-
 Grouping is indicated by the `g` flag, similar to sorting.
 
 > For each issue status, show the number of issues and the date of the most recently created issue
@@ -457,9 +455,11 @@ Grouping is indicated by the `g` flag, similar to sorting.
 #issues $status \g $%count $created_at%max
 ```
 
-- All ungrouped columns must contain an aggregate function
+- All ungrouped columns must contain an aggregate function. Otherwise the compiler reports an error.
 - `%count` can occur on its own (outside of a function pipeline), which is equivalent to `count(*)`.
-- Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting.
+- Aggregate functions like `%max`, `%sum`, and `%avg` may be applied to columns on the base table (e.g. `created_at%max`) or on a related table reachable via a single record (e.g. `author.created_at%max`).
+- Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting. Columns without an explicit ordinal are grouped in the order they appear, after all columns that do specify an ordinal.
+- Grouping and sorting can be combined, e.g. `#issues $status \g $%count \sd` to sort the groups by their counts.
 
 ### Column globs
 

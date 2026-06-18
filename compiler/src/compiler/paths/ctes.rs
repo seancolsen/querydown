@@ -53,7 +53,7 @@ impl AggregateExprTemplate {
     }
 }
 
-fn render_order_by(order_by: Vec<SortExpr>, scope: &mut Scope) -> Result<String, String> {
+pub fn render_order_by(order_by: Vec<SortExpr>, scope: &mut Scope) -> Result<String, String> {
     if order_by.is_empty() {
         return Ok(String::new());
     }

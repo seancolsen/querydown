@@ -507,6 +507,31 @@ mod tests {
             })))
         );
 
+        // A standalone aggregate `%count` has no `arg0`, so its `args` vector is empty. This is how
+        // `count(*)` is written.
+        assert_eq!(
+            p("%count"),
+            Ok(Expr::Call(Call {
+                name: "count".to_string(),
+                dimension: FunctionDimension::Aggregate,
+                syntax: CallSyntax::Piped,
+                args: vec![],
+                order_by: vec![],
+            }))
+        );
+
+        // A piped aggregate `created_at%max` carries the piped-in expression as its single argument.
+        assert_eq!(
+            p("created_at%max"),
+            Ok(Expr::Call(Call {
+                name: "max".to_string(),
+                dimension: FunctionDimension::Aggregate,
+                syntax: CallSyntax::Piped,
+                args: vec![Expr::Path(vec![PathPart::Column("created_at".to_string())])],
+                order_by: vec![],
+            }))
+        );
+
         // A `!` prefix negates a bare expression.
         assert_eq!(
             p("!foo"),
