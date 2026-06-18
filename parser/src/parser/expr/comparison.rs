@@ -66,10 +66,11 @@ fn operator<'src>() -> impl Psr<'src, Operator> {
         exactly(COMPARE_LTE).to(Operator::Lte),
         exactly(COMPARE_LIKE).to(Operator::Like),
         // Two character
-        exactly(COMPARE_MATCH).to(Operator::Match),
+        exactly(COMPARE_REGEX).to(Operator::RegexMatch),
+        exactly(COMPARE_EQ).to(Operator::Eq),
         exactly(COMPARE_GT).to(Operator::Gt),
         exactly(COMPARE_LT).to(Operator::Lt),
         // One character
-        exactly(COMPARE_EQ).to(Operator::Eq),
+        exactly(COMPARE_MATCH).to(Operator::Match),
     ))
 }

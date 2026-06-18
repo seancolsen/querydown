@@ -115,7 +115,7 @@ WHERE
 
 ```qd
 #items
-++#checkouts{check_in_time:@null patron.first_name:"Foo"}
+++#checkouts{check_in_time:@null patron.first_name:="Foo"}
 book.page_count:>200
 ```
 
@@ -197,7 +197,7 @@ WHERE
 > Issues whose status is not "open"
 
 ```qd
-#issues !status:"open"
+#issues !status:="open"
 ```
 
 ```sql
@@ -227,7 +227,7 @@ FROM "projects";
 > Issues that are not both open and high priority
 
 ```qd
-#issues !{status:"open" status:"high"}
+#issues !{status:="open" status:="high"}
 ```
 
 ```sql
@@ -355,7 +355,7 @@ dialect = "duckdb"
 > DuckDB escapes a single-quote by doubling it, rather than with a backslash.
 
 ```qd
-#issues title:"can't"
+#issues title:="can't"
 ```
 
 ```sql
@@ -448,6 +448,100 @@ WHERE
 ```
 
 
+## The match operator
+
+### Text match (contains)
+
+The `:` operator does a case-insensitive "contains" match when the left-hand side is a text column.
+
+> Issues whose title contains "performance"
+
+```qd
+#issues title:"performance"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('performance' COLLATE "C")) > 0, FALSE);
+```
+
+### Text match (contains, DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Issues whose title contains "performance", targeting DuckDB
+
+```qd
+#issues title:"performance"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  COALESCE(contains(lower(strip_accents("issues"."title")), lower(strip_accents('performance'))), FALSE);
+```
+
+### Explicit equality on text
+
+The `:=` operator forces exact equality, even for text columns.
+
+> Issues whose title is exactly "performance"
+
+```qd
+#issues title:="performance"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."title" = 'performance';
+```
+
+### Match falls back to equality for non-text values
+
+When the left-hand side is not text, `:` behaves as exact equality.
+
+> Issues with id 50
+
+```qd
+#issues id:50
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."id" = 50;
+```
+
+### Match against null is a null check
+
+A null comparison is an `IS NULL` check regardless of the column type, so text columns are not matched via "contains" here.
+
+> Issues with no title
+
+```qd
+#issues title:@null
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."title" IS NULL;
+```
+
 ## Condition sets
 
 ### "Has some" with "OR"
@@ -494,7 +588,7 @@ The comma is shorthand for an "OR" condition set, equivalent to wrapping the con
 > Issues that are open or created after 2023-03-04
 
 ```qd
-#issues status:"open",created_at:>@2023-03-04
+#issues status:="open",created_at:>@2023-03-04
 ```
 
 ```sql
@@ -512,7 +606,7 @@ WHERE
 > Issues under project named "foo".
 
 ```qd
-#issues project.name:"foo" $id->id
+#issues project.name:="foo" $id->id
 ```
 
 ```sql
@@ -883,7 +977,7 @@ LEFT JOIN "cte0" ON
 > Issues that are not labeled bug
 
 ```qd
-#issues --#labels{name:"bug"} $id
+#issues --#labels{name:="bug"} $id
 ```
 
 ```sql

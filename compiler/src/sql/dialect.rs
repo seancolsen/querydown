@@ -127,4 +127,11 @@ pub trait Dialect {
     /// * `flags` - Flags to control the behavior of the regular expression
     fn match_regex(&self, a: SqlExpr, b: SqlExpr, is_positive: bool, flags: &RegExFlags)
         -> SqlExpr;
+
+    /// Render a case-insensitive "contains" text comparison: true when `haystack` contains `needle`
+    /// as a substring. A NULL `haystack` or `needle` yields FALSE (not NULL).
+    ///
+    /// * `haystack` - The text being searched (the left-hand side of the `:` comparison)
+    /// * `needle` - The text being searched for (the right-hand side of the `:` comparison)
+    fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr;
 }

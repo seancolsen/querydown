@@ -228,12 +228,17 @@ pub enum Exclusivity {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Operator {
+    /// Exact equality (`:=`).
     Eq,
     Gt,
     Gte,
     Lt,
     Lte,
     Like,
+    /// Regular-expression match (`:~`).
+    RegexMatch,
+    /// The general-purpose "match" operator (`:`). Behaves like [`Operator::Eq`] except that it
+    /// applies type-aware matching (e.g. case-insensitive "contains" for text values).
     Match,
 }
 

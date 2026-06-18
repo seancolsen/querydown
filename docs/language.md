@@ -329,7 +329,25 @@ Conditions can be nested
 ]
 ```
 
-### Comparison operators
+### The match comparison operator
+
+The `:` comparison operator (aka "match") behaves differently according to the type of expression on the left-hand-side.
+
+- **Text** values will match via **contains** logic (case insensitive).
+
+    e.g.
+
+    > Find issues where the title contains "performance"
+
+    ```qd
+    #issues title:"performance"
+    ```
+
+- Other values (e.g. numbers, dates, etc) are compared using strict equality.
+
+If you need to search text values using exact equality, use the `:=` comparison instead of the match comparison.
+
+### All comparison operators
 
 the Cheat Sheet lists all [comparison operators](./cheat-sheet.md#comparison-operators).
 

@@ -203,7 +203,7 @@ mod tests {
                             left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
                                 "a".to_string()
                             )])),
-                            operator: Operator::Eq,
+                            operator: Operator::Match,
                             right: ComparisonSide::Expr(Expr::Number("2".to_string())),
                         }))]
                     },
@@ -267,14 +267,14 @@ mod tests {
                         left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
                             "foo".to_string()
                         )])),
-                        operator: Operator::Eq,
+                        operator: Operator::Match,
                         right: ComparisonSide::Expr(Expr::Number("1".to_string())),
                     })),
                     Expr::Comparison(Box::new(Comparison {
                         left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
                             "bar".to_string()
                         )])),
-                        operator: Operator::Eq,
+                        operator: Operator::Match,
                         right: ComparisonSide::Expr(Expr::Number("2".to_string())),
                     })),
                 ]
@@ -400,10 +400,10 @@ mod tests {
             Ok(Expr::Comparison(Box::new(Comparison {
                 left: ComparisonSide::Expr(Expr::Comparison(Box::new(Comparison {
                     left: ComparisonSide::Expr(Expr::Number("1".to_string())),
-                    operator: Operator::Eq,
+                    operator: Operator::Match,
                     right: ComparisonSide::Expr(Expr::Number("2".to_string())),
                 }))),
-                operator: Operator::Eq,
+                operator: Operator::Match,
                 right: ComparisonSide::Expr(Expr::Number("3".to_string())),
             })))
         );
@@ -412,7 +412,7 @@ mod tests {
             p("x:@a..@b"),
             Ok(Expr::Comparison(Box::new(Comparison {
                 left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("x".to_string())])),
-                operator: Operator::Eq,
+                operator: Operator::Match,
                 right: ComparisonSide::Range(Range {
                     lower: RangeBound {
                         expr: Expr::Variable("a".to_string()),
@@ -430,7 +430,7 @@ mod tests {
             p("x:@a<..<@b"),
             Ok(Expr::Comparison(Box::new(Comparison {
                 left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("x".to_string())])),
-                operator: Operator::Eq,
+                operator: Operator::Match,
                 right: ComparisonSide::Range(Range {
                     lower: RangeBound {
                         expr: Expr::Variable("a".to_string()),
@@ -481,7 +481,7 @@ mod tests {
                     ],
                     conjunction: Conjunction::Or,
                 }),
-                operator: Operator::Eq,
+                operator: Operator::Match,
                 right: ComparisonSide::Expr(Expr::Sum(
                     Box::new(Expr::Number("2".to_string())),
                     Box::new(Expr::Product(
@@ -513,7 +513,7 @@ mod tests {
                     left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
                         "foo".to_string()
                     )])),
-                    operator: Operator::Eq,
+                    operator: Operator::Match,
                     right: ComparisonSide::Expr(Expr::Number("2".to_string())),
                 }
             )))))
@@ -537,14 +537,14 @@ mod tests {
                         left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
                             "foo".to_string()
                         )])),
-                        operator: Operator::Eq,
+                        operator: Operator::Match,
                         right: ComparisonSide::Expr(Expr::Number("1".to_string())),
                     })))),
                     Expr::Comparison(Box::new(Comparison {
                         left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
                             "bar".to_string()
                         )])),
-                        operator: Operator::Eq,
+                        operator: Operator::Match,
                         right: ComparisonSide::Expr(Expr::Number("2".to_string())),
                     })),
                 ]

@@ -15,6 +15,11 @@ pub struct PrimitiveTable {
 #[derive(Debug, Deserialize)]
 pub struct PrimitiveColumn {
     pub name: String,
+    /// The column's data type, as a free-form string (e.g. `"text"`, `"integer"`, `"text[]"`).
+    /// Optional for backward compatibility; an absent or unrecognized type is treated as
+    /// [`ValueType::Unknown`](crate::schema::ValueType).
+    #[serde(default)]
+    pub r#type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

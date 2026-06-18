@@ -68,4 +68,15 @@ impl Dialect for Postgres {
         };
         comparison(a, op, b)
     }
+
+    fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr {
+        // `strpos` returns the 1-based position of the first match, or 0 when not found, so `> 0`
+        // means "contains". `lower(... COLLATE "C")` gives a case-insensitive, byte-wise
+        // comparison. `strpos` returns NULL if either argument is NULL, so we coalesce to FALSE.
+        SqlExpr::atom(format!(
+            r#"COALESCE(strpos(lower({haystack} COLLATE "C"), lower({needle} COLLATE "C")) > 0, FALSE)"#,
+            haystack = haystack.content,
+            needle = needle.content,
+        ))
+    }
 }

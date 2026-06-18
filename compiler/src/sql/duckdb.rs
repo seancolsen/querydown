@@ -86,4 +86,15 @@ impl Dialect for DuckDB {
             cond::not(positive)
         }
     }
+
+    fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr {
+        // `contains` returns a boolean for substring presence. `lower(strip_accents(...))` makes the
+        // comparison case- and accent-insensitive. `contains` returns NULL if either argument is
+        // NULL, so we coalesce to FALSE.
+        SqlExpr::atom(format!(
+            "COALESCE(contains(lower(strip_accents({haystack})), lower(strip_accents({needle}))), FALSE)",
+            haystack = haystack.content,
+            needle = needle.content,
+        ))
+    }
 }

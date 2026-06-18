@@ -153,10 +153,55 @@ impl Table {
     }
 }
 
+/// A coarse classification of a column's data type, used to decide how the match operator (`:`)
+/// behaves. This is deliberately shallow: it only needs to distinguish the cases that change
+/// behavior (currently text), and anything we can't confidently classify becomes
+/// [`ValueType::Unknown`], which falls back to exact equality.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValueType {
+    Text,
+    Number,
+    Date,
+    Time,
+    Boolean,
+    Array(Box<ValueType>),
+    Unknown,
+}
+
+impl ValueType {
+    /// Parse a type from the free-form string used in the schema. A trailing `[]` denotes an array
+    /// of the inner type. Unrecognized strings become [`ValueType::Unknown`] so that new database
+    /// types don't break compilation.
+    pub fn parse(raw: &str) -> ValueType {
+        let trimmed = raw.trim();
+        if let Some(inner) = trimmed.strip_suffix("[]") {
+            return ValueType::Array(Box::new(ValueType::parse(inner)));
+        }
+        match trimmed.to_lowercase().as_str() {
+            "text" | "varchar" | "char" | "character varying" | "bpchar" | "string" => {
+                ValueType::Text
+            }
+            "integer" | "int" | "int4" | "int8" | "bigint" | "smallint" | "numeric" | "decimal"
+            | "real" | "double precision" | "float" | "float4" | "float8" => ValueType::Number,
+            "date" => ValueType::Date,
+            "timestamp" | "timestamptz" | "datetime" => ValueType::Time,
+            "boolean" | "bool" => ValueType::Boolean,
+            _ => ValueType::Unknown,
+        }
+    }
+
+    pub fn from_opt(raw: &Option<String>) -> ValueType {
+        raw.as_deref()
+            .map(ValueType::parse)
+            .unwrap_or(ValueType::Unknown)
+    }
+}
+
 #[derive(Debug)]
 pub struct Column {
     pub id: ColumnId,
     pub name: ColumnName,
+    pub r#type: ValueType,
 }
 
 fn make_table(id: TableId, primitive_table: PrimitiveTable) -> Table {
@@ -167,6 +212,7 @@ fn make_table(id: TableId, primitive_table: PrimitiveTable) -> Table {
         let column = Column {
             id: max_column_id,
             name: primitive_column.name,
+            r#type: ValueType::from_opt(&primitive_column.r#type),
         };
         columns.insert(max_column_id, column);
     }

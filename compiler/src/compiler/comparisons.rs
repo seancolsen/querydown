@@ -3,6 +3,7 @@ use querydown_parser::ast::*;
 use crate::{
     compiler::expr::convert_expr,
     errors::msg,
+    schema::ValueType,
     sql::{
         expr::build::*,
         tree::{CtePurpose, SqlExpr},
@@ -59,7 +60,7 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, S
 
         // Range vs Expr
         (CmpRange(range), CmpExpr(expr)) | (CmpExpr(expr), CmpRange(range)) => {
-            if c.operator != Operator::Eq {
+            if !matches!(c.operator, Operator::Eq | Operator::Match) {
                 return Err(msg::compare_range_without_eq());
             }
             convert_range_comparison(&expr, &range, scope)
@@ -67,7 +68,7 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, S
 
         // Range vs Expansion
         (CmpExpansion(conditions), CmpRange(r)) | (CmpRange(r), CmpExpansion(conditions)) => {
-            if c.operator != Operator::Eq {
+            if !matches!(c.operator, Operator::Eq | Operator::Match) {
                 return Err(msg::compare_range_without_eq());
             }
             conditions
@@ -91,23 +92,27 @@ fn convert_simple_comparison(
 ) -> Result<SqlExpr, String> {
     use Operator::*;
 
-    if left.is_zero() && operator == Eq {
+    // The match operator (`:`) behaves like `Eq` for all the special cases below; it only diverges
+    // from equality for plain text value comparisons (handled in the final dispatch).
+    let eq_like = matches!(operator, Eq | Match);
+
+    if left.is_zero() && eq_like {
         return convert_expression_vs_zero(right, ComparisonVsZero::Eq, scope);
     }
     if left.is_zero() && operator == Lt {
         return convert_expression_vs_zero(right, ComparisonVsZero::Gt, scope);
     }
-    if right.is_zero() && operator == Eq {
+    if right.is_zero() && eq_like {
         return convert_expression_vs_zero(left, ComparisonVsZero::Eq, scope);
     }
     if right.is_zero() && operator == Gt {
         return convert_expression_vs_zero(left, ComparisonVsZero::Gt, scope);
     }
 
-    if right.is_null() && operator == Eq {
+    if right.is_null() && eq_like {
         return convert_expr(left.to_owned(), scope).map(cmp::is_null);
     }
-    if left.is_null() && operator == Eq {
+    if left.is_null() && eq_like {
         return convert_expr(right.to_owned(), scope).map(cmp::is_null);
     }
 
@@ -128,7 +133,60 @@ fn convert_simple_comparison(
         Lt => Ok(cmp::lt(left_converted, right_converted)),
         Lte => Ok(cmp::lte(left_converted, right_converted)),
         Like => Ok(cmp::like(left_converted, right_converted)),
-        Match => Ok(match_regex(left_converted, right_converted, scope)),
+        RegexMatch => Ok(match_regex(left_converted, right_converted, scope)),
+        // The match operator applies type-aware matching: case-insensitive "contains" when the
+        // left-hand side is known to be text, falling back to exact equality otherwise.
+        Match => {
+            if classify_value_type(left, scope) == ValueType::Text {
+                Ok(scope
+                    .options
+                    .dialect
+                    .text_contains(left_converted, right_converted))
+            } else {
+                Ok(cmp::eq(left_converted, right_converted))
+            }
+        }
+    }
+}
+
+/// Best-effort, shallow classification of an expression's value type, used to decide how the match
+/// operator (`:`) behaves. Only direct column references (optionally reached through to-one join
+/// chains) are classified; anything else returns [`ValueType::Unknown`], which the caller treats as
+/// a fall back to exact equality.
+fn classify_value_type(expr: &Expr, scope: &Scope) -> ValueType {
+    let Expr::Path(parts) = expr else {
+        return ValueType::Unknown;
+    };
+    // Mirror `convert_path`'s handling of the scope's path prefix so we classify the same column
+    // that gets compiled.
+    let prefixed_parts: Vec<PathPart> = scope
+        .path_prefix
+        .iter()
+        .cloned()
+        .chain(parts.iter().cloned())
+        .collect();
+    let Ok(clarified) = clarify_path(prefixed_parts, scope) else {
+        return ValueType::Unknown;
+    };
+    let column_type = |table: &crate::schema::Table, column_name: &str| -> ValueType {
+        scope
+            .options
+            .resolve_identifier(&table.column_lookup, column_name)
+            .and_then(|id| table.columns.get(id))
+            .map(|column| column.r#type.clone())
+            .unwrap_or(ValueType::Unknown)
+    };
+    match (clarified.head, clarified.tail) {
+        (None, Some(ClarifiedPathTail::Column(column_name))) => {
+            column_type(scope.get_base_table(), &column_name)
+        }
+        (Some(chain_to_one), Some(ClarifiedPathTail::Column(column_name))) => {
+            match scope.schema.tables.get(&chain_to_one.get_ending_table_id()) {
+                Some(table) => column_type(table, &column_name),
+                None => ValueType::Unknown,
+            }
+        }
+        _ => ValueType::Unknown,
     }
 }
 
