@@ -8,6 +8,7 @@ mod number;
 mod path;
 mod pipe;
 
+pub use comparison::operator as comparison_operator;
 pub use path::path_to_one;
 
 use chumsky::{prelude::*, text::*};

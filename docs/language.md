@@ -923,8 +923,6 @@ assignments.
 
 ### Custom Comparisons
 
-_(🚧 Not yet implemented)_
-
 > Find issues that have a comment containing the word "workaround".
 
 ```

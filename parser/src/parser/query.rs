@@ -4,13 +4,16 @@ use crate::ast::*;
 use crate::tokens::*;
 
 use super::utils::*;
-use super::{column_layout::result_columns, expr::expr, sorting::sorting};
+use super::{
+    column_layout::result_columns, expr::comparison_operator, expr::expr, sorting::sorting,
+};
 
 /// A pre-base-table definition. Several kinds of definition share the same position in the source
 /// (before the base table) and are parsed together, then sorted into the [`Query`]'s fields.
 enum Definition {
     Constant(ConstantDef),
     Function(FunctionDef),
+    CustomComparison(CustomComparisonDef),
     ComputedColumn(ComputedColumn),
 }
 
@@ -32,17 +35,20 @@ pub fn query<'src>() -> impl Psr<'src, Query> {
             .map(|((definitions, base_table), transformations)| {
                 let mut constants = vec![];
                 let mut functions = vec![];
+                let mut custom_comparisons = vec![];
                 let mut computed_columns = vec![];
                 for definition in definitions {
                     match definition {
                         Definition::Constant(c) => constants.push(c),
                         Definition::Function(f) => functions.push(f),
+                        Definition::CustomComparison(c) => custom_comparisons.push(c),
                         Definition::ComputedColumn(c) => computed_columns.push(c),
                     }
                 }
                 Query {
                     constants,
                     functions,
+                    custom_comparisons,
                     computed_columns,
                     base_table,
                     transformations,
@@ -58,6 +64,9 @@ fn definition<'src>() -> impl Psr<'src, Definition> {
         // function would otherwise be misread as the start of a constant.
         function().map(Definition::Function),
         constant().map(Definition::Constant),
+        // `custom_comparison` is tried before `computed_column` because both begin with
+        // `#table.name`; only the operator that follows the name distinguishes them.
+        custom_comparison().map(Definition::CustomComparison),
         computed_column().map(Definition::ComputedColumn),
     ))
 }
@@ -130,6 +139,30 @@ fn computed_column<'src>() -> impl Psr<'src, ComputedColumn> {
         .map(|((table, name), expr)| ComputedColumn { table, name, expr })
 }
 
+/// Parses one custom comparison definition, e.g. `#issues.comment:@x = ++#comments{body:@x}`. The
+/// comparison operator (here `:`) sits between the name and the parameter, and the body — in which
+/// the parameter may be referenced — follows the `=`.
+fn custom_comparison<'src>() -> impl Psr<'src, CustomComparisonDef> {
+    just(TABLE_SIGIL)
+        .ignore_then(db_identifier())
+        .then_ignore(just(PATH_SEPARATOR))
+        .then(db_identifier())
+        .then(comparison_operator())
+        .then_ignore(pad())
+        .then(variable_name())
+        .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
+        .then(expr())
+        .map(
+            |((((table, name), operator), param), body)| CustomComparisonDef {
+                table,
+                name,
+                operator,
+                param,
+                body,
+            },
+        )
+}
+
 fn transformation<'src>() -> impl Psr<'src, Transformation> {
     top_level_condition_set()
         .then_ignore(pad())
@@ -165,6 +198,7 @@ mod tests {
             Ok(Query {
                 constants: vec![],
                 functions: vec![],
+                custom_comparisons: vec![],
                 computed_columns: vec![],
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
@@ -307,6 +341,41 @@ mod tests {
                 Box::new(Expr::Variable("s".to_string())),
                 Box::new(Expr::Number("2".to_string())),
             )
+        );
+    }
+
+    #[test]
+    fn test_parse_query_with_custom_comparison() {
+        let result = query()
+            .parse("#issues.comment:@x = ++#comments{body:@x}\n#issues comment:workaround")
+            .into_result()
+            .unwrap();
+        assert_eq!(result.base_table, "issues".to_string());
+        assert_eq!(result.custom_comparisons.len(), 1);
+        let def = &result.custom_comparisons[0];
+        assert_eq!(def.table, "issues".to_string());
+        assert_eq!(def.name, "comment".to_string());
+        assert_eq!(def.operator, Operator::Match);
+        assert_eq!(def.param, "x".to_string());
+        assert_eq!(
+            def.body,
+            Expr::HasQuantity(HasQuantity {
+                quantity: Quantity::AtLeastOne,
+                path_parts: vec![PathPart::TableWithMany(TableWithMany {
+                    table: "comments".to_string(),
+                    condition_set: ConditionSet {
+                        conjunction: Conjunction::And,
+                        entries: vec![Expr::Comparison(Box::new(Comparison {
+                            left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                                "body".to_string()
+                            )])),
+                            operator: Operator::Match,
+                            right: ComparisonSide::Expr(Expr::Variable("x".to_string())),
+                        }))]
+                    },
+                    linking_column: None,
+                })]
+            })
         );
     }
 }

@@ -1,7 +1,7 @@
 use querydown_parser::ast::*;
 
 use crate::{
-    compiler::expr::convert_expr,
+    compiler::expr::{convert_expr, convert_expr_with_path_prefix},
     errors::msg,
     schema::ValueType,
     sql::{
@@ -18,6 +18,22 @@ use super::{
 
 pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, String> {
     use ComparisonSide::{Expansion as CmpExpansion, Expr as CmpExpr, Range as CmpRange};
+
+    // A custom comparison is invoked when the left-hand side is a path naming a registered custom
+    // comparison. When one matches, its body is expanded in place of the whole comparison.
+    if scope.has_custom_comparisons() {
+        if let ComparisonSide::Expr(Expr::Path(parts)) = &c.left {
+            let prefixed: Vec<PathPart> = scope
+                .path_prefix
+                .iter()
+                .cloned()
+                .chain(parts.iter().cloned())
+                .collect();
+            if let Some((head_parts, def)) = resolve_custom_comparison(&prefixed, scope)? {
+                return convert_custom_comparison(def, head_parts, c.operator, c.right, scope);
+            }
+        }
+    }
 
     let mut simple = |l: &Expr, r: &Expr| convert_simple_comparison(l, c.operator, r, scope);
 
@@ -262,5 +278,223 @@ fn convert_expression_vs_zero(
     match cmp {
         ComparisonVsZero::Eq => Ok(cmp::is_null(pk)),
         ComparisonVsZero::Gt => Ok(cmp::is_not_null(pk)),
+    }
+}
+
+/// If `parts` names a custom comparison, returns the head of the path (the parts leading to the
+/// table hosting the comparison) together with the matched definition. A real column of the same
+/// name takes precedence, in which case this returns `None`.
+fn resolve_custom_comparison(
+    parts: &[PathPart],
+    scope: &Scope,
+) -> Result<Option<(Vec<PathPart>, CustomComparisonDef)>, String> {
+    // Only a trailing plain column can name a custom comparison.
+    let Some((PathPart::Column(name), head_parts)) = parts.split_last() else {
+        return Ok(None);
+    };
+    // Determine the table hosting the comparison. Only the base table (empty head) or a single
+    // related record reachable via the head can host one.
+    let table = if head_parts.is_empty() {
+        scope.get_base_table()
+    } else {
+        let clarified = clarify_path(head_parts.to_vec(), scope)?;
+        match (clarified.head, clarified.tail) {
+            (Some(chain_to_one), None) => scope
+                .schema
+                .tables
+                .get(&chain_to_one.get_ending_table_id())
+                .unwrap(),
+            _ => return Ok(None),
+        }
+    };
+    // A real column of the same name takes precedence over a custom comparison.
+    if scope
+        .options
+        .resolve_identifier(&table.column_lookup, name)
+        .is_some()
+    {
+        return Ok(None);
+    }
+    Ok(scope
+        .get_custom_comparison(&table.name, name)
+        .map(|def| (head_parts.to_vec(), def.clone())))
+}
+
+/// Expands a custom comparison: the right-hand side value is bound to the definition's parameter and
+/// the (possibly operator-switched) body is compiled in place of the comparison.
+fn convert_custom_comparison(
+    def: CustomComparisonDef,
+    head_parts: Vec<PathPart>,
+    call_operator: Operator,
+    right: ComparisonSide,
+    scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    let body = switched_body(&def, call_operator)?;
+    match right {
+        ComparisonSide::Expr(value) => {
+            convert_custom_comparison_body(&def.param, value, body, &head_parts, scope)
+        }
+        // An expansion on the right binds the parameter to each entry in turn, combining the
+        // results with the expansion's conjunction (e.g. `comment:..["a" "b"]`).
+        ComparisonSide::Expansion(conditions) => {
+            let exprs = conditions
+                .entries
+                .into_iter()
+                .map(|value| {
+                    convert_custom_comparison_body(
+                        &def.param,
+                        value,
+                        body.clone(),
+                        &head_parts,
+                        scope,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(cmp::condition_set(exprs, &conditions.conjunction))
+        }
+        ComparisonSide::Range(_) => Err(msg::custom_comparison_with_range(&def.name)),
+    }
+}
+
+fn convert_custom_comparison_body(
+    param: &str,
+    value: Expr,
+    body: Expr,
+    head_parts: &[PathPart],
+    scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    let bindings = vec![(param.to_string(), value)];
+    scope.with_variable_bindings(bindings, |scope| {
+        convert_expr_with_path_prefix(body, head_parts.to_vec(), scope)
+    })
+}
+
+/// Returns the custom comparison's body, with its `:` (match) operators rewritten to `call_operator`
+/// if the comparison is being called with a different operator than it was defined with. Operator
+/// switching is only permitted when the definition uses `:` and every comparison in the body also
+/// uses `:`.
+fn switched_body(def: &CustomComparisonDef, call_operator: Operator) -> Result<Expr, String> {
+    if call_operator == def.operator {
+        return Ok(def.body.clone());
+    }
+    if def.operator == Operator::Match && expr_all_match(&def.body) {
+        let mut body = def.body.clone();
+        rewrite_match_operator(&mut body, call_operator);
+        return Ok(body);
+    }
+    Err(msg::custom_comparison_operator_mismatch(&def.name))
+}
+
+/// Whether every comparison anywhere within `expr` uses the match (`:`) operator.
+fn expr_all_match(expr: &Expr) -> bool {
+    match expr {
+        Expr::Comparison(c) => {
+            matches!(c.operator, Operator::Match)
+                && side_all_match(&c.left)
+                && side_all_match(&c.right)
+        }
+        Expr::Not(e) => expr_all_match(e),
+        Expr::Product(a, b) | Expr::Quotient(a, b) | Expr::Sum(a, b) | Expr::Difference(a, b) => {
+            expr_all_match(a) && expr_all_match(b)
+        }
+        Expr::ConditionSet(cs) => cs.entries.iter().all(expr_all_match),
+        Expr::HasQuantity(h) => h.path_parts.iter().all(pathpart_all_match),
+        Expr::Case(c) => {
+            c.variants
+                .iter()
+                .all(|v| expr_all_match(&v.condition) && expr_all_match(&v.value))
+                && expr_all_match(&c.fallback)
+        }
+        Expr::Call(c) => c.args.iter().all(expr_all_match),
+        Expr::Path(parts) => parts.iter().all(pathpart_all_match),
+        Expr::Number(_)
+        | Expr::Date(_)
+        | Expr::Duration(_)
+        | Expr::String(_)
+        | Expr::Variable(_) => true,
+    }
+}
+
+fn side_all_match(side: &ComparisonSide) -> bool {
+    match side {
+        ComparisonSide::Expr(e) => expr_all_match(e),
+        ComparisonSide::Expansion(cs) => cs.entries.iter().all(expr_all_match),
+        ComparisonSide::Range(r) => expr_all_match(&r.lower.expr) && expr_all_match(&r.upper.expr),
+    }
+}
+
+fn pathpart_all_match(part: &PathPart) -> bool {
+    match part {
+        PathPart::TableWithMany(t) => t.condition_set.entries.iter().all(expr_all_match),
+        PathPart::Column(_) | PathPart::TableWithOne(_) => true,
+    }
+}
+
+/// Rewrites every match (`:`) operator within `expr` to `new_operator`, recursing through the same
+/// structure that [`expr_all_match`] inspects.
+fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
+    match expr {
+        Expr::Comparison(c) => {
+            if matches!(c.operator, Operator::Match) {
+                c.operator = new_operator;
+            }
+            rewrite_side(&mut c.left, new_operator);
+            rewrite_side(&mut c.right, new_operator);
+        }
+        Expr::Not(e) => rewrite_match_operator(e, new_operator),
+        Expr::Product(a, b) | Expr::Quotient(a, b) | Expr::Sum(a, b) | Expr::Difference(a, b) => {
+            rewrite_match_operator(a, new_operator);
+            rewrite_match_operator(b, new_operator);
+        }
+        Expr::ConditionSet(cs) => cs
+            .entries
+            .iter_mut()
+            .for_each(|e| rewrite_match_operator(e, new_operator)),
+        Expr::HasQuantity(h) => h
+            .path_parts
+            .iter_mut()
+            .for_each(|p| rewrite_pathpart(p, new_operator)),
+        Expr::Case(c) => {
+            for v in c.variants.iter_mut() {
+                rewrite_match_operator(&mut v.condition, new_operator);
+                rewrite_match_operator(&mut v.value, new_operator);
+            }
+            rewrite_match_operator(&mut c.fallback, new_operator);
+        }
+        Expr::Call(c) => c
+            .args
+            .iter_mut()
+            .for_each(|e| rewrite_match_operator(e, new_operator)),
+        Expr::Path(parts) => parts
+            .iter_mut()
+            .for_each(|p| rewrite_pathpart(p, new_operator)),
+        Expr::Number(_)
+        | Expr::Date(_)
+        | Expr::Duration(_)
+        | Expr::String(_)
+        | Expr::Variable(_) => {}
+    }
+}
+
+fn rewrite_side(side: &mut ComparisonSide, new_operator: Operator) {
+    match side {
+        ComparisonSide::Expr(e) => rewrite_match_operator(e, new_operator),
+        ComparisonSide::Expansion(cs) => cs
+            .entries
+            .iter_mut()
+            .for_each(|e| rewrite_match_operator(e, new_operator)),
+        ComparisonSide::Range(r) => {
+            rewrite_match_operator(&mut r.lower.expr, new_operator);
+            rewrite_match_operator(&mut r.upper.expr, new_operator);
+        }
+    }
+}
+
+fn rewrite_pathpart(part: &mut PathPart, new_operator: Operator) {
+    if let PathPart::TableWithMany(t) = part {
+        t.condition_set
+            .entries
+            .iter_mut()
+            .for_each(|e| rewrite_match_operator(e, new_operator));
     }
 }

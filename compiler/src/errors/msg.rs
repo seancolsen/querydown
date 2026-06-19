@@ -90,3 +90,19 @@ pub fn computed_column_unknown_table(table_name: &str) -> String {
 pub fn function_wrong_arg_count(function_name: &str, expected: usize, actual: usize) -> String {
     format!("The function `{function_name}` expects {expected} argument(s) but received {actual}.")
 }
+
+pub fn custom_comparison_unknown_table(table_name: &str) -> String {
+    format!("Custom comparison refers to unknown table `{table_name}`.")
+}
+
+pub fn custom_comparison_operator_mismatch(name: &str) -> String {
+    format!(
+        "The custom comparison `{name}` cannot be called with this operator. The operator may only \
+         be switched when the comparison is defined with `:` and every comparison in its body also \
+         uses `:`."
+    )
+}
+
+pub fn custom_comparison_with_range(name: &str) -> String {
+    format!("The custom comparison `{name}` cannot be used with a range.")
+}

@@ -60,7 +60,7 @@ fn range<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Range> {
         .map(|(lower, upper)| Range { lower, upper })
 }
 
-fn operator<'src>() -> impl Psr<'src, Operator> {
+pub fn operator<'src>() -> impl Psr<'src, Operator> {
     choice((
         // Three character
         exactly(COMPARE_GTE).to(Operator::Gte),

@@ -145,7 +145,7 @@ fn resolve_computed_column(
 
 /// Converts an expression with `path_prefix` temporarily set, restoring the previous prefix
 /// afterward (which, unlike [`Scope::with_path_prefix`], supports nesting).
-fn convert_expr_with_path_prefix(
+pub(super) fn convert_expr_with_path_prefix(
     expr: Expr,
     path_prefix: Vec<PathPart>,
     scope: &mut Scope,

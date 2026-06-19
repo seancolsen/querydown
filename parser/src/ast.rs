@@ -59,6 +59,10 @@ pub struct Query {
     /// User-defined function definitions, written as `@@name = @param => body` before the base
     /// table. Each is a scalar function that can be applied (by name) like a built-in function.
     pub functions: Vec<FunctionDef>,
+    /// User-defined custom comparison definitions, written as `#table.name:@param = body` before
+    /// the base table. Each defines a named comparison, scoped to a table, that can be used (by
+    /// name) like a real column on the left-hand side of a comparison.
+    pub custom_comparisons: Vec<CustomComparisonDef>,
     /// Computed column definitions, written before the base table. Each defines a named expression
     /// scoped to a table, which can then be referenced (by name) like a real column elsewhere in the
     /// query — including within the definitions of later computed columns.
@@ -110,6 +114,21 @@ pub struct FunctionBody {
 pub struct Assignment {
     pub name: String,
     pub expr: Expr,
+}
+
+/// A user-defined custom comparison definition, written as `#table.name:@param = body` before the
+/// query's base table. When `name` is used on the left-hand side of a comparison against a value,
+/// the value is bound to `param` and `body` is expanded in its place.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomComparisonDef {
+    pub table: String,
+    pub name: String,
+    /// The operator used in the definition (between the name and the parameter). Whether a call may
+    /// use a different operator depends on this and on the operators used within `body`.
+    pub operator: Operator,
+    /// The parameter name, without the `@` sigil.
+    pub param: String,
+    pub body: Expr,
 }
 
 #[derive(Debug, PartialEq, Default)]
