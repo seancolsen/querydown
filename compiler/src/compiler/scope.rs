@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use querydown_parser::ast::{ComputedColumn, ConstantDef, Expr, FunctionDef, PathPart};
+use querydown_parser::ast::{
+    ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, PathPart,
+};
 
 use crate::{
     errors::msg,
@@ -44,6 +46,9 @@ pub struct Scope<'a, 'b> {
     variables: HashMap<String, Expr>,
     /// User-defined scalar functions, keyed by name, registered before the query.
     user_functions: HashMap<String, FunctionDef>,
+    /// Custom comparisons, defined before the query and keyed by `(canonical table name, comparison
+    /// name as written in the definition)`. The name is looked up using identifier resolution.
+    custom_comparisons: HashMap<String, HashMap<String, CustomComparisonDef>>,
 }
 
 impl<'a, 'b> Scope<'a, 'b> {
@@ -68,6 +73,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             computed_columns: HashMap::new(),
             variables: HashMap::new(),
             user_functions: HashMap::new(),
+            custom_comparisons: HashMap::new(),
         })
     }
 
@@ -161,6 +167,50 @@ impl<'a, 'b> Scope<'a, 'b> {
             })
     }
 
+    /// Records the query's custom comparison definitions, validating that each refers to a real
+    /// table. The bodies are resolved lazily (when the comparison is used), so this does not
+    /// validate them and definition order does not matter.
+    pub fn register_custom_comparisons(
+        &mut self,
+        custom_comparisons: Vec<CustomComparisonDef>,
+    ) -> Result<(), String> {
+        for def in custom_comparisons {
+            let table = get_table_by_name(self.options, self.schema, &def.table)
+                .ok_or_else(|| msg::custom_comparison_unknown_table(&def.table))?;
+            self.custom_comparisons
+                .entry(table.name.clone())
+                .or_default()
+                .insert(def.name.clone(), def);
+        }
+        Ok(())
+    }
+
+    /// Whether any custom comparisons are registered (here or in a parent scope). Used to avoid the
+    /// cost of custom-comparison resolution on queries that define none.
+    pub fn has_custom_comparisons(&self) -> bool {
+        !self.custom_comparisons.is_empty()
+            || self
+                .parent
+                .map(|parent| parent.has_custom_comparisons())
+                .unwrap_or(false)
+    }
+
+    /// Looks up a custom comparison by table and name, using identifier resolution for the name.
+    /// Falls back to parent scopes.
+    pub fn get_custom_comparison(
+        &self,
+        table_name: &str,
+        name: &str,
+    ) -> Option<&CustomComparisonDef> {
+        self.custom_comparisons
+            .get(table_name)
+            .and_then(|comparisons| self.options.resolve_identifier(comparisons, name))
+            .or_else(|| {
+                self.parent
+                    .and_then(|parent| parent.get_custom_comparison(table_name, name))
+            })
+    }
+
     pub fn get_base_table(&self) -> &Table {
         self.base_table
     }
@@ -188,6 +238,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             computed_columns: HashMap::new(),
             variables: HashMap::new(),
             user_functions: HashMap::new(),
+            custom_comparisons: HashMap::new(),
         }
     }
 

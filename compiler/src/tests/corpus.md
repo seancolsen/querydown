@@ -1942,3 +1942,146 @@ FROM "users"
 WHERE
   FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21;
 ```
+
+## Custom comparisons
+
+### Basic custom comparison
+
+> Find issues that have a comment containing the word "workaround". The `comment` custom comparison
+> is defined before the base table; using it expands its body in place.
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues comment:workaround $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('workaround' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison called with a switched operator (regex)
+
+> When a custom comparison is defined with `:` and every comparison in its body also uses `:`, it
+> may be called with a different operator, which is substituted throughout the body. Here the regex
+> match operator is used.
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues comment:~"work[ -]?around" $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      "comments"."body" ~* 'work[ -]?around'
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison called with a switched operator (exact equality)
+
+> The match operator can likewise be switched to exact equality.
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues comment:="+1" $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      "comments"."body" = '+1'
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison with a multi-part body
+
+> A custom comparison's body can be any expression. Here `participant` checks whether a given
+> username has commented on, been assigned to, or authored an issue. Because the body contains
+> comparisons other than `:`, it must always be called exactly as defined (with `:`).
+
+```qd
+#issues.participant:@x = [
+  ++#comments{user.username:=@x}
+  ++#assignments{user.username:=@x}
+  author.username:=@x
+]
+#issues participant:david $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    WHERE
+      "users"."username" = 'david'
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "assignments"."issue" AS "pk"
+    FROM "assignments"
+    LEFT JOIN "users" ON
+      "assignments"."user" = "users"."id"
+    WHERE
+      "users"."username" = 'david'
+    GROUP BY "assignments"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  (
+    "cte0"."pk" IS NOT NULL
+    OR "cte1"."pk" IS NOT NULL
+    OR "users"."username" = 'david'
+  );
+```

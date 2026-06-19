@@ -2,6 +2,7 @@ mod corpus;
 mod corpus_loader;
 #[cfg(feature = "db-tests")]
 mod db_corpus;
+mod definitions;
 mod grouping;
 mod test_utils;
 
