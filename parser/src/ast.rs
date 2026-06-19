@@ -56,6 +56,9 @@ pub struct Query {
     /// User-defined constant definitions, written as `@name = expr` before the base table. Each
     /// binds a name to an expression whose value is inlined wherever the constant is referenced.
     pub constants: Vec<ConstantDef>,
+    /// User-defined function definitions, written as `@@name = @param => body` before the base
+    /// table. Each is a scalar function that can be applied (by name) like a built-in function.
+    pub functions: Vec<FunctionDef>,
     /// Computed column definitions, written before the base table. Each defines a named expression
     /// scoped to a table, which can then be referenced (by name) like a real column elsewhere in the
     /// query — including within the definitions of later computed columns.
@@ -77,6 +80,34 @@ pub struct ComputedColumn {
 /// `@name`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstantDef {
+    pub name: String,
+    pub expr: Expr,
+}
+
+/// A user-defined function definition, written as `@@name = @param1 @param2 => body` before the
+/// query's base table. The function is a scalar function: when applied, its arguments are bound to
+/// the parameters and its body is inlined into the generated SQL.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionDef {
+    pub name: String,
+    /// Parameter names, without the `@` sigil, in order.
+    pub params: Vec<String>,
+    pub body: FunctionBody,
+}
+
+/// The body of a [`FunctionDef`]: zero or more local assignments followed by a single result
+/// expression. The assignments and the result expression may reference the function's parameters as
+/// well as any earlier assignments.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionBody {
+    pub assignments: Vec<Assignment>,
+    pub expr: Expr,
+}
+
+/// A local assignment within a function body, written as `@name = expr`. It binds a name to an
+/// expression for use later in the same function body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Assignment {
     pub name: String,
     pub expr: Expr,
 }

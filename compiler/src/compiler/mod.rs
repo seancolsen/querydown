@@ -53,6 +53,7 @@ impl Compiler {
         let query = parse(&input)?;
         let mut scope = Scope::build(&self.options, &self.schema, &query.base_table)?;
         scope.register_constants(query.constants);
+        scope.register_functions(query.functions);
         scope.register_computed_columns(query.computed_columns)?;
         let mut select = Select::from(scope.get_base_table().name.clone());
 

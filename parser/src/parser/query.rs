@@ -10,6 +10,7 @@ use super::{column_layout::result_columns, expr::expr, sorting::sorting};
 /// (before the base table) and are parsed together, then sorted into the [`Query`]'s fields.
 enum Definition {
     Constant(ConstantDef),
+    Function(FunctionDef),
     ComputedColumn(ComputedColumn),
 }
 
@@ -30,15 +31,18 @@ pub fn query<'src>() -> impl Psr<'src, Query> {
             .then_ignore(pad().then(end()))
             .map(|((definitions, base_table), transformations)| {
                 let mut constants = vec![];
+                let mut functions = vec![];
                 let mut computed_columns = vec![];
                 for definition in definitions {
                     match definition {
                         Definition::Constant(c) => constants.push(c),
+                        Definition::Function(f) => functions.push(f),
                         Definition::ComputedColumn(c) => computed_columns.push(c),
                     }
                 }
                 Query {
                     constants,
+                    functions,
                     computed_columns,
                     base_table,
                     transformations,
@@ -50,6 +54,9 @@ pub fn query<'src>() -> impl Psr<'src, Query> {
 /// Parses any of the definitions that may precede the base table.
 fn definition<'src>() -> impl Psr<'src, Definition> {
     choice((
+        // `function` is tried before `constant` because both begin with `@`; the `@@` prefix of a
+        // function would otherwise be misread as the start of a constant.
+        function().map(Definition::Function),
         constant().map(Definition::Constant),
         computed_column().map(Definition::ComputedColumn),
     ))
@@ -63,6 +70,51 @@ fn constant<'src>() -> impl Psr<'src, ConstantDef> {
         .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
         .then(expr())
         .map(|(name, expr)| ConstantDef { name, expr })
+}
+
+/// Parses a variable reference's name, e.g. the `date` in `@date`.
+fn variable_name<'src>() -> impl Psr<'src, String> {
+    just(CONST_SIGIL).ignore_then(ident().map(|s: &str| s.to_string()))
+}
+
+/// Parses one user-defined function definition, e.g. `@@fiscal_year = @date => (@date - @1M)|year`.
+/// The body is zero or more local assignments followed by a single result expression. Parameters
+/// and assignments are referenced (within the body) as variables.
+fn function<'src>() -> impl Psr<'src, FunctionDef> {
+    let params = variable_name()
+        .separated_by(pad())
+        .at_least(1)
+        .collect::<Vec<String>>();
+    exactly(FUNCTION_SIGIL)
+        .ignore_then(ident().map(|s: &str| s.to_string()))
+        .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
+        .then(params)
+        .then_ignore(pad().then(exactly(FUNCTION_ARROW)).then(pad()))
+        .then(function_body())
+        .map(|((name, params), body)| FunctionDef { name, params, body })
+}
+
+/// Parses a function body: zero or more local assignments followed by the result expression.
+fn function_body<'src>() -> impl Psr<'src, FunctionBody> {
+    assignment()
+        .then_ignore(pad())
+        .repeated()
+        .collect::<Vec<Assignment>>()
+        .then(expr())
+        .map(|(assignments, expr)| FunctionBody { assignments, expr })
+}
+
+/// Parses a local assignment within a function body, e.g. `@birth_year = @birth_date|year`. An
+/// assignment is distinguished from the body's result expression by the `=` that follows its name.
+fn assignment<'src>() -> impl Psr<'src, Assignment> {
+    variable_name()
+        .then_ignore(pad())
+        // Match a `=` that does not begin a `=>` arrow (defensive: arrows only appear in the
+        // parameter list, never within the body).
+        .then_ignore(just(DEFINITION_ASSIGN).then_ignore(just('>').not()))
+        .then_ignore(pad())
+        .then(expr())
+        .map(|(name, expr)| Assignment { name, expr })
 }
 
 /// Parses one computed column definition, e.g. `#users.age = birth_date|age|years|floor`. These are
@@ -112,6 +164,7 @@ mod tests {
             query().parse("#foo a:1 b:2 $c").into_result(),
             Ok(Query {
                 constants: vec![],
+                functions: vec![],
                 computed_columns: vec![],
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
@@ -205,5 +258,55 @@ mod tests {
             }]
         );
         assert!(result.computed_columns.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_with_function() {
+        // A function definition with a single parameter and no local assignments.
+        let result = query()
+            .parse("@@double = @x => @x * 2\n#issues $id|double")
+            .into_result()
+            .unwrap();
+        assert_eq!(result.base_table, "issues".to_string());
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert_eq!(func.name, "double".to_string());
+        assert_eq!(func.params, vec!["x".to_string()]);
+        assert!(func.body.assignments.is_empty());
+        assert_eq!(
+            func.body.expr,
+            Expr::Product(
+                Box::new(Expr::Variable("x".to_string())),
+                Box::new(Expr::Number("2".to_string())),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_query_with_function_containing_assignment() {
+        // A function body may contain local assignments before the result expression.
+        let result = query()
+            .parse("@@f = @a @b =>\n  @s = @a + @b\n  @s * 2\n#issues $id|f(2 3)")
+            .into_result()
+            .unwrap();
+        let func = &result.functions[0];
+        assert_eq!(func.name, "f".to_string());
+        assert_eq!(func.params, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(func.body.assignments.len(), 1);
+        assert_eq!(func.body.assignments[0].name, "s".to_string());
+        assert_eq!(
+            func.body.assignments[0].expr,
+            Expr::Sum(
+                Box::new(Expr::Variable("a".to_string())),
+                Box::new(Expr::Variable("b".to_string())),
+            )
+        );
+        assert_eq!(
+            func.body.expr,
+            Expr::Product(
+                Box::new(Expr::Variable("s".to_string())),
+                Box::new(Expr::Number("2".to_string())),
+            )
+        );
     }
 }

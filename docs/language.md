@@ -886,8 +886,6 @@ to-one relationship, e.g. `#issues $author.can_purchase_alcohol`.
 
 ### User-defined functions
 
-_(🚧 Not yet implemented)_
-
 > Given a fiscal year which begins on February 1st, find issues that were opened in fiscal-year 2020 and marked due in 2021
 
 ```qd
@@ -895,9 +893,17 @@ _(🚧 Not yet implemented)_
 #issues created_at|fiscal_year:2020 due_date|fiscal_year:2021
 ```
 
+A function is defined before the base table with `@@name = @param1 @param2 => body`. It behaves like
+a built-in scalar function: it can be applied via a pipe (`value|name`) or with extra arguments
+(`value|name(extra)`), where the piped-in value becomes the first argument. When applied, the
+arguments are bound to the parameters and the body is **inlined** into the generated SQL. (Built-in
+functions take precedence over a user-defined function of the same name.)
+
 ### Function containing an assignment
 
-_(🚧 Not yet implemented)_
+A function body may contain local assignments (`@name = expr`) before its final result expression.
+The assignments and the result expression may reference the function's parameters as well as earlier
+assignments.
 
 ```qd
 @@generation = @birth_date =>

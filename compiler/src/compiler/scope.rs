@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use querydown_parser::ast::{ComputedColumn, ConstantDef, Expr, PathPart};
+use querydown_parser::ast::{ComputedColumn, ConstantDef, Expr, FunctionDef, PathPart};
 
 use crate::{
     errors::msg,
@@ -38,9 +38,12 @@ pub struct Scope<'a, 'b> {
     /// as written in the definition)`. The column name is looked up using identifier resolution.
     computed_columns: HashMap<String, HashMap<String, Expr>>,
     /// Variable bindings keyed by name (without the `@` sigil). This holds user-defined constants
-    /// (registered before the query). Each binding maps to an AST expression which is inlined
-    /// wherever the variable is referenced.
+    /// (registered before the query) as well as function parameters and local assignments (bound
+    /// temporarily while a user-defined function is being applied). Each binding maps to an AST
+    /// expression which is inlined wherever the variable is referenced.
     variables: HashMap<String, Expr>,
+    /// User-defined scalar functions, keyed by name, registered before the query.
+    user_functions: HashMap<String, FunctionDef>,
 }
 
 impl<'a, 'b> Scope<'a, 'b> {
@@ -64,6 +67,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             aggregate_functions: get_standard_aggregate_functions(),
             computed_columns: HashMap::new(),
             variables: HashMap::new(),
+            user_functions: HashMap::new(),
         })
     }
 
@@ -81,6 +85,50 @@ impl<'a, 'b> Scope<'a, 'b> {
         self.variables
             .get(name)
             .or_else(|| self.parent.and_then(|parent| parent.get_variable(name)))
+    }
+
+    /// Records the query's user-defined function definitions. Their bodies are resolved lazily (when
+    /// the function is applied), so this does not validate them and definition order does not matter.
+    pub fn register_functions(&mut self, functions: Vec<FunctionDef>) {
+        for function in functions {
+            self.user_functions.insert(function.name.clone(), function);
+        }
+    }
+
+    /// Looks up a user-defined scalar function by name, falling back to parent scopes.
+    pub fn get_user_function(&self, name: &str) -> Option<&FunctionDef> {
+        self.user_functions.get(name).or_else(|| {
+            self.parent
+                .and_then(|parent| parent.get_user_function(name))
+        })
+    }
+
+    /// Evaluates `f` with additional variable bindings temporarily in scope, restoring the previous
+    /// bindings afterward. Used to bind a user-defined function's parameters and local assignments
+    /// while its body is being compiled.
+    pub fn with_variable_bindings<T>(
+        &mut self,
+        bindings: Vec<(String, Expr)>,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let mut saved: Vec<(String, Option<Expr>)> = Vec::with_capacity(bindings.len());
+        for (name, expr) in bindings {
+            let previous = self.variables.insert(name.clone(), expr);
+            saved.push((name, previous));
+        }
+        let result = f(self);
+        // Restore in reverse so that duplicate names are returned to their original state.
+        for (name, previous) in saved.into_iter().rev() {
+            match previous {
+                Some(expr) => {
+                    self.variables.insert(name, expr);
+                }
+                None => {
+                    self.variables.remove(&name);
+                }
+            }
+        }
+        result
     }
 
     /// Records the query's computed column definitions, validating that each refers to a real table.
@@ -139,6 +187,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             aggregate_functions: HashMap::new(),
             computed_columns: HashMap::new(),
             variables: HashMap::new(),
+            user_functions: HashMap::new(),
         }
     }
 
