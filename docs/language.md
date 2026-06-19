@@ -913,43 +913,51 @@ _(🚧 Not yet implemented)_
 #users $birth_date|generation \g $%count
 ```
 
-### Table-scoped functions
+### Custom Comparisons
 
 _(🚧 Not yet implemented)_
 
-When functions are scoped to a specific table during definition, the function body can refer to columns and relationships from that table.
+> Find issues that have a comment containing the word "workaround".
 
-> Find issues that involve a user named "alice" (via assignment, comment, or authorship) and match the search terms "accessibility" (via title, description, or comment body).
+```
+#issues.comment:@x = ++#comments{body:@x}
 
-```qd
-#issues.@@involves = @username => [
-  ++#assignments{user.username:@username}
-  ++#comments{author.username:@username}
-  author.username:@username
-]
-#issues.@@matches = @term => [
-  ++#comments{body:~@term}
-  title:~@term
-  description:~@term
-]
-#issues @@involves("alice") @@matches("accessibility")
+#issues comment:workaround
 ```
 
-### Function call expansion
+One use case here is that an application incorporating Querydown might provide its own custom comparisons as a convenience for users.
 
-_(🚧 Not yet implemented)_
+Assuming that `#issues.comment` is already defined as stated above, and is prepended before a query runs, then we can also do a similar query using a regex like this:
 
-We can extend the above example as follows:
-
-> Find issues that involve both users named "alice" and "bob" (via assignment, comment, or authorship) and match either of the search terms "a11y" or "accessibility" (via title, description, or comment body).
-
-```qd
-// ... last line from previous example modified to become:
-
-#issues @@involves{"alice" "bob"} @@matches["a11y" "accessibility"]
+```
+#issues comment:~"work[ -]?around"
 ```
 
-_(Function call expansion works with built-in functions too! It's documented here because it's most likely to be useful with user-defined functions that return boolean values.)_
+This works because if the custom comparison is defined using the match operator (`:`) and all comparisons performed within the definition also use the match operator, then we can switch the comparison operator when calling the custom comparison.
+
+Similarly, we can do:
+
+> Find all issues that contain a comment exactly equal to the string "+1"
+
+```
+#issues comment:="+1"
+```
+
+If the custom comparison is defined with any comparisons that are not just `:`, then the comparison must always be called exactly as it was defined.
+
+> Find all issues where the user having the exact username "david" has commented, authored, or been assigned.
+
+```
+#issues.participant:@x = [
+  ++#comments{user.username:=@x}
+  ++#assignments{user.username:=@x}
+  author.username:=@x
+]
+
+#issues participant:david
+```
+
+With this definition, attempting to call `participant:~"david"` will fail.
 
 ### User-defined tables
 
@@ -1047,30 +1055,30 @@ Examples:
 
 - In module `foo/bar`:
 
-    Use `===` export the definition of `#issues.@@involves` (a [user-defined table-scoped function](#table-scoped-functions))
+    Use `===` export the definition of `#issues.involves` (a [custom comparison](#custom-comparisons))
 
     ```qd
-    === #issues.@@involves = @username => [
-      ++#assignments{user.username:@username}
-      ++#comments{author.username:@username}
-      author.username:@username
+    === #issues.involves:@u = [
+      ++#assignments{user.username:=@u}
+      ++#comments{author.username:=@u}
+      author.username:=@u
     ]
     ```
 
-- In another module, import and use `#issues.@@involves`
+- In another module, import and use `#issues.involves`
 
     ```qd
-    <<< foo/bar(#issues.@@involves)
+    <<< foo/bar(#issues.involves)
 
-    #issues @@involves("alice")
+    #issues involves:alice
     ```
 
 - Or, import it but alias it as `has` instead
 
     ```qd
-    <<< foo/bar(#issues.@@involves->has)
+    <<< foo/bar(#issues.involves->has)
 
-    #issues @@has("alice")
+    #issues has:alice
     ```
 
 - Or, import _all exports_ from `foo/bar`
@@ -1078,7 +1086,7 @@ Examples:
     ```qd
     <<< foo/bar(*)
 
-    #issues @@involves("alice")
+    #issues involves:alice
     ```
 
 - Re-export an import
