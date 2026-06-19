@@ -45,6 +45,12 @@ fn contains_aggregate(expr: &Expr) -> bool {
             contains_aggregate(a) || contains_aggregate(b)
         }
         Expr::Not(e) => contains_aggregate(e),
+        Expr::Case(case) => {
+            case.variants
+                .iter()
+                .any(|v| contains_aggregate(&v.condition) || contains_aggregate(&v.value))
+                || contains_aggregate(&case.fallback)
+        }
         Expr::ConditionSet(cs) => cs.entries.iter().any(contains_aggregate),
         Expr::Comparison(c) => {
             comparison_side_contains_aggregate(&c.left)
