@@ -363,6 +363,40 @@ This only applies to the right-hand-side. Bare text elsewhere (e.g. on the left-
 - quote the identifier with backticks, e.g. ``#issues description:`title` ``, or
 - write it as a multi-part path, e.g. `#issues description:foo.bar`.
 
+### Default text search
+
+> Find issues where the title or description or status contain the word "accessibility" — and the title or description or status contain the word "feature"
+
+```qd
+#issues accessibility feature
+```
+
+The default text search is a simple way to give users a low-friction search across many columns at once. The reason the above example searches in `title`, `description` and `status` is because those are the only text-like columns in the `issues` base table — but you can see the next section to learn how to customize this behavior.
+
+In the above example, "feature" is parsed as a default text search term because it comes before any display columns and it does not have a comparison operator. Bare strings (without quotes) will only work if they begin with a letter and contain only alphanumeric characters.
+
+You can search for any string using the default text search if you explicitly quote it:
+
+```qd
+#issues "localhost:3000"
+```
+
+#### Configuring the default text search
+
+You can use [custom comparisons](#custom-comparisons) to customize the default text search columns to your liking.
+
+Here we customize the default text search for the issues table, removing the `status` column (that would have otherwise been chosen automatically), and adding logic to search within all comments.
+
+```qd
+#issues.__querydown_default_text_search:@x = [
+  title:@x
+  description:@x
+  ++#comments{body:@x}
+]
+
+#issues accessibility feature
+```
+
 ### AND condition sets
 
 Curly brackets `{ }` enclose multiple `AND` conditions.
