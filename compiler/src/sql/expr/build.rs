@@ -174,8 +174,8 @@ pub mod cond {
         SqlExpr::atom(content)
     }
 
-    pub fn coalesce(a: SqlExpr) -> SqlExpr {
-        sql_func("COALESCE", [a])
+    pub fn coalesce(args: Vec<SqlExpr>) -> SqlExpr {
+        sql_func("COALESCE", args)
     }
 
     pub fn not(a: SqlExpr) -> SqlExpr {

@@ -156,7 +156,7 @@ See [modules](./language.md#modules) docs.
 1. `+` `-` Addition and subtraction
 1. `:` _(and all other [comparison operators](#comparisons))_ Comparison
 1. `!` Boolean negation
-1. `,` Shorthand for joining experssions into an ["OR" condition set](./language.md#or-condition-sets)
+1. `,` Shorthand for joining expressions into an ["OR" condition set](./language.md#or-condition-sets)
 
 ## Not used
 

@@ -726,7 +726,7 @@ This also works:
 > The number of unique users _who have commented_ on each issue
 
 ```
-#issues $id $title $#comments.#users.id%count_distinct
+#issues $id $title $#comments.#users.id%distinct
 ```
 
 ### Intersecting paths
