@@ -136,7 +136,7 @@ See [case expressions](./language.md#case-expressions) docs.
 
 | Code | Usage | Implemented |
 | -- | -- | -- |
-| `~~~` | [pipeline](./language.md#pipeline-of-multiple-queries) of multiple queries | ❌ |
+| `~~~` | [pipeline](./language.md#pipeline-of-multiple-queries) of multiple queries | ✅ |
 | `+++` | [union](./language.md#union-of-multiple-queries) of multiple queries | ❌ |
 
 ## Modules

@@ -20,7 +20,15 @@ impl Render for Select {
         let base_table_name = scope.options.dialect.quote_identifier(&self.base_table);
 
         let select = "SELECT".to_string();
-        let columns = indent(self.columns.render(scope));
+        // When there are no explicit result columns we select everything from the base table. We
+        // resolve this here (rather than within `Vec<Column>::render`) using the `Select`'s own
+        // base table so that rendering does not depend on the scope's base table — which matters
+        // when a query pipeline renders CTE selects whose base table differs from the scope's.
+        let columns = if self.columns.is_empty() {
+            indent(format!("{}.*", base_table_name))
+        } else {
+            indent(self.columns.render(scope))
+        };
         let from = format!("FROM {}", base_table_name);
         let joins = self.joins.render(scope);
 
@@ -111,18 +119,12 @@ impl Render for Join {
 
 impl Render for Vec<Column> {
     fn render(&self, scope: &mut Scope) -> String {
-        if self.is_empty() {
-            let base_table_name = scope
-                .options
-                .dialect
-                .quote_identifier(&scope.get_base_table().name);
-            format!("{base_table_name}.*")
-        } else {
-            self.iter()
-                .map(|c| c.render(scope))
-                .filter(|s| !s.is_empty())
-                .join(",\n")
-        }
+        // The empty case (selecting all base-table columns) is handled by `Select::render`, which
+        // has access to the relevant base table name.
+        self.iter()
+            .map(|c| c.render(scope))
+            .filter(|s| !s.is_empty())
+            .join(",\n")
     }
 }
 

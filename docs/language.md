@@ -809,7 +809,7 @@ If one table directly links to another table multiple times, then parentheses mu
 
 ## Pipeline of multiple queries
 
-_(🚧 Not yet implemented)_
+A query can be split into multiple **stages** separated by `~~~`. Each stage operates on the result of the previous stage instead of on a table from the schema. This lets you do things that a single query can't, such as filtering or aggregating the result of an earlier aggregation.
 
 > For each project, count the number of months in which at least 10 issues were created
 
@@ -818,6 +818,37 @@ _(🚧 Not yet implemented)_
 ~~~
 issue_count:>=10 $project \g $%count
 ```
+
+Each stage is compiled to an SQL [common table expression](https://www.postgresql.org/docs/current/queries-with.html) (CTE), and the next stage selects from that CTE as its base "table". The columns available to a stage are exactly the result columns produced by the previous stage:
+
+- A result column with an alias (e.g. `-> issue_count`) is referenced in the next stage by that alias.
+- A result column that is a plain column reference (e.g. `$project`) keeps its column name.
+
+The above query compiles to roughly:
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."project" AS "project",
+      -- ...the year/month expression...
+      count(*) AS "issue_count"
+    FROM "issues"
+    GROUP BY -- ...
+  )
+SELECT
+  "pipe0"."project",
+  count(*)
+FROM "pipe0"
+WHERE
+  "pipe0"."issue_count" >= 10
+GROUP BY "pipe0"."project";
+```
+
+Notes:
+
+- A stage's output columns become plain columns of the next stage's base table. They have no relationships, so you can reference them directly but cannot traverse to related records from them.
+- Because the intermediate columns are untyped, the match operator (`:`) compares them using exact equality rather than type-aware matching (e.g. case-insensitive "contains" for text).
 
 
 ## Union of multiple queries
