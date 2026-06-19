@@ -8,7 +8,7 @@ mod rendering;
 mod result_columns;
 mod scope;
 
-use querydown_parser::ast::AnnotationValue;
+use querydown_parser::ast::{AnnotationValue, Query};
 use querydown_parser::parse;
 use serde::Serialize;
 
@@ -49,13 +49,24 @@ impl Compiler {
         Ok(Self { options, schema })
     }
 
+    /// Compiles Querydown source code into SQL plus column annotations.
     pub fn compile(&self, input: String) -> Result<CompileResult, String> {
-        let query = parse(&input)?;
+        self.compile_query(parse(&input)?)
+    }
+
+    /// Compiles an already-parsed [`Query`] into SQL plus column annotations.
+    ///
+    /// This is the lower-level counterpart to [`Compiler::compile`], which parses source code
+    /// before compiling it. It exists so that a consumer can parse the sections of a query
+    /// independently — via the parser crate's section parsers — reassemble them with
+    /// [`Query::from_parts`], and then compile the result, rather than handing over a single string.
+    pub fn compile_query(&self, query: Query) -> Result<CompileResult, String> {
+        let definitions = query.definitions;
         let mut scope = Scope::build(&self.options, &self.schema, &query.base_table)?;
-        scope.register_constants(query.constants);
-        scope.register_functions(query.functions);
-        scope.register_custom_comparisons(query.custom_comparisons)?;
-        scope.register_computed_columns(query.computed_columns)?;
+        scope.register_constants(definitions.constants);
+        scope.register_functions(definitions.functions);
+        scope.register_custom_comparisons(definitions.custom_comparisons)?;
+        scope.register_computed_columns(definitions.computed_columns)?;
         let mut select = Select::from(scope.get_base_table().name.clone());
 
         let mut transformations_iter = query.transformations.into_iter();
