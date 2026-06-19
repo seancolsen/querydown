@@ -60,3 +60,28 @@ fn custom_comparison_operator_can_be_switched_when_body_is_all_match() {
     let input = "#issues.commenter:@x = ++#comments{user.username:@x}\n#issues commenter:=alice";
     assert!(compile(input).is_ok());
 }
+
+#[test]
+fn sections_parsed_in_isolation_compile_like_a_whole_query() {
+    // Parsing each section independently and reassembling with `Query::from_parts`, then compiling
+    // via `compile_query`, produces the same SQL as compiling the equivalent whole-query string.
+    use querydown_parser::ast::Query;
+    use querydown_parser::{parse_conditions, parse_definitions, parse_display, parse_sorting};
+
+    let schema_json = get_test_resource("issue_schema.json");
+    let options = build_options(crate::options::IdentifierResolution::Flexible, "postgres");
+    let compiler = Compiler::new(&schema_json, options).unwrap();
+
+    let query = Query::from_parts(
+        "issues".to_string(),
+        parse_definitions("@n = 1234").unwrap(),
+        parse_conditions("author:@n").unwrap(),
+        parse_sorting(r"\\id \d").unwrap(),
+        parse_display("$id $title").unwrap(),
+    );
+    let from_sections = compiler.compile_query(query).unwrap().sql;
+
+    let whole = compile("@n = 1234\n#issues author:@n \\\\id \\d $id $title").unwrap();
+
+    assert_eq!(from_sections, whole);
+}

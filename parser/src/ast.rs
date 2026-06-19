@@ -53,6 +53,48 @@ impl Serialize for AnnotationValue {
 
 #[derive(Debug, PartialEq)]
 pub struct Query {
+    /// The definitions (constants, functions, custom comparisons, and computed columns) written
+    /// before the base table.
+    pub definitions: Definitions,
+    pub base_table: String,
+    pub transformations: Vec<Transformation>,
+}
+
+impl Query {
+    /// Assembles a [`Query`] from independently-parsed sections plus a base table.
+    ///
+    /// This is the reassembly counterpart to parsing each section of a query in isolation (see the
+    /// `parse_definitions`, `parse_conditions`, `parse_sorting`, and `parse_display` functions in
+    /// the crate root). It bundles the `conditions`, `sorting`, and `display` sections into a single
+    /// [`Transformation`], which — together with the `definitions` and `base_table` — forms a
+    /// complete query ready to be handed to the compiler.
+    ///
+    /// The base table is supplied separately because it is not part of any of the four sections; in
+    /// a multi-input UI it is typically chosen on its own (e.g. via a dropdown) rather than typed.
+    pub fn from_parts(
+        base_table: String,
+        definitions: Definitions,
+        conditions: ConditionSet,
+        sorting: Vec<SortExpr>,
+        display: Vec<ResultColumnStatement>,
+    ) -> Self {
+        Query {
+            definitions,
+            base_table,
+            transformations: vec![Transformation {
+                conditions,
+                sorting,
+                result_columns: display,
+            }],
+        }
+    }
+}
+
+/// The definitions that may precede a query's base table. Each kind shares the same position in the
+/// source (before the base table) and may be parsed on its own via the crate-root
+/// `parse_definitions` function.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Definitions {
     /// User-defined constant definitions, written as `@name = expr` before the base table. Each
     /// binds a name to an expression whose value is inlined wherever the constant is referenced.
     pub constants: Vec<ConstantDef>,
@@ -67,8 +109,6 @@ pub struct Query {
     /// scoped to a table, which can then be referenced (by name) like a real column elsewhere in the
     /// query — including within the definitions of later computed columns.
     pub computed_columns: Vec<ComputedColumn>,
-    pub base_table: String,
-    pub transformations: Vec<Transformation>,
 }
 
 /// A computed column definition, written as `#table.name = expr` before the query's base table.

@@ -18,43 +18,47 @@ enum Definition {
 }
 
 pub fn query<'src>() -> impl Psr<'src, Query> {
-    let definitions = definition()
-        .then_ignore(pad())
-        .repeated()
-        .collect::<Vec<Definition>>();
     let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
     let transformations = transformation()
         .separated_by(pad().then(exactly(TRANSFORMATION_DELIMITER)).then(pad()))
         .collect::<Vec<Transformation>>();
     pad().ignore_then(
-        definitions
+        definitions()
             .then(base_table)
             .then_ignore(pad())
             .then(transformations)
             .then_ignore(pad().then(end()))
-            .map(|((definitions, base_table), transformations)| {
-                let mut constants = vec![];
-                let mut functions = vec![];
-                let mut custom_comparisons = vec![];
-                let mut computed_columns = vec![];
-                for definition in definitions {
-                    match definition {
-                        Definition::Constant(c) => constants.push(c),
-                        Definition::Function(f) => functions.push(f),
-                        Definition::CustomComparison(c) => custom_comparisons.push(c),
-                        Definition::ComputedColumn(c) => computed_columns.push(c),
-                    }
-                }
-                Query {
-                    constants,
-                    functions,
-                    custom_comparisons,
-                    computed_columns,
-                    base_table,
-                    transformations,
-                }
+            .map(|((definitions, base_table), transformations)| Query {
+                definitions,
+                base_table,
+                transformations,
             }),
     )
+}
+
+/// Parses the run of definitions (constants, functions, custom comparisons, and computed columns)
+/// that may precede the base table, sorting them by kind into a [`Definitions`]. Yields an empty
+/// [`Definitions`] when none are present.
+///
+/// This is exposed so that the definitions section of a query can be parsed in isolation, separate
+/// from the base table and transformations.
+pub fn definitions<'src>() -> impl Psr<'src, Definitions> {
+    definition()
+        .then_ignore(pad())
+        .repeated()
+        .collect::<Vec<Definition>>()
+        .map(|definitions| {
+            let mut result = Definitions::default();
+            for definition in definitions {
+                match definition {
+                    Definition::Constant(c) => result.constants.push(c),
+                    Definition::Function(f) => result.functions.push(f),
+                    Definition::CustomComparison(c) => result.custom_comparisons.push(c),
+                    Definition::ComputedColumn(c) => result.computed_columns.push(c),
+                }
+            }
+            result
+        })
 }
 
 /// Parses any of the definitions that may precede the base table.
@@ -164,7 +168,7 @@ fn custom_comparison<'src>() -> impl Psr<'src, CustomComparisonDef> {
 }
 
 fn transformation<'src>() -> impl Psr<'src, Transformation> {
-    top_level_condition_set()
+    conditions()
         .then_ignore(pad())
         .then(sorting())
         .then_ignore(pad())
@@ -176,7 +180,13 @@ fn transformation<'src>() -> impl Psr<'src, Transformation> {
         })
 }
 
-fn top_level_condition_set<'src>() -> impl Psr<'src, ConditionSet> {
+/// Parses the top-level filtering section of a transformation: a whitespace-separated sequence of
+/// boolean expressions, combined with `AND`, yielding a [`ConditionSet`]. Yields an empty
+/// [`ConditionSet`] when no expressions are present.
+///
+/// This is exposed so that the filtering section of a query can be parsed in isolation, separate
+/// from sorting and display.
+pub fn conditions<'src>() -> impl Psr<'src, ConditionSet> {
     expr()
         .padded_by(pad())
         .repeated()
@@ -196,10 +206,7 @@ mod tests {
         assert_eq!(
             query().parse("#foo a:1 b:2 $c").into_result(),
             Ok(Query {
-                constants: vec![],
-                functions: vec![],
-                custom_comparisons: vec![],
-                computed_columns: vec![],
+                definitions: Definitions::default(),
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
                     sorting: vec![],
@@ -259,15 +266,21 @@ mod tests {
             .into_result()
             .unwrap();
         assert_eq!(result.base_table, "users".to_string());
-        assert_eq!(result.computed_columns.len(), 2);
-        assert_eq!(result.computed_columns[0].table, "users".to_string());
-        assert_eq!(result.computed_columns[0].name, "age".to_string());
+        assert_eq!(result.definitions.computed_columns.len(), 2);
         assert_eq!(
-            result.computed_columns[1].name,
+            result.definitions.computed_columns[0].table,
+            "users".to_string()
+        );
+        assert_eq!(
+            result.definitions.computed_columns[0].name,
+            "age".to_string()
+        );
+        assert_eq!(
+            result.definitions.computed_columns[1].name,
             "can_purchase_alcohol".to_string()
         );
         assert_eq!(
-            result.computed_columns[1].expr,
+            result.definitions.computed_columns[1].expr,
             Expr::Comparison(Box::new(Comparison {
                 left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("age".to_string())])),
                 operator: Operator::Gte,
@@ -285,13 +298,13 @@ mod tests {
             .unwrap();
         assert_eq!(result.base_table, "issues".to_string());
         assert_eq!(
-            result.constants,
+            result.definitions.constants,
             vec![ConstantDef {
                 name: "user_id".to_string(),
                 expr: Expr::Number("1234".to_string()),
             }]
         );
-        assert!(result.computed_columns.is_empty());
+        assert!(result.definitions.computed_columns.is_empty());
     }
 
     #[test]
@@ -302,8 +315,8 @@ mod tests {
             .into_result()
             .unwrap();
         assert_eq!(result.base_table, "issues".to_string());
-        assert_eq!(result.functions.len(), 1);
-        let func = &result.functions[0];
+        assert_eq!(result.definitions.functions.len(), 1);
+        let func = &result.definitions.functions[0];
         assert_eq!(func.name, "double".to_string());
         assert_eq!(func.params, vec!["x".to_string()]);
         assert!(func.body.assignments.is_empty());
@@ -323,7 +336,7 @@ mod tests {
             .parse("@@f = @a @b =>\n  @s = @a + @b\n  @s * 2\n#issues $id|f(2 3)")
             .into_result()
             .unwrap();
-        let func = &result.functions[0];
+        let func = &result.definitions.functions[0];
         assert_eq!(func.name, "f".to_string());
         assert_eq!(func.params, vec!["a".to_string(), "b".to_string()]);
         assert_eq!(func.body.assignments.len(), 1);
@@ -351,8 +364,8 @@ mod tests {
             .into_result()
             .unwrap();
         assert_eq!(result.base_table, "issues".to_string());
-        assert_eq!(result.custom_comparisons.len(), 1);
-        let def = &result.custom_comparisons[0];
+        assert_eq!(result.definitions.custom_comparisons.len(), 1);
+        let def = &result.definitions.custom_comparisons[0];
         assert_eq!(def.table, "issues".to_string());
         assert_eq!(def.name, "comment".to_string());
         assert_eq!(def.operator, Operator::Match);
