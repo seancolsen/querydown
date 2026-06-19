@@ -47,7 +47,7 @@ pub(crate) const CONST_SIGIL: char = '@';
 /// Prefix introducing a user-defined function definition, e.g. `@@fiscal_year = @date => ...`.
 pub(crate) const FUNCTION_SIGIL: &str = "@@";
 /// Separates a user-defined function's parameter list from its body, e.g. the `=>` in
-/// `@date => (@date - @1M)|year`.
+/// `@date => (@date - 1m)|year`.
 pub(crate) const FUNCTION_ARROW: &str = "=>";
 /// Separates the left-hand side of a definition from its value, e.g. the `=` in a computed column
 /// definition `#users.age = birth_date|age|years|floor`.

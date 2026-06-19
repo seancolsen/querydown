@@ -51,9 +51,11 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
     // far enough to OOM the build. Boxing is semantically transparent and also speeds up compiles.
     recursive(|prec_comma| {
         let prec_atom = choice((
+            // `duration` is tried before `number` because both begin with a digit. A duration
+            // requires a trailing unit (e.g. `6m`), so a unit-less number like `6` falls through.
+            duration().map(Expr::Duration),
             number().map(Expr::Number),
             date().map(Expr::Date),
-            duration().map(Expr::Duration),
             string().map(Expr::String),
             variable().map(Expr::Variable),
             path(prec_comma.clone()).map(Expr::Path),
@@ -75,9 +77,10 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
         // side is interpreted as a string literal rather than a column reference. See
         // `comparison_rhs_value` for details.
         let prec_atom_rhs = choice((
+            // See the ordering note on `prec_atom` above: `duration` before `number`.
+            duration().map(Expr::Duration),
             number().map(Expr::Number),
             date().map(Expr::Date),
-            duration().map(Expr::Duration),
             string().map(Expr::String),
             variable().map(Expr::Variable),
             comparison_rhs_value(prec_comma.clone()),
@@ -219,12 +222,14 @@ mod tests {
             }))
         );
         assert_eq!(
-            p("@1Y"),
+            p("1y"),
             Ok(Expr::Duration(Duration {
                 years: 1.0,
                 ..Default::default()
             }))
         );
+        // A digit-initial token with no unit is a plain number, not a duration.
+        assert_eq!(p("6"), Ok(Expr::Number("6".to_string())));
         assert_eq!(p("'foo'"), Ok(Expr::String("foo".to_string())));
         assert_eq!(p("\"foo\""), Ok(Expr::String("foo".to_string())));
         assert_eq!(p("@foo"), Ok(Expr::Variable("foo".to_string())));

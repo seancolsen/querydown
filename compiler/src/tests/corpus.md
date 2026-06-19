@@ -44,7 +44,7 @@ SELECT "Patrons".* FROM "Patrons";
 
 ```qd
 #issues
-created_at:>@6M|ago
+created_at:>6m|ago
 --#assignments
 ++#labels{name:..["Regression" "Bug"]}
 10..20:#comments{!user.team.name:"Backend"}
@@ -82,7 +82,7 @@ FROM "Checkouts";
 > Checkouts from over one month ago and not yet returned
 
 ```qd
-#checkouts check_in_time:@null check_out_time:<@1M|ago
+#checkouts check_in_time:@null check_out_time:<1m|ago
 ```
 
 ```sql
@@ -99,7 +99,7 @@ WHERE
 > Checkouts from over one month ago and not yet returned
 
 ```qd
-#checkouts checkInTime:@null checkOutTime:<@1M|ago
+#checkouts checkInTime:@null checkOutTime:<1m|ago
 ```
 
 ```sql
@@ -165,7 +165,7 @@ WHERE
 ### Duration
 
 ```qd
-#issues created_at:>@6Y|ago
+#issues created_at:>6y|ago
 ```
 
 ```sql
@@ -176,10 +176,12 @@ WHERE
   "issues"."created_at" > NOW() - make_interval(years => 6);
 ```
 
-### Duration, lowercase
+### Duration, uppercase
+
+> Duration units are case-insensitive.
 
 ```qd
-#issues created_at:>@6y|ago
+#issues created_at:>6Y|ago
 ```
 
 ```sql
@@ -315,7 +317,7 @@ dialect = "duckdb"
 > DuckDB has no `make_interval`, so a single-part duration uses a `to_*` function.
 
 ```qd
-#issues created_at:>@6Y|ago
+#issues created_at:>6y|ago
 ```
 
 ```sql
@@ -335,7 +337,7 @@ dialect = "duckdb"
 > A multi-part duration sums `to_*` functions, parenthesized so it stays atomic when subtracted.
 
 ```qd
-#issues created_at:>@1Y2D|ago
+#issues created_at:>1y2d|ago
 ```
 
 ```sql
@@ -415,7 +417,7 @@ WHERE
 ### Range containing pipes
 
 ```qd
-#issues created_at:(@2Y|ago)..(@1Y|ago)
+#issues created_at:(2y|ago)..(1y|ago)
 ```
 
 ```sql
@@ -1115,7 +1117,7 @@ TODO
 > Users who have not created any issues in the past year
 
 ```qd
-#users --#issues{created_at:>@1Y|ago}
+#users --#issues{created_at:>1y|ago}
 ```
 
 ```sql
@@ -1142,7 +1144,7 @@ WHERE
 > Users, showing the number of issues created in the past year
 
 ```qd
-#users $#issues{created_at:>@1Y|ago}
+#users $#issues{created_at:>1y|ago}
 ```
 
 ```sql
