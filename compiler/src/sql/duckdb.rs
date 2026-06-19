@@ -97,4 +97,9 @@ impl Dialect for DuckDB {
             needle = needle.content,
         ))
     }
+
+    fn aggregate_product(&self, arg: SqlExpr) -> SqlExpr {
+        // Unlike Postgres, DuckDB provides a native `product` aggregate.
+        sql_func("product", [arg])
+    }
 }

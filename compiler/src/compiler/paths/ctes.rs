@@ -17,7 +17,13 @@ use crate::{
         expr::{build::cmp, SqlExpr},
         tree::{Column, CtePurpose, JoinType, Select},
     },
+    Dialect,
 };
+
+/// Wraps a resolved `table.column` expression and a pre-rendered `ORDER BY` clause into an
+/// aggregate expression. The dialect is supplied because a few aggregates (e.g. `product`) compile
+/// differently per dialect.
+pub type AggWrapper = fn(SqlExpr, String, &dyn Dialect) -> SqlExpr;
 
 pub struct ValueViaCte {
     pub select: Select,
@@ -35,16 +41,12 @@ pub struct AggregateExprTemplate {
     /// When this AggregateExprTemplate instance is rendered within a CTE, the column_name is
     /// resolved to a table.column expression, and then the agg_wrapper is applied to that
     /// expression along with the compiled ORDER BY string.
-    agg_wrapper: fn(SqlExpr, String) -> SqlExpr,
+    agg_wrapper: AggWrapper,
     order_by: Vec<SortExpr>,
 }
 
 impl AggregateExprTemplate {
-    pub fn new(
-        column_name: String,
-        agg_wrapper: fn(SqlExpr, String) -> SqlExpr,
-        order_by: Vec<SortExpr>,
-    ) -> Self {
+    pub fn new(column_name: String, agg_wrapper: AggWrapper, order_by: Vec<SortExpr>) -> Self {
         Self {
             column_name,
             agg_wrapper,
@@ -146,7 +148,7 @@ pub fn build_cte_select(
                     s
                 };
                 let wrapper = template.agg_wrapper;
-                wrapper(reference, order_by_str)
+                wrapper(reference, order_by_str, cte_scope.options.dialect.as_ref())
             }
             None => build::agg::count_star(),
         };

@@ -7,7 +7,8 @@ use crate::{
     compiler::{
         expr::convert_expr,
         paths::{
-            clarify_path, render_order_by, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail,
+            clarify_path, render_order_by, AggWrapper, AggregateExprTemplate, ClarifiedPath,
+            ClarifiedPathTail,
         },
         scope::Scope,
     },
@@ -111,12 +112,14 @@ fn args_2(
 
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc); 24] = [
+    let templates: [(&str, ScalarFunc); 30] = [
         ("abs",         |e, s| args_1(e, s, abs)),
         ("age",         |e, s| args_1(e, s, |a| subtract(now(), a))),
         ("ago",         |e, s| args_1(e, s, |a| subtract(now(), a))),
+        ("and",         |e, s| args_v(e, s, build::cmp::and)),
         ("away",        |e, s| args_1(e, s, |a| subtract(a, now()))),
         ("ceil",        |e, s| args_1(e, s, ceil)),
+        ("concat",      |e, s| args_v(e, s, concat)),
         ("days",        |e, s| args_1(e, s, days)),
         ("divide",      |e, s| args_2(e, s, divide)),
         ("floor",       |e, s| args_1(e, s, floor)),
@@ -127,15 +130,19 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("length",      |e, s| args_1(e, s, char_length)),
         ("lowercase",   |e, s| args_1(e, s, lower)),
         ("max",         |e, s| args_v(e, s, greatest)),
+        ("md5",         |e, s| args_1(e, s, md5)),
         ("min",         |e, s| args_v(e, s, least)),
         ("minus",       |e, s| args_2(e, s, subtract)),
         ("minutes",     |e, s| args_1(e, s, minutes)),
         ("mod",         |e, s| args_2(e, s, modulo)),
         ("not",         |e, s| args_1(e, s, not)),
+        ("or",          |e, s| args_v(e, s, build::cmp::or)),
         ("plus",        |e, s| args_2(e, s, add)),
         ("seconds",     |e, s| args_1(e, s, seconds)),
         ("times",       |e, s| args_2(e, s, multiply)),
+        ("trim",        |e, s| args_1(e, s, trim)),
         ("uppercase",   |e, s| args_1(e, s, upper)),
+        ("xor",         |e, s| args_v(e, s, build::cmp::xor)),
     ];
     templates
         .into_iter()
@@ -148,7 +155,7 @@ fn agg_1(
     args: Vec<Expr>,
     order_by: Vec<SortExpr>,
     scope: &mut Scope,
-    agg_wrapper: fn(SqlExpr, String) -> SqlExpr,
+    agg_wrapper: AggWrapper,
 ) -> Result<SqlExpr, String> {
     let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let Expr::Path(path_parts) = arg0 else {
@@ -180,24 +187,31 @@ fn agg_1(
             };
             let reference = scope.table_column_expr(&table_name, &column_name);
             let order_by_str = render_order_by(order_by, scope)?;
-            Ok(agg_wrapper(reference, order_by_str))
+            Ok(agg_wrapper(
+                reference,
+                order_by_str,
+                scope.options.dialect.as_ref(),
+            ))
         }
         None => Err(msg::aggregate_fn_applied_to_a_path_without_a_column()),
     }
 }
 
 pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
+    // Each wrapper ignores the trailing `&dyn Dialect` argument except `product`, whose SQL differs
+    // between dialects.
     #[rustfmt::skip]
-    let templates: [(&str, AggregateFunc); 9] = [
-        ("all_true", |e, ob, s| agg_1(e, ob, s, bool_and)),
-        ("any_true", |e, ob, s| agg_1(e, ob, s, bool_or)),
-        ("avg",      |e, ob, s| agg_1(e, ob, s, avg)),
-        ("count",    |e, ob, s| agg_1(e, ob, s, count)),
-        ("distinct", |e, ob, s| agg_1(e, ob, s, count_distinct)),
-        ("list",     |e, ob, s| agg_1(e, ob, s, array_agg)),
-        ("max",      |e, ob, s| agg_1(e, ob, s, max)),
-        ("min",      |e, ob, s| agg_1(e, ob, s, min)),
-        ("sum",      |e, ob, s| agg_1(e, ob, s, sum)),
+    let templates: [(&str, AggregateFunc); 10] = [
+        ("all_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_and(a, ob))),
+        ("any_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_or(a, ob))),
+        ("avg",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| avg(a, ob))),
+        ("count",    |e, ob, s| agg_1(e, ob, s, |a, ob, _| count(a, ob))),
+        ("distinct", |e, ob, s| agg_1(e, ob, s, |a, ob, _| count_distinct(a, ob))),
+        ("list",     |e, ob, s| agg_1(e, ob, s, |a, ob, _| array_agg(a, ob))),
+        ("max",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| max(a, ob))),
+        ("min",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| min(a, ob))),
+        ("product",  |e, ob, s| agg_1(e, ob, s, |a, _ob, d| d.aggregate_product(a))),
+        ("sum",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| sum(a, ob))),
     ];
     templates
         .into_iter()

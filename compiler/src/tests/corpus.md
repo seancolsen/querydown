@@ -1425,6 +1425,159 @@ FROM "issues"
 GROUP BY "issues"."status";
 ```
 
+## Function library
+
+### Boolean `and`
+
+> For each issue, whether it is both open and overdue
+
+```qd
+#issues $title $(status:="open")|and(due_date:<@now) -> open_and_overdue
+```
+
+```sql
+SELECT
+  "issues"."title",
+  "issues"."status" = 'open' AND
+  "issues"."due_date" < NOW() AS "open_and_overdue"
+FROM "issues";
+```
+
+### Boolean `or`
+
+> For each issue, whether it is open or reopened
+
+```qd
+#issues $title $(status:="open")|or(status:="reopened") -> needs_attention
+```
+
+```sql
+SELECT
+  "issues"."title",
+  "issues"."status" = 'open' OR "issues"."status" = 'reopened' AS "needs_attention"
+FROM "issues";
+```
+
+### Boolean `xor`
+
+> For each project, whether it is active or empty, but not both
+
+```qd
+#projects $name $is_active|xor(#issues:0) -> active_or_empty_but_not_both
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "projects"."is_active" <> ("cte0"."pk" IS NULL) AS "active_or_empty_but_not_both"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Text `concat`
+
+> A label combining each issue's status and title
+
+```qd
+#issues $status|concat(": ")|concat(title) -> label
+```
+
+```sql
+SELECT
+  concat(concat("issues"."status", ': '), "issues"."title") AS "label"
+FROM "issues";
+```
+
+### Text `trim`
+
+> Issue titles with surrounding whitespace removed
+
+```qd
+#issues $title|trim
+```
+
+```sql
+SELECT
+  trim("issues"."title")
+FROM "issues";
+```
+
+### Text `md5`
+
+> The MD5 hash of each user's email
+
+```qd
+#users $email|md5 -> email_hash
+```
+
+```sql
+SELECT
+  md5("users"."email") AS "email_hash"
+FROM "users";
+```
+
+### Aggregate `product`
+
+> The product of the issue ids in each project
+
+```qd
+#projects $name $#issues.id%product
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      CASE WHEN bool_or("issues"."id" = 0) THEN 0 ELSE (CASE WHEN count(*) FILTER (WHERE "issues"."id" < 0) % 2 = 1 THEN -1 ELSE 1 END) * round(exp(sum(ln(abs("issues"."id")::double precision)) FILTER (WHERE "issues"."id" <> 0))) END AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Aggregate `product` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The product of the issue ids in each project, targeting DuckDB
+
+```qd
+#projects $name $#issues.id%product
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      product("issues"."id") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
 ## Column globs
 
 ### Basic column glob

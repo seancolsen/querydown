@@ -134,4 +134,8 @@ pub trait Dialect {
     /// * `haystack` - The text being searched (the left-hand side of the `:` comparison)
     /// * `needle` - The text being searched for (the right-hand side of the `:` comparison)
     fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr;
+
+    /// Render an aggregate that multiplies the values of `arg` together. DuckDB has a native
+    /// `product` aggregate, but Postgres does not, so the dialects diverge here.
+    fn aggregate_product(&self, arg: SqlExpr) -> SqlExpr;
 }

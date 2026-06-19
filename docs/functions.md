@@ -37,25 +37,25 @@ Negates a boolean value, compiling to SQL `NOT`.
 #projects $name $is_active|not -> inactive
 ```
 
-### `and` 🚧
+### `and`
 
-_(Not yet implemented.)_ Logical conjunction across its arguments.
+Logical conjunction across its arguments, compiling to SQL `AND`.
 
 ```qd
 #issues $title $(status:="open")|and(due_date:<@now) -> open_and_overdue
 ```
 
-### `or` 🚧
+### `or`
 
-_(Not yet implemented.)_ Logical disjunction across its arguments.
+Logical disjunction across its arguments, compiling to SQL `OR`.
 
 ```qd
 #issues $title $(status:="open")|or(status:="reopened") -> needs_attention
 ```
 
-### `xor` 🚧
+### `xor`
 
-_(Not yet implemented.)_ Exclusive-or across its arguments — true when an odd number of the arguments are true.
+Exclusive-or across its arguments — true when an odd number of them are true. Compiles to a chain of `<>` (inequality) comparisons.
 
 ```qd
 #projects $name $is_active|xor(#issues:0) -> active_or_empty_but_not_both
@@ -87,25 +87,25 @@ Converts a string to upper case, compiling to SQL `upper`.
 #users $username|uppercase
 ```
 
-### `concat` 🚧
+### `concat`
 
-_(Not yet implemented.)_ Joins multiple strings together into one.
+Joins multiple strings together into one, compiling to SQL `concat`.
 
 ```qd
 #issues $status|concat(": ")|concat(title) -> label
 ```
 
-### `trim` 🚧
+### `trim`
 
-_(Not yet implemented.)_ Removes leading and trailing whitespace from a string.
+Removes leading and trailing whitespace from a string, compiling to SQL `trim`.
 
 ```qd
 #issues $title|trim
 ```
 
-### `md5` 🚧
+### `md5`
 
-_(Not yet implemented.)_ Computes the MD5 hash of a string.
+Computes the MD5 hash of a string, compiling to SQL `md5`.
 
 ```qd
 #users $email|md5 -> email_hash
@@ -345,9 +345,9 @@ Returns true when _at least one_ value of a boolean column is true, compiling to
 #clients $name $#projects.is_active%any_true // any project active?
 ```
 
-### `product` 🚧
+### `product`
 
-_(Not yet implemented.)_ Multiplies the values of a numeric column together.
+Multiplies the values of a numeric column together. DuckDB has a native `product` aggregate; for Postgres (which has none) it is reconstructed from sums of logarithms.
 
 ```qd
 #projects $name $#issues.id%product

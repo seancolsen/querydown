@@ -79,4 +79,19 @@ impl Dialect for Postgres {
             needle = needle.content,
         ))
     }
+
+    fn aggregate_product(&self, arg: SqlExpr) -> SqlExpr {
+        // Postgres has no native product aggregate, so we reconstruct it from sums of logarithms:
+        // the product of the magnitudes is `exp(sum(ln(abs(x))))`, and the sign is negative only
+        // when an odd number of values are negative. Zeros are excluded from the logarithm (where
+        // `ln` is undefined) and instead short-circuit the whole result to 0.
+        let a = arg.content;
+        SqlExpr::atom(format!(
+            "CASE \
+             WHEN bool_or({a} = 0) THEN 0 \
+             ELSE (CASE WHEN count(*) FILTER (WHERE {a} < 0) % 2 = 1 THEN -1 ELSE 1 END) \
+             * round(exp(sum(ln(abs({a})::double precision)) FILTER (WHERE {a} <> 0))) \
+             END"
+        ))
+    }
 }

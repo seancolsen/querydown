@@ -112,6 +112,29 @@ pub mod cmp {
         condition_set(conditions, &Conjunction::And)
     }
 
+    pub fn or(conditions: impl IntoIterator<Item = SqlExpr>) -> SqlExpr {
+        condition_set(conditions, &Conjunction::Or)
+    }
+
+    /// Exclusive-or across the values, true when an odd number of them are true. Built by chaining
+    /// `<>` (inequality), since for booleans `a <> b` is true exactly when they differ.
+    pub fn xor(conditions: impl IntoIterator<Item = SqlExpr>) -> SqlExpr {
+        conditions
+            .into_iter()
+            .reduce(|acc, b| {
+                // `<>` is non-associative in SQL, so each operand that is itself a comparison (or
+                // looser) must be parenthesized. Forcing `Atom` precedence wraps anything that
+                // isn't already atomic, keeping the chain valid as `((a <> b) <> c)`.
+                let a = acc.for_precedence(SqlExprPrecedence::Atom);
+                let b = b.for_precedence(SqlExprPrecedence::Atom);
+                SqlExpr {
+                    content: format!("{} <> {}", a.content, b.content),
+                    precedence: SqlExprPrecedence::Comparison,
+                }
+            })
+            .unwrap_or_else(super::value::false_)
+    }
+
     pub fn comparison(a: SqlExpr, op: &str, b: SqlExpr) -> SqlExpr {
         binary_op(a, op, b, SqlExprPrecedence::Comparison)
     }
@@ -278,6 +301,18 @@ pub mod strings {
 
     pub fn char_length(a: SqlExpr) -> SqlExpr {
         sql_func("char_length", [a])
+    }
+
+    pub fn concat(args: Vec<SqlExpr>) -> SqlExpr {
+        sql_func("concat", args)
+    }
+
+    pub fn trim(a: SqlExpr) -> SqlExpr {
+        sql_func("trim", [a])
+    }
+
+    pub fn md5(a: SqlExpr) -> SqlExpr {
+        sql_func("md5", [a])
     }
 }
 
