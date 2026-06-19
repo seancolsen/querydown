@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use querydown_parser::ast::{ComputedColumn, Expr, PathPart};
+use querydown_parser::ast::{ComputedColumn, ConstantDef, Expr, PathPart};
 
 use crate::{
     errors::msg,
@@ -37,6 +37,10 @@ pub struct Scope<'a, 'b> {
     /// Computed columns, defined before the query and keyed by `(canonical table name, column name
     /// as written in the definition)`. The column name is looked up using identifier resolution.
     computed_columns: HashMap<String, HashMap<String, Expr>>,
+    /// Variable bindings keyed by name (without the `@` sigil). This holds user-defined constants
+    /// (registered before the query). Each binding maps to an AST expression which is inlined
+    /// wherever the variable is referenced.
+    variables: HashMap<String, Expr>,
 }
 
 impl<'a, 'b> Scope<'a, 'b> {
@@ -59,7 +63,24 @@ impl<'a, 'b> Scope<'a, 'b> {
             scalar_functions: get_standard_scalar_functions(),
             aggregate_functions: get_standard_aggregate_functions(),
             computed_columns: HashMap::new(),
+            variables: HashMap::new(),
         })
+    }
+
+    /// Records the query's constant definitions. Like computed columns, the definitions' expressions
+    /// are resolved lazily (inlined when referenced), so this does not validate them and definition
+    /// order does not matter.
+    pub fn register_constants(&mut self, constants: Vec<ConstantDef>) {
+        for constant in constants {
+            self.variables.insert(constant.name, constant.expr);
+        }
+    }
+
+    /// Looks up a variable binding by name (without the `@` sigil), falling back to parent scopes.
+    pub fn get_variable(&self, name: &str) -> Option<&Expr> {
+        self.variables
+            .get(name)
+            .or_else(|| self.parent.and_then(|parent| parent.get_variable(name)))
     }
 
     /// Records the query's computed column definitions, validating that each refers to a real table.
@@ -117,6 +138,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             scalar_functions: HashMap::new(),
             aggregate_functions: HashMap::new(),
             computed_columns: HashMap::new(),
+            variables: HashMap::new(),
         }
     }
 

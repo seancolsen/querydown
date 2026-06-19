@@ -845,14 +845,16 @@ $user.username%list
 
 ### User-defined constants
 
-_(🚧 Not yet implemented)_
-
 > Show the issues created by user 1234
 
 ```qd
 @user_id = 1234
 #issues author:@user_id
 ```
+
+A constant is defined before the base table with `@name = expr`. Its value is **inlined** into the
+generated SQL wherever the constant is referenced (as `@name`). A constant's definition may itself
+reference an earlier constant.
 
 ### Defining a constant using the result of a query
 

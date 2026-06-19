@@ -1,4 +1,4 @@
-use chumsky::prelude::*;
+use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
 use crate::tokens::*;
@@ -6,27 +6,63 @@ use crate::tokens::*;
 use super::utils::*;
 use super::{column_layout::result_columns, expr::expr, sorting::sorting};
 
+/// A pre-base-table definition. Several kinds of definition share the same position in the source
+/// (before the base table) and are parsed together, then sorted into the [`Query`]'s fields.
+enum Definition {
+    Constant(ConstantDef),
+    ComputedColumn(ComputedColumn),
+}
+
 pub fn query<'src>() -> impl Psr<'src, Query> {
-    let computed_columns = computed_column()
+    let definitions = definition()
         .then_ignore(pad())
         .repeated()
-        .collect::<Vec<ComputedColumn>>();
+        .collect::<Vec<Definition>>();
     let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
     let transformations = transformation()
         .separated_by(pad().then(exactly(TRANSFORMATION_DELIMITER)).then(pad()))
         .collect::<Vec<Transformation>>();
     pad().ignore_then(
-        computed_columns
+        definitions
             .then(base_table)
             .then_ignore(pad())
             .then(transformations)
             .then_ignore(pad().then(end()))
-            .map(|((computed_columns, base_table), transformations)| Query {
-                computed_columns,
-                base_table,
-                transformations,
+            .map(|((definitions, base_table), transformations)| {
+                let mut constants = vec![];
+                let mut computed_columns = vec![];
+                for definition in definitions {
+                    match definition {
+                        Definition::Constant(c) => constants.push(c),
+                        Definition::ComputedColumn(c) => computed_columns.push(c),
+                    }
+                }
+                Query {
+                    constants,
+                    computed_columns,
+                    base_table,
+                    transformations,
+                }
             }),
     )
+}
+
+/// Parses any of the definitions that may precede the base table.
+fn definition<'src>() -> impl Psr<'src, Definition> {
+    choice((
+        constant().map(Definition::Constant),
+        computed_column().map(Definition::ComputedColumn),
+    ))
+}
+
+/// Parses one user-defined constant definition, e.g. `@user_id = 1234`. The right-hand side is a
+/// single expression whose value gets inlined wherever the constant is referenced.
+fn constant<'src>() -> impl Psr<'src, ConstantDef> {
+    just(CONST_SIGIL)
+        .ignore_then(ident().map(|s: &str| s.to_string()))
+        .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
+        .then(expr())
+        .map(|(name, expr)| ConstantDef { name, expr })
 }
 
 /// Parses one computed column definition, e.g. `#users.age = birth_date|age|years|floor`. These are
@@ -75,6 +111,7 @@ mod tests {
         assert_eq!(
             query().parse("#foo a:1 b:2 $c").into_result(),
             Ok(Query {
+                constants: vec![],
                 computed_columns: vec![],
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
@@ -150,5 +187,23 @@ mod tests {
                 right: ComparisonSide::Expr(Expr::Number("21".to_string())),
             }))
         );
+    }
+
+    #[test]
+    fn test_parse_query_with_constants() {
+        // Constant definitions precede the base table and bind a name to an expression.
+        let result = query()
+            .parse("@user_id = 1234\n#issues author:@user_id")
+            .into_result()
+            .unwrap();
+        assert_eq!(result.base_table, "issues".to_string());
+        assert_eq!(
+            result.constants,
+            vec![ConstantDef {
+                name: "user_id".to_string(),
+                expr: Expr::Number("1234".to_string()),
+            }]
+        );
+        assert!(result.computed_columns.is_empty());
     }
 }
