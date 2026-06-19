@@ -215,6 +215,12 @@ pub mod cond {
 pub mod date_time {
     use super::*;
 
+    pub fn years(a: SqlExpr) -> SqlExpr {
+        // A year is treated as 365.25 days (31557600 seconds), matching the duration handling in
+        // `crate::sql::dialect`.
+        math::divide(extract_epoch(a), SqlExpr::atom("31557600".to_string()))
+    }
+
     pub fn days(a: SqlExpr) -> SqlExpr {
         math::divide(extract_epoch(a), SqlExpr::atom("86400".to_string()))
     }

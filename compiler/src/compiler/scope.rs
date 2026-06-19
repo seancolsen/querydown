@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use querydown_parser::ast::PathPart;
+use querydown_parser::ast::{ComputedColumn, Expr, PathPart};
 
 use crate::{
+    errors::msg,
     schema::{
         chain::Chain,
         links::{FilteredLink, Link, LinkToOne},
@@ -33,6 +34,9 @@ pub struct Scope<'a, 'b> {
     cte_naming_index: usize,
     scalar_functions: ScalarFuncMap,
     aggregate_functions: AggregateFuncMap,
+    /// Computed columns, defined before the query and keyed by `(canonical table name, column name
+    /// as written in the definition)`. The column name is looked up using identifier resolution.
+    computed_columns: HashMap<String, HashMap<String, Expr>>,
 }
 
 impl<'a, 'b> Scope<'a, 'b> {
@@ -54,7 +58,38 @@ impl<'a, 'b> Scope<'a, 'b> {
             cte_naming_index: 0,
             scalar_functions: get_standard_scalar_functions(),
             aggregate_functions: get_standard_aggregate_functions(),
+            computed_columns: HashMap::new(),
         })
+    }
+
+    /// Records the query's computed column definitions, validating that each refers to a real table.
+    /// The definitions' expressions are resolved lazily (when referenced), so this does not validate
+    /// the expressions themselves, and definition order does not matter.
+    pub fn register_computed_columns(
+        &mut self,
+        computed_columns: Vec<ComputedColumn>,
+    ) -> Result<(), String> {
+        for computed_column in computed_columns {
+            let table = get_table_by_name(self.options, self.schema, &computed_column.table)
+                .ok_or_else(|| msg::computed_column_unknown_table(&computed_column.table))?;
+            self.computed_columns
+                .entry(table.name.clone())
+                .or_default()
+                .insert(computed_column.name, computed_column.expr);
+        }
+        Ok(())
+    }
+
+    /// Looks up a computed column's expression by table and column name, using identifier
+    /// resolution for the column name. Falls back to parent scopes.
+    pub fn get_computed_column(&self, table_name: &str, column_name: &str) -> Option<&Expr> {
+        self.computed_columns
+            .get(table_name)
+            .and_then(|columns| self.options.resolve_identifier(columns, column_name))
+            .or_else(|| {
+                self.parent
+                    .and_then(|parent| parent.get_computed_column(table_name, column_name))
+            })
     }
 
     pub fn get_base_table(&self) -> &Table {
@@ -81,6 +116,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             cte_naming_index: 0,
             scalar_functions: HashMap::new(),
             aggregate_functions: HashMap::new(),
+            computed_columns: HashMap::new(),
         }
     }
 

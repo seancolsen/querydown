@@ -6,6 +6,7 @@ Table users {
   username text
   email text
   team integer
+  birth_date date
 }
 
 Table issues {

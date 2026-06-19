@@ -82,3 +82,7 @@ pub fn compare_two_ranges() -> String {
 pub fn compare_range_without_eq() -> String {
     "Range comparison must use the `:` operator.".to_string()
 }
+
+pub fn computed_column_unknown_table(table_name: &str) -> String {
+    format!("Computed column refers to unknown table `{table_name}`.")
+}

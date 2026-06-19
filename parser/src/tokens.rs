@@ -44,6 +44,9 @@ pub(crate) const CONDITION_SET_OR_BRACE_R: char = ']';
 /// `foo:1,bar:2`. This has the lowest precedence of any operator.
 pub(crate) const CONDITION_SET_OR_SHORTHAND: char = ',';
 pub(crate) const CONST_SIGIL: char = '@';
+/// Separates the left-hand side of a definition from its value, e.g. the `=` in a computed column
+/// definition `#users.age = birth_date|age|years|floor`.
+pub(crate) const DEFINITION_ASSIGN: char = '=';
 pub(crate) const DB_IDENTIFIER_QUOTE: char = '`';
 pub(crate) const EXPR_PAREN_L: char = '(';
 pub(crate) const EXPR_PAREN_R: char = ')';

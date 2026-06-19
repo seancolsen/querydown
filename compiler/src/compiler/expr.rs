@@ -63,7 +63,12 @@ fn convert_variable(variable: &str, _: &Scope) -> Result<SqlExpr, String> {
 }
 
 fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, String> {
-    let prefixed_parts = scope.path_prefix.iter().cloned().chain(parts).collect();
+    let prefixed_parts: Vec<PathPart> = scope.path_prefix.iter().cloned().chain(parts).collect();
+    // If the path names a computed column, substitute its definition, evaluated relative to the
+    // table that hosts it (the head of the path).
+    if let Some((head_parts, expr)) = resolve_computed_column(&prefixed_parts, scope)? {
+        return convert_expr_with_path_prefix(expr, head_parts, scope);
+    }
     let clarified_path = clarify_path(prefixed_parts, scope)?;
     match (clarified_path.head, clarified_path.tail) {
         (None, None) => Ok(SqlExpr::empty()),
@@ -92,6 +97,58 @@ fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Stri
             scope.join_chain_to_many(&head, chain_to_many, None, CtePurpose::AggregateValue)
         }
     }
+}
+
+/// If `parts` names a computed column, returns the head of the path (the parts that lead to the
+/// table hosting the computed column) together with the computed column's expression. A real column
+/// of the same name always takes precedence, in which case this returns `None`.
+fn resolve_computed_column(
+    parts: &[PathPart],
+    scope: &Scope,
+) -> Result<Option<(Vec<PathPart>, Expr)>, String> {
+    // Only a trailing plain column can name a computed column.
+    let Some((PathPart::Column(name), head_parts)) = parts.split_last() else {
+        return Ok(None);
+    };
+    // Determine the table hosting the computed column. Only the base table (empty head) or a single
+    // related record reachable via the head can host one.
+    let table = if head_parts.is_empty() {
+        scope.get_base_table()
+    } else {
+        let clarified = clarify_path(head_parts.to_vec(), scope)?;
+        match (clarified.head, clarified.tail) {
+            (Some(chain_to_one), None) => scope
+                .schema
+                .tables
+                .get(&chain_to_one.get_ending_table_id())
+                .unwrap(),
+            _ => return Ok(None),
+        }
+    };
+    // A real column of the same name takes precedence over a computed column.
+    if scope
+        .options
+        .resolve_identifier(&table.column_lookup, name)
+        .is_some()
+    {
+        return Ok(None);
+    }
+    Ok(scope
+        .get_computed_column(&table.name, name)
+        .map(|expr| (head_parts.to_vec(), expr.clone())))
+}
+
+/// Converts an expression with `path_prefix` temporarily set, restoring the previous prefix
+/// afterward (which, unlike [`Scope::with_path_prefix`], supports nesting).
+fn convert_expr_with_path_prefix(
+    expr: Expr,
+    path_prefix: Vec<PathPart>,
+    scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    let saved = std::mem::replace(&mut scope.path_prefix, path_prefix);
+    let result = convert_expr(expr, scope);
+    scope.path_prefix = saved;
+    result
 }
 
 pub fn convert_condition_set(

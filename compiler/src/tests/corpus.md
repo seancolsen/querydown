@@ -1631,7 +1631,8 @@ SELECT
   "users"."id",
   "users"."username",
   "users"."email",
-  "users"."team"
+  "users"."team",
+  "users"."birth_date"
 FROM "issues"
 LEFT JOIN "users" ON
   "issues"."author" = "users"."id"
@@ -1754,4 +1755,65 @@ FROM "issues";
     null
   ]
 }
+```
+
+## Computed columns
+
+### Boolean computed column referencing another computed column
+
+> Show all user columns, plus whether each user is old enough to purchase alcohol. `age` and
+> `can_purchase_alcohol` are computed columns defined before the query; `can_purchase_alcohol`
+> references the earlier `age` definition.
+
+```qd
+#users.age = birth_date|age|years|floor
+#users.can_purchase_alcohol = age:>=21
+#users $* $can_purchase_alcohol
+```
+
+```sql
+SELECT
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21
+FROM "users";
+```
+
+### Computed column used within a condition
+
+> Find users who are old enough to purchase alcohol, showing their usernames.
+
+```qd
+#users.age = birth_date|age|years|floor
+#users age:>=21 $username
+```
+
+```sql
+SELECT
+  "users"."username"
+FROM "users"
+WHERE
+  FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21;
+```
+
+### Computed column on a related table
+
+> Show each issue's title alongside whether its author is old enough to purchase alcohol.
+
+```qd
+#users.age = birth_date|age|years|floor
+#users.can_purchase_alcohol = age:>=21
+#issues $title $author.can_purchase_alcohol
+```
+
+```sql
+SELECT
+  "issues"."title",
+  FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id";
 ```

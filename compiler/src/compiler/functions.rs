@@ -112,7 +112,7 @@ fn args_2(
 
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc); 30] = [
+    let templates: [(&str, ScalarFunc); 31] = [
         ("abs",         |e, s| args_1(e, s, abs)),
         ("age",         |e, s| args_1(e, s, |a| subtract(now(), a))),
         ("ago",         |e, s| args_1(e, s, |a| subtract(now(), a))),
@@ -143,6 +143,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("trim",        |e, s| args_1(e, s, trim)),
         ("uppercase",   |e, s| args_1(e, s, upper)),
         ("xor",         |e, s| args_v(e, s, build::cmp::xor)),
+        ("years",       |e, s| args_1(e, s, years)),
     ];
     templates
         .into_iter()

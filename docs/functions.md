@@ -237,6 +237,15 @@ Returns the interval from now _until_ a future timestamp, compiling to `value - 
 #issues $title $due_date|away|days // days until each issue is due
 ```
 
+### `years`
+
+Converts an interval into a number of years, compiling to `EXTRACT(epoch FROM value) / 31557600`.
+A year is treated as 365.25 days.
+
+```qd
+#users $username $birth_date|age|years|floor
+```
+
 ### `days`
 
 Converts an interval into a number of days, compiling to `EXTRACT(epoch FROM value) / 86400`.

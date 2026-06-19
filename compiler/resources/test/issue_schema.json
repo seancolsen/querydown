@@ -6,7 +6,8 @@
         { "name": "id", "type": "integer" },
         { "name": "username", "type": "text" },
         { "name": "email", "type": "text" },
-        { "name": "team", "type": "integer" }
+        { "name": "team", "type": "integer" },
+        { "name": "birth_date", "type": "date" }
       ]
     },
     {

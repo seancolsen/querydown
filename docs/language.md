@@ -867,13 +867,20 @@ _(🚧 Not yet implemented)_
 
 ### Computed columns
 
-_(🚧 Not yet implemented)_
+Computed columns let you define a named expression, scoped to a table, before the query. You can
+then reference it by name like a real column — in result columns, conditions, and even within the
+definitions of later computed columns. Definitions must come before the base table; they cannot
+appear within the query itself.
 
 ```qd
 #users.age = birth_date|age|years|floor
 #users.can_purchase_alcohol = age:>=21
 #users $* $can_purchase_alcohol
 ```
+
+Here `can_purchase_alcohol` references the earlier `age` computed column, which in turn references
+the real `birth_date` column. A computed column hosted on a related table can be reached across a
+to-one relationship, e.g. `#issues $author.can_purchase_alcohol`.
 
 ### User-defined functions
 

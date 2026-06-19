@@ -7,7 +7,8 @@ CREATE TABLE "users" (
   "id" integer,
   "username" text,
   "email" text,
-  "team" integer
+  "team" integer,
+  "birth_date" date
 );
 
 CREATE TABLE "issues" (

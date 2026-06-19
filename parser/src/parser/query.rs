@@ -7,20 +7,39 @@ use super::utils::*;
 use super::{column_layout::result_columns, expr::expr, sorting::sorting};
 
 pub fn query<'src>() -> impl Psr<'src, Query> {
+    let computed_columns = computed_column()
+        .then_ignore(pad())
+        .repeated()
+        .collect::<Vec<ComputedColumn>>();
     let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
     let transformations = transformation()
         .separated_by(pad().then(exactly(TRANSFORMATION_DELIMITER)).then(pad()))
         .collect::<Vec<Transformation>>();
     pad().ignore_then(
-        base_table
+        computed_columns
+            .then(base_table)
             .then_ignore(pad())
             .then(transformations)
             .then_ignore(pad().then(end()))
-            .map(|(base_table, transformations)| Query {
+            .map(|((computed_columns, base_table), transformations)| Query {
+                computed_columns,
                 base_table,
                 transformations,
             }),
     )
+}
+
+/// Parses one computed column definition, e.g. `#users.age = birth_date|age|years|floor`. These are
+/// only permitted before the base table — never within the query itself. The right-hand side is a
+/// single expression which may itself reference earlier computed columns.
+fn computed_column<'src>() -> impl Psr<'src, ComputedColumn> {
+    just(TABLE_SIGIL)
+        .ignore_then(db_identifier())
+        .then_ignore(just(PATH_SEPARATOR))
+        .then(db_identifier())
+        .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
+        .then(expr())
+        .map(|((table, name), expr)| ComputedColumn { table, name, expr })
 }
 
 fn transformation<'src>() -> impl Psr<'src, Transformation> {
@@ -56,6 +75,7 @@ mod tests {
         assert_eq!(
             query().parse("#foo a:1 b:2 $c").into_result(),
             Ok(Query {
+                computed_columns: vec![],
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
                     sorting: vec![],
@@ -104,5 +124,31 @@ mod tests {
         let plain = query().parse("#foo a:1 b:2 $c").into_result();
         assert!(commented.is_ok());
         assert_eq!(commented, plain);
+    }
+
+    #[test]
+    fn test_parse_query_with_computed_columns() {
+        // Computed column definitions precede the base table. Each defines a named expression scoped
+        // to a table, and a later definition may reference an earlier one by name.
+        let result = query()
+            .parse("#users.age = birth_date|age|years|floor\n#users.can_purchase_alcohol = age:>=21\n#users $can_purchase_alcohol")
+            .into_result()
+            .unwrap();
+        assert_eq!(result.base_table, "users".to_string());
+        assert_eq!(result.computed_columns.len(), 2);
+        assert_eq!(result.computed_columns[0].table, "users".to_string());
+        assert_eq!(result.computed_columns[0].name, "age".to_string());
+        assert_eq!(
+            result.computed_columns[1].name,
+            "can_purchase_alcohol".to_string()
+        );
+        assert_eq!(
+            result.computed_columns[1].expr,
+            Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("age".to_string())])),
+                operator: Operator::Gte,
+                right: ComparisonSide::Expr(Expr::Number("21".to_string())),
+            }))
+        );
     }
 }

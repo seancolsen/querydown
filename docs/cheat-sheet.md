@@ -126,7 +126,7 @@ See [case expressions](./language.md#case-expressions) docs.
 | Code | Usage | Implemented |
 | -- | -- | -- |
 | `@foo = 42` | [constant](./language.md#user-defined-constants) | ❌ |
-| `#foo.bar = baz + bat` | [computed column](./language.md#computed-columns) | ❌ |
+| `#foo.bar = baz + bat` | [computed column](./language.md#computed-columns) | ✅ |
 | `@@plus_one = @v => @v + 1` | [scalar function](./language.md#user-defined-functions) | ❌ |
 | `@@plus = @a @b => a + b` | function with two params | ❌ |
 | `#foo.@@bar = @a => @a + col` | [table-scoped function](./language.md#table-scoped-functions) | ❌ |

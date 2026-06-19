@@ -53,8 +53,20 @@ impl Serialize for AnnotationValue {
 
 #[derive(Debug, PartialEq)]
 pub struct Query {
+    /// Computed column definitions, written before the base table. Each defines a named expression
+    /// scoped to a table, which can then be referenced (by name) like a real column elsewhere in the
+    /// query — including within the definitions of later computed columns.
+    pub computed_columns: Vec<ComputedColumn>,
     pub base_table: String,
     pub transformations: Vec<Transformation>,
+}
+
+/// A computed column definition, written as `#table.name = expr` before the query's base table.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComputedColumn {
+    pub table: String,
+    pub name: String,
+    pub expr: Expr,
 }
 
 #[derive(Debug, PartialEq, Default)]
