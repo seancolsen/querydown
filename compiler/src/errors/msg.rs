@@ -86,3 +86,7 @@ pub fn compare_range_without_eq() -> String {
 pub fn computed_column_unknown_table(table_name: &str) -> String {
     format!("Computed column refers to unknown table `{table_name}`.")
 }
+
+pub fn function_wrong_arg_count(function_name: &str, expected: usize, actual: usize) -> String {
+    format!("The function `{function_name}` expects {expected} argument(s) but received {actual}.")
+}

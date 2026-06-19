@@ -44,6 +44,11 @@ pub(crate) const CONDITION_SET_OR_BRACE_R: char = ']';
 /// `foo:1,bar:2`. This has the lowest precedence of any operator.
 pub(crate) const CONDITION_SET_OR_SHORTHAND: char = ',';
 pub(crate) const CONST_SIGIL: char = '@';
+/// Prefix introducing a user-defined function definition, e.g. `@@fiscal_year = @date => ...`.
+pub(crate) const FUNCTION_SIGIL: &str = "@@";
+/// Separates a user-defined function's parameter list from its body, e.g. the `=>` in
+/// `@date => (@date - @1M)|year`.
+pub(crate) const FUNCTION_ARROW: &str = "=>";
 /// Separates the left-hand side of a definition from its value, e.g. the `=` in a computed column
 /// definition `#users.age = birth_date|age|years|floor`.
 pub(crate) const DEFINITION_ASSIGN: char = '=';

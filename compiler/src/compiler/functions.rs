@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
-use querydown_parser::ast::{Call, Expr, FunctionDimension, SortExpr};
+use querydown_parser::ast::{Call, Expr, FunctionDef, FunctionDimension, SortExpr};
 
 use crate::{
     compiler::{
@@ -27,10 +27,40 @@ pub fn convert_call(call: Call, scope: &mut Scope) -> Result<SqlExpr, String> {
 }
 
 fn convert_scalar_call(name: &str, e: Vec<Expr>, s: &mut Scope) -> Result<SqlExpr, String> {
-    let func = s
-        .get_scalar_function(name)
-        .ok_or_else(|| unknown_scalar_function(name))?;
-    func(e, s)
+    // Built-in scalar functions take precedence; a user-defined function of the same name is only
+    // consulted if no built-in matches.
+    if let Some(func) = s.get_scalar_function(name) {
+        return func(e, s);
+    }
+    if let Some(def) = s.get_user_function(name).cloned() {
+        return convert_user_function_call(def, e, s);
+    }
+    Err(unknown_scalar_function(name))
+}
+
+/// Applies a user-defined scalar function by binding its parameters to the call's arguments and its
+/// local assignments, then compiling its body expression. Because the bindings map names to AST
+/// expressions (resolved lazily when referenced), the body is effectively inlined into the
+/// surrounding SQL.
+fn convert_user_function_call(
+    def: FunctionDef,
+    args: Vec<Expr>,
+    scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    if args.len() != def.params.len() {
+        return Err(msg::function_wrong_arg_count(
+            &def.name,
+            def.params.len(),
+            args.len(),
+        ));
+    }
+    let bindings: Vec<(String, Expr)> = def
+        .params
+        .into_iter()
+        .zip(args)
+        .chain(def.body.assignments.into_iter().map(|a| (a.name, a.expr)))
+        .collect();
+    scope.with_variable_bindings(bindings, |scope| convert_expr(def.body.expr, scope))
 }
 
 fn convert_aggregate_call(

@@ -1870,3 +1870,75 @@ FROM "issues"
 WHERE
   "issues"."author" = 1000;
 ```
+
+## User-defined functions
+
+### Simple scalar function
+
+> Apply a user-defined `double` function to each issue's id. The function's body is inlined into the
+> generated SQL with its parameter bound to the piped-in argument.
+
+```qd
+@@double = @x => @x * 2
+#issues $id|double
+```
+
+```sql
+SELECT
+  "issues"."id" * 2
+FROM "issues";
+```
+
+### Function with multiple parameters
+
+> A function may take more than one parameter. When applied via a pipe, the piped-in value is the
+> first argument and any parenthesized values supply the rest.
+
+```qd
+@@add = @a @b => @a + @b
+#issues $id|add(100)
+```
+
+```sql
+SELECT
+  "issues"."id" + 100
+FROM "issues";
+```
+
+### Function containing an assignment
+
+> A function body may contain local assignments before its result expression. Here `is_adult`
+> computes an `age` assignment from its parameter and then compares it.
+
+```qd
+@@is_adult = @birth_date =>
+  @age = @birth_date|age|years|floor
+  @age:>=21
+#users $username $birth_date|is_adult
+```
+
+```sql
+SELECT
+  "users"."username",
+  FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21
+FROM "users";
+```
+
+### Function used within a condition
+
+> A user-defined function may be applied anywhere an expression is allowed, including conditions.
+
+```qd
+@@is_adult = @birth_date =>
+  @age = @birth_date|age|years|floor
+  @age:>=21
+#users birth_date|is_adult $username
+```
+
+```sql
+SELECT
+  "users"."username"
+FROM "users"
+WHERE
+  FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21;
+```
