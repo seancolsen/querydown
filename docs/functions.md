@@ -224,7 +224,7 @@ Returns the interval elapsed _since_ a past timestamp, compiling to `NOW() - val
 Returns the timestamp that lies a given duration _in the past_, compiling to `NOW() - value`. Typically applied to a [duration literal](./language.md#duration-literals) within a condition.
 
 ```qd
-#issues created_at:>@6M|ago // created within the last 6 months
+#issues created_at:>6m|ago // created within the last 6 months
 ```
 
 _(`age` and `ago` are equivalent; the two names exist for readability depending on whether you apply the function to a date or to a duration.)_

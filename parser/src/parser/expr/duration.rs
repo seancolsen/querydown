@@ -7,45 +7,59 @@ use chumsky::prelude::*;
 
 use crate::ast::*;
 use crate::parser::utils::*;
-use crate::tokens::*;
 
+/// Parses a duration literal, e.g. `2y6m3d8h9min34.89s`.
+///
+/// A duration is a non-empty sequence of parts, where each part is a number immediately followed by
+/// a unit. The units are case-insensitive:
+///
+/// | Unit  | Meaning |
+/// | --    | --      |
+/// | `y`   | years   |
+/// | `m`   | months  |
+/// | `w`   | weeks   |
+/// | `d`   | days    |
+/// | `h`   | hours   |
+/// | `min` | minutes |
+/// | `s`   | seconds |
+///
+/// Note that `m` always means months and `min` always means minutes, so the two are never
+/// ambiguous. Because every part begins with a digit, durations never collide with column
+/// references (which begin with a letter). A digit-initial token with no trailing unit is not a
+/// duration — it falls through to the number parser — so `duration` must be tried before `number`.
 pub fn duration<'src>() -> impl Psr<'src, Duration> {
     let case_insensitive =
         |uppercase: char| choice((just(uppercase), just(uppercase.to_ascii_lowercase())));
 
-    let part = |c: char| positive_float().then_ignore(case_insensitive(c));
+    // The minutes unit `min` must be tried before the months unit `m`; otherwise `m` would greedily
+    // match the leading character of `min`. Chumsky rewinds on a failed alternative, so trying
+    // `min` first is safe: e.g. for `m3d`, matching `min` consumes `m`, fails on `3`, rewinds, and
+    // then `m` matches as months.
+    let minutes = case_insensitive('M')
+        .ignore_then(case_insensitive('I'))
+        .ignore_then(case_insensitive('N'))
+        .to(Minute);
+    let unit = choice((
+        minutes,
+        case_insensitive('Y').to(Year),
+        case_insensitive('M').to(Month),
+        case_insensitive('W').to(Week),
+        case_insensitive('D').to(Day),
+        case_insensitive('H').to(Hour),
+        case_insensitive('S').to(Second),
+    ));
 
-    let large_part = choice((
-        part('Y').map(|value| Part { kind: Year, value }),
-        part('M').map(|value| Part { kind: Month, value }),
-        part('W').map(|value| Part { kind: Week, value }),
-        part('D').map(|value| Part { kind: Day, value }),
-    ));
-    #[rustfmt::skip]
-    let small_part = choice((
-        part('H').map(|value| Part { kind: Hour, value }),
-        part('M').map(|value| Part { kind: Minute, value }),
-        part('S').map(|value| Part { kind: Second, value }),
-    ));
-    just(CONST_SIGIL).ignore_then(
-        large_part
-            .repeated()
-            .collect::<Vec<Part>>()
-            .then(
-                case_insensitive('T')
-                    .ignore_then(small_part.repeated().at_least(1).collect::<Vec<Part>>())
-                    .or_not(),
-            )
-            .try_map(|(mut large, small), span| {
-                if let Some(small) = small {
-                    large.extend(small);
-                }
-                assemble(large).map_err(|s| Rich::custom(span, s))
-            }),
-    )
+    let part = positive_float()
+        .then(unit)
+        .map(|(value, kind)| Part { kind, value });
+
+    part.repeated()
+        .at_least(1)
+        .collect::<Vec<Part>>()
+        .try_map(|parts, span| assemble(parts).map_err(|s| Rich::custom(span, s)))
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Kind {
     Year,
     Month,
@@ -114,7 +128,7 @@ mod tests {
                 .map_err(|_| ())
         };
         assert_eq!(
-            parse("@1Y2.2M0.3W4444DT5H6M7S"),
+            parse("1y2.2m0.3w4444d5h6min7s"),
             Ok(Duration {
                 years: 1.0,
                 months: 2.2,
@@ -125,19 +139,37 @@ mod tests {
                 seconds: 7.0,
             })
         );
-        assert_eq!(parse("@0Y"), Ok(Duration::default()));
-        assert_eq!(parse("@T0S"), Ok(Duration::default()));
-        assert!(parse("@1M").is_ok());
-        assert!(parse("@T1M").is_ok());
-        assert!(parse("@1MT1M").is_ok());
-        assert!(parse("@").is_err());
-        assert!(parse("@1").is_err());
-        assert!(parse("@1YY").is_err());
-        assert!(parse("@1T").is_err());
-        assert!(parse("@1YT").is_err());
-        assert!(parse("@1YT1").is_err());
-        assert!(parse("@1TM").is_err());
-        assert!(parse("@1Y2Y").is_err());
-        assert!(parse("@1Y0Y").is_err());
+        // Units are case-insensitive, and parts may appear in any order.
+        assert_eq!(
+            parse("6MIN2Y"),
+            Ok(Duration {
+                years: 2.0,
+                minutes: 6.0,
+                ..Default::default()
+            })
+        );
+        assert_eq!(parse("0y"), Ok(Duration::default()));
+        assert_eq!(parse("0s"), Ok(Duration::default()));
+        // `m` is months and `min` is minutes; the two are unambiguous, even adjacent.
+        assert_eq!(
+            parse("1m1min"),
+            Ok(Duration {
+                months: 1.0,
+                minutes: 1.0,
+                ..Default::default()
+            })
+        );
+        assert!(parse("1m").is_ok());
+        assert!(parse("1min").is_ok());
+        // An empty string or a unit-less number is not a duration.
+        assert!(parse("").is_err());
+        assert!(parse("1").is_err());
+        // A trailing or repeated unit character is invalid.
+        assert!(parse("1yy").is_err());
+        assert!(parse("1y2").is_err());
+        // A duration can't repeat a kind.
+        assert!(parse("1y2y").is_err());
+        assert!(parse("1y0y").is_err());
+        assert!(parse("1m1m").is_err());
     }
 }

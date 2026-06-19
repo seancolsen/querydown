@@ -175,17 +175,30 @@ Literal dates and timestamps can be written in [ISO-8601](https://en.wikipedia.o
 
 ### Duration literals
 
-Literal durations can be written in case-insensitive [ISO-8601](https://en.wikipedia.org/wiki/ISO_8601#Durations) without the `P` prefix and with a `@` prefix.
+A literal duration is a non-empty sequence of parts, where each part is a number immediately followed by a case-insensitive unit. The units are:
 
-| Example | Meaning |
-| --      | -- |
-| `@2y`   | 2 years |
-| `@2.5y` | 2.5 years |
-| `@1y2d` | 1 year and 2 days |
-| `@9m`   | 9 months |
-| `@t9m`  | 9 minutes |
-| `@t1h`  | 1 hour |
-| `@0y`   | (empty) |
+| Unit  | Meaning |
+| --    | --      |
+| `y`   | years   |
+| `m`   | months  |
+| `w`   | weeks   |
+| `d`   | days    |
+| `h`   | hours   |
+| `min` | minutes |
+| `s`   | seconds |
+
+Note that `m` always means months and `min` always means minutes, so the two are never ambiguous.
+
+| Example         | Meaning |
+| --              | -- |
+| `2y`            | 2 years |
+| `2.5y`          | 2.5 years |
+| `1y2d`          | 1 year and 2 days |
+| `9m`            | 9 months |
+| `9min`          | 9 minutes |
+| `1h`            | 1 hour |
+| `2y6m3d8h9min34.89s` | 2 years, 6 months, 3 days, 8 hours, 9 minutes, and 34.89 seconds |
+| `0y`            | (empty) |
 
 
 ## Computations
@@ -889,7 +902,7 @@ to-one relationship, e.g. `#issues $author.can_purchase_alcohol`.
 > Given a fiscal year which begins on February 1st, find issues that were opened in fiscal-year 2020 and marked due in 2021
 
 ```qd
-@@fiscal_year = @date => (@date - @1M)|year
+@@fiscal_year = @date => (@date - 1m)|year
 #issues created_at|fiscal_year:2020 due_date|fiscal_year:2021
 ```
 
@@ -1032,7 +1045,7 @@ Annotations are written in a JSON-like syntax with a few differences from standa
 A few things to watch out for:
 
 - Bare `true`, `false`, and `null` (without the `@` sigil) are parsed as the **strings** `"true"`, `"false"`, and `"null"`.
-- Inside an annotation, the `@` sigil accepts **only** `true`/`false`/`null` — not dates (`@2000-01-01`), durations (`@2y`), or other constants.
+- Inside an annotation, the `@` sigil accepts **only** `true`/`false`/`null` — not dates (`@2000-01-01`) or other constants.
 - A value that begins with a digit is parsed as a number, and a value that begins with `#` (such as a color like `#fbc9ff`) must be quoted.
 
 ### Query-level annotations

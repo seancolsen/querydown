@@ -24,7 +24,7 @@ export const qd_monarch: languages.IMonarchLanguage = {
       [/[{}()[\]]/, '@brackets'],
       [/(@identifier)/, 'column'],
       [/#(@identifier)/, 'table-with-many'],
-      [/@(\d+[ymdwthsYMDWTHS])+/, 'duration'],
+      [/(\d+(\.\d+)?(?:[mM][iI][nN]|[ymwdhsYMWDHS]))+/, 'duration'],
       [/@(@identifier)/, 'constant'],
       [/@\d\d\d\d-\d\d-\d\d/, 'date'],
 

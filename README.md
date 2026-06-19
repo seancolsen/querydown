@@ -39,7 +39,7 @@ _(The bullet points above correspond, line for line, with the querydown code bel
 
 ```text
 #issues
-created_at:>@6M|ago
+created_at:>6m|ago
 --#assignments
 ++#labels{name:..["Regression" "Bug"]}
 10..20:#comments{user.team.name!"Backend"}

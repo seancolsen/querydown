@@ -186,7 +186,8 @@ mod tests {
     #[test]
     fn test_rejects_non_json_constants() {
         assert!(p("@{a:@now}").is_err());
-        assert!(p("@{a:@2y}").is_err());
+        // A duration (now written without a sigil) is likewise not a valid annotation value.
+        assert!(p("@{a:2y}").is_err());
     }
 
     #[test]

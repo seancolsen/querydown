@@ -86,7 +86,7 @@ fn variable_name<'src>() -> impl Psr<'src, String> {
     just(CONST_SIGIL).ignore_then(ident().map(|s: &str| s.to_string()))
 }
 
-/// Parses one user-defined function definition, e.g. `@@fiscal_year = @date => (@date - @1M)|year`.
+/// Parses one user-defined function definition, e.g. `@@fiscal_year = @date => (@date - 1m)|year`.
 /// The body is zero or more local assignments followed by a single result expression. Parameters
 /// and assignments are referenced (within the body) as variables.
 fn function<'src>() -> impl Psr<'src, FunctionDef> {
