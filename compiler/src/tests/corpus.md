@@ -2087,3 +2087,158 @@ WHERE
     OR "users"."username" = 'david'
   );
 ```
+
+## Query pipelines
+
+A query may be split into multiple stages separated by `~~~`. Each stage operates on the result of the previous stage, which is materialized as a CTE. The columns of a stage's output become the columns available to the next stage.
+
+### Filtering the result of an aggregation
+
+> For each project, count its issues, then keep only the projects with at least two issues.
+
+```qd
+#issues $project \g $%count -> issue_count
+~~~
+issue_count:>=2
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."project" AS "project",
+      count(*) AS "issue_count"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "pipe0".*
+FROM "pipe0"
+WHERE
+  "pipe0"."issue_count" >= 2;
+```
+
+### Aggregating across stages
+
+> Count each author's issues per project, then sum those counts per author.
+
+```qd
+#issues $author \g $project \g $%count -> issue_count
+~~~
+$author \g $issue_count%sum -> total
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."author" AS "author",
+      "issues"."project" AS "project",
+      count(*) AS "issue_count"
+    FROM "issues"
+    GROUP BY "issues"."author", "issues"."project"
+  )
+SELECT
+  "pipe0"."author",
+  sum("pipe0"."issue_count") AS "total"
+FROM "pipe0"
+GROUP BY "pipe0"."author";
+```
+
+### Explicit result columns flowing between stages
+
+> Select a few issue columns, then filter and project a subset in the next stage.
+
+```qd
+#issues $id $title $status
+~~~
+status:="open" $id $title
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title",
+      "issues"."status" AS "status"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."title"
+FROM "pipe0"
+WHERE
+  "pipe0"."status" = 'open';
+```
+
+### Three stages
+
+> Three chained stages, each consuming the previous stage's output.
+
+```qd
+#issues $project \g $%count -> issue_count
+~~~
+issue_count:>=2 $project $issue_count
+~~~
+issue_count:<100
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."project" AS "project",
+      count(*) AS "issue_count"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "pipe1" AS (
+    SELECT
+      "pipe0"."project" AS "project",
+      "pipe0"."issue_count" AS "issue_count"
+    FROM "pipe0"
+    WHERE
+      "pipe0"."issue_count" >= 2
+  )
+SELECT
+  "pipe1".*
+FROM "pipe1"
+WHERE
+  "pipe1"."issue_count" < 100;
+```
+
+### Nested CTE within a pipeline stage
+
+> A pipeline stage that itself aggregates a related table compiles its aggregation CTE nested within the pipeline CTE.
+
+```qd
+#issues $id $#comments -> comment_count
+~~~
+comment_count:>=10 $id
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          count(*) AS "v1"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."id" AS "id",
+      "cte0"."v1" AS "comment_count"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+  )
+SELECT
+  "pipe0"."id"
+FROM "pipe0"
+WHERE
+  "pipe0"."comment_count" >= 10;
+```
