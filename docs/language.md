@@ -296,7 +296,72 @@ The above query is equivalent to:
 
 Sometimes the pipe syntax is more readable. Other times the direct call is more readable, especially when using [table-scoped functions](#table-scoped-functions).
 
-## Conditions
+## Comparisons and conditions
+
+### Match comparisons
+
+> Find issues where the title contains "performance"
+
+```qd
+#issues title:"performance"
+```
+
+This does a case-insensitive search for "performance" anywhere in the issue title.
+
+The match comparison operator (`:`) behaves differently according to the type of expression on the left-hand-side. Text values will match via contains logic, while other values (e.g. numbers, dates, etc) are compared using strict equality.
+
+### Equality comparisons
+
+> Find issues where the status exactly equals "do"
+
+```qd
+#issues status:="do"
+```
+
+This will _not_ find issues where the status is "done".
+
+### Numeric comparisons
+
+> Find issue with id 123
+
+```qd
+#issues id:123
+```
+
+Note that the match operator falls back to an equality comparison here because the id column is not text. Here `id:123` is the same is `id:=123`.
+
+The comparison operators `:<` `:<=` `:>` `:>=` also allow you to perform inequality comparisons on numeric, datetime, and duration types.
+
+### Regular expression matching
+
+> Find issues with a description matching the regex `front[ -]?end`
+
+```qd
+#issues description:~'front[ -]?end'
+```
+
+This is case insensitive by default. See [comparison operators](./cheat-sheet.md#comparison-operators) for information on how to use regex flags.
+
+### All comparison operators
+
+the Cheat Sheet lists all [comparison operators](./cheat-sheet.md#comparison-operators).
+
+### Bare text on the right-hand-side of a comparison
+
+A bare (unquoted) word on the **right-hand-side** of a comparison is interpreted as a **string literal** rather than a column reference. This matches the behavior you may expect from tools like GitHub.
+
+> Find issues where the title contains the word "performance"
+
+```qd
+#issues title:performance
+```
+
+The query above is equivalent to `#issues title:"performance"`.
+
+This only applies to the right-hand-side. Bare text elsewhere (e.g. on the left-hand-side) continues to be parsed as a column reference. If you need to reference a column on the right-hand-side, you can either:
+
+- quote the identifier with backticks, e.g. ``#issues description:`title` ``, or
+- write it as a multi-part path, e.g. `#issues description:foo.bar`.
 
 ### AND condition sets
 
@@ -342,46 +407,6 @@ Conditions can be nested
   {status:"reopened" created_at:>@2022-11-22}
 ]
 ```
-
-### The match comparison operator
-
-The `:` comparison operator (aka "match") behaves differently according to the type of expression on the left-hand-side.
-
-- **Text** values will match via **contains** logic (case insensitive).
-
-    e.g.
-
-    > Find issues where the title contains "performance"
-
-    ```qd
-    #issues title:"performance"
-    ```
-
-- Other values (e.g. numbers, dates, etc) are compared using strict equality.
-
-If you need to search text values using exact equality, use the `:=` comparison instead of the match comparison.
-
-### Bare text on the right-hand-side of a comparison
-
-A bare (unquoted) word on the **right-hand-side** of a comparison is interpreted as a **string literal** rather than a column reference. This matches the behavior you may expect from tools like GitHub.
-
-> Find issues where the title contains the word "performance"
-
-```qd
-#issues title:performance
-```
-
-The query above is equivalent to `#issues title:"performance"`.
-
-This only applies to the right-hand-side. Bare text elsewhere (e.g. on the left-hand-side) continues to be parsed as a column reference. If you need to reference a column on the right-hand-side, you can either:
-
-- quote the identifier with backticks, e.g. ``#issues description:`title` ``, or
-- write it as a multi-part path, e.g. `#issues description:foo.bar`.
-
-### All comparison operators
-
-the Cheat Sheet lists all [comparison operators](./cheat-sheet.md#comparison-operators).
-
 
 ### Comparison expansion
 
