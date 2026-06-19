@@ -71,6 +71,7 @@ each case's compiled SQL against **real Postgres and DuckDB** databases to catch
 query-planning bugs a string comparison can't.
 
 ```sh
+# Must be run inside the Docker container to work!
 cargo test --features db-tests
 ```
 

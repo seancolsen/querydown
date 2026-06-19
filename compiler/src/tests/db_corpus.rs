@@ -141,14 +141,24 @@ impl TestEnv {
 
     fn setup_postgres(&self) {
         run_checked(
-            Command::new("initdb").arg("-D").arg(&self.pg_data).args([
-                "-U",
-                "postgres",
-                "--auth=trust",
-                "--no-sync",
-                "-E",
-                "UTF8",
-            ]),
+            // Pin the locale to `C` (both via the cluster `--locale` and the ambient environment)
+            // so the test doesn't depend on whatever `LANG`/`LC_*` the shell forwards in. A
+            // forwarded host locale like `en_US.UTF-8` isn't installed in the dev container and
+            // would otherwise make `initdb` bail with "invalid locale settings".
+            Command::new("initdb")
+                .env("LC_ALL", "C")
+                .env("LANG", "C")
+                .arg("-D")
+                .arg(&self.pg_data)
+                .args([
+                    "-U",
+                    "postgres",
+                    "--auth=trust",
+                    "--no-sync",
+                    "-E",
+                    "UTF8",
+                    "--locale=C",
+                ]),
             "initdb",
         );
         // Listen on a unix socket in our temp dir only (`-h ''` disables TCP), avoiding any clash
