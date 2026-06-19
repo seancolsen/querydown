@@ -49,15 +49,20 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
     }
 }
 
-fn convert_variable(variable: &str, _: &Scope) -> Result<SqlExpr, String> {
+fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, String> {
     let sql = match variable {
         VAR_NOW => func::now(),
         VAR_INFINITY => value::infinity(),
         VAR_TRUE => value::true_(),
         VAR_FALSE => value::false_(),
         VAR_NULL => value::null(),
-        // TODO handle user-defined variables from scope
-        name => return Err(msg::unknown_variable(name)),
+        // A user-defined variable (constant or function parameter): inline its bound expression.
+        name => {
+            return match scope.get_variable(name) {
+                Some(expr) => convert_expr(expr.clone(), scope),
+                None => Err(msg::unknown_variable(name)),
+            }
+        }
     };
     Ok(SqlExpr::atom(sql.to_string()))
 }

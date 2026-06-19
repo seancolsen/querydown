@@ -53,6 +53,9 @@ impl Serialize for AnnotationValue {
 
 #[derive(Debug, PartialEq)]
 pub struct Query {
+    /// User-defined constant definitions, written as `@name = expr` before the base table. Each
+    /// binds a name to an expression whose value is inlined wherever the constant is referenced.
+    pub constants: Vec<ConstantDef>,
     /// Computed column definitions, written before the base table. Each defines a named expression
     /// scoped to a table, which can then be referenced (by name) like a real column elsewhere in the
     /// query — including within the definitions of later computed columns.
@@ -65,6 +68,15 @@ pub struct Query {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComputedColumn {
     pub table: String,
+    pub name: String,
+    pub expr: Expr,
+}
+
+/// A user-defined constant definition, written as `@name = expr` before the query's base table. The
+/// constant's value is inlined into the generated SQL wherever the constant is referenced (as
+/// `@name`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstantDef {
     pub name: String,
     pub expr: Expr,
 }

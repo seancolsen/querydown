@@ -1817,3 +1817,56 @@ FROM "issues"
 LEFT JOIN "users" ON
   "issues"."author" = "users"."id";
 ```
+
+## User-defined constants
+
+### Constant inlined into a condition
+
+> Show the issues created by user 1234. The `@user_id` constant is defined before the base table and
+> its value is inlined into the generated SQL.
+
+```qd
+@user_id = 1234
+#issues author:@user_id $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+WHERE
+  "issues"."author" = 1234;
+```
+
+### Constant inlined into an arithmetic expression
+
+> Show each issue's id offset by a constant amount.
+
+```qd
+@offset = 100
+#issues $id + @offset
+```
+
+```sql
+SELECT
+  "issues"."id" + 100
+FROM "issues";
+```
+
+### Constant referencing another constant
+
+> A constant's value may itself reference an earlier constant; both are inlined.
+
+```qd
+@base = 1000
+@user_id = @base
+#issues author:@user_id $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+WHERE
+  "issues"."author" = 1000;
+```
