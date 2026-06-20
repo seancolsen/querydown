@@ -458,6 +458,11 @@ fn expr_all_match(expr: &Expr) -> bool {
                 && w.partition_by.iter().all(expr_all_match)
                 && w.order_by.iter().all(|s| expr_all_match(&s.expr))
         }
+        Expr::AnonymousFunctionCall(c) => {
+            c.args.iter().all(expr_all_match)
+                && c.body.assignments.iter().all(|a| expr_all_match(&a.expr))
+                && expr_all_match(&c.body.expr)
+        }
         Expr::Number(_)
         | Expr::Date(_)
         | Expr::Duration(_)
@@ -529,6 +534,16 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
             w.order_by
                 .iter_mut()
                 .for_each(|s| rewrite_match_operator(&mut s.expr, new_operator));
+        }
+        Expr::AnonymousFunctionCall(c) => {
+            c.args
+                .iter_mut()
+                .for_each(|e| rewrite_match_operator(e, new_operator));
+            c.body
+                .assignments
+                .iter_mut()
+                .for_each(|a| rewrite_match_operator(&mut a.expr, new_operator));
+            rewrite_match_operator(&mut c.body.expr, new_operator);
         }
         Expr::Number(_)
         | Expr::Date(_)

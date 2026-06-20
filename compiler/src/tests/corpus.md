@@ -2169,6 +2169,139 @@ WHERE
   FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21;
 ```
 
+## Anonymous functions
+
+### Basic anonymous function
+
+> Categorize each issue by how soon it is due. The piped-in value is bound to the anonymous
+> function's `@d` parameter, and the body is inlined wherever `@d` is referenced.
+
+```qd
+#issues
+$title
+$due_date|countdown|days|(@d => ? @d:<0 ~ "overdue" @d:<30 ~ "due soon" ~~ "due later")
+```
+
+```sql
+SELECT
+  "issues"."title",
+  CASE
+    WHEN EXTRACT(epoch FROM "issues"."due_date" - NOW()) / 86400 < 0 THEN 'overdue'
+    WHEN EXTRACT(epoch FROM "issues"."due_date" - NOW()) / 86400 < 30 THEN 'due soon'
+    ELSE 'due later'
+  END
+FROM "issues";
+```
+
+### Anonymous function with a simple body
+
+> An anonymous function's body can be any expression. Here the piped-in `id` is doubled.
+
+```qd
+#issues $id|(@x => @x * 2)
+```
+
+```sql
+SELECT
+  "issues"."id" * 2
+FROM "issues";
+```
+
+### Anonymous function used within a condition
+
+> An anonymous function may be applied anywhere an expression is allowed, including conditions.
+
+```qd
+#issues id|(@x => @x * 10):>0 $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+WHERE
+  "issues"."id" * 10 > 0;
+```
+
+### Anonymous function with a local assignment and extra argument
+
+> Like a user-defined function, an anonymous function may take more than one parameter (the piped-in
+> value plus parenthesized arguments) and may contain local assignments before its result.
+
+```qd
+#issues $id|(@a @b => @s = @a + @b @s * 2)(100)
+```
+
+```sql
+SELECT
+  ("issues"."id" + 100) * 2
+FROM "issues";
+```
+
+## Function calling
+
+### Basic function call
+
+> Use `@@` to call a function without a pipe. For each issue, show how many days it is overdue,
+> displaying zero instead of negative numbers. Arguments are separated by spaces, not commas.
+
+```qd
+#issues $title $@@max(due_date|age|days 0)
+```
+
+```sql
+SELECT
+  "issues"."title",
+  GREATEST(EXTRACT(epoch FROM NOW() - "issues"."due_date") / 86400, 0)
+FROM "issues";
+```
+
+### Function call equivalent to a pipe
+
+> The direct call above is equivalent to applying the same function via a pipe.
+
+```qd
+#issues $title $due_date|age|days|max(0)
+```
+
+```sql
+SELECT
+  "issues"."title",
+  GREATEST(EXTRACT(epoch FROM NOW() - "issues"."due_date") / 86400, 0)
+FROM "issues";
+```
+
+### Function call on a user-defined function
+
+> The `@@` call syntax works with user-defined functions too.
+
+```qd
+@@add = @a @b => @a + @b
+#issues $@@add(id 100)
+```
+
+```sql
+SELECT
+  "issues"."id" + 100
+FROM "issues";
+```
+
+### Function call used within a condition
+
+> A direct call may appear anywhere an expression is allowed, including conditions.
+
+```qd
+#issues @@max(id 0):>5 $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+WHERE
+  GREATEST("issues"."id", 0) > 5;
+```
+
 ## Custom comparisons
 
 ### Basic custom comparison

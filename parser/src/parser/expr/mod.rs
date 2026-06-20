@@ -60,6 +60,9 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             number().map(Expr::Number),
             date().map(Expr::Date),
             string().map(Expr::String),
+            // `function_call` is tried before `variable` because both begin with `@`; the `@@`
+            // prefix of a call would otherwise be misread as the start of a `@`-prefixed variable.
+            function_call(prec_comma.clone()),
             variable().map(Expr::Variable),
             window(prec_comma.clone()),
             path(prec_comma.clone()).map(Expr::Path),
@@ -86,6 +89,8 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             number().map(Expr::Number),
             date().map(Expr::Date),
             string().map(Expr::String),
+            // See the ordering note on `prec_atom` above: `function_call` before `variable`.
+            function_call(prec_comma.clone()),
             variable().map(Expr::Variable),
             comparison_rhs_value(prec_comma.clone()),
             has_quantity(prec_comma.clone()).map(Expr::HasQuantity),
@@ -201,6 +206,33 @@ fn operator<'src>(
 
 fn variable<'src>() -> impl Psr<'src, String> {
     just(CONST_SIGIL).ignore_then(ident().map(|s: &str| s.to_string()))
+}
+
+/// Parses a direct function call, written with the `@@` sigil, e.g. `@@max(due_date|age|days 0)`.
+/// This applies a (built-in or user-defined) scalar function without using a pipe. The arguments are
+/// space-separated (no commas) and enclosed in parentheses; the parentheses are required even for a
+/// call with no arguments.
+fn function_call<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+    let args = args_expr
+        .padded_by(pad())
+        .repeated()
+        .collect::<Vec<Expr>>()
+        .delimited_by(
+            just(COMPOSITION_ARGUMENT_BRACE_L),
+            just(COMPOSITION_ARGUMENT_BRACE_R),
+        );
+    exactly(FUNCTION_SIGIL)
+        .ignore_then(ident().map(|s: &str| s.to_string()))
+        .then(args)
+        .map(|(name, args)| {
+            Expr::Call(Call {
+                name,
+                dimension: FunctionDimension::Scalar,
+                syntax: CallSyntax::Standalone,
+                args,
+                order_by: vec![],
+            })
+        })
 }
 
 fn string<'src>() -> impl Psr<'src, String> {
@@ -685,6 +717,124 @@ mod tests {
                     })),
                 ]
             }))
+        );
+    }
+
+    #[test]
+    fn test_parse_function_call() {
+        let p = |s: &str| {
+            expr()
+                .then_ignore(end())
+                .parse(s)
+                .into_result()
+                .map_err(|_| ())
+        };
+
+        // A direct function call with `@@`: scalar dimension, standalone syntax, space-separated
+        // arguments (no commas).
+        assert_eq!(
+            p("@@max(foo 0)"),
+            Ok(Expr::Call(Call {
+                name: "max".to_string(),
+                dimension: FunctionDimension::Scalar,
+                syntax: CallSyntax::Standalone,
+                args: vec![
+                    Expr::Path(vec![PathPart::Column("foo".to_string())]),
+                    Expr::Number("0".to_string()),
+                ],
+                order_by: vec![],
+            }))
+        );
+
+        // The parentheses are required, but may be empty for a no-argument call.
+        assert_eq!(
+            p("@@now()"),
+            Ok(Expr::Call(Call {
+                name: "now".to_string(),
+                dimension: FunctionDimension::Scalar,
+                syntax: CallSyntax::Standalone,
+                args: vec![],
+                order_by: vec![],
+            }))
+        );
+
+        // Arguments may themselves be pipes.
+        assert_eq!(
+            p("@@max(foo|bar 0)"),
+            Ok(Expr::Call(Call {
+                name: "max".to_string(),
+                dimension: FunctionDimension::Scalar,
+                syntax: CallSyntax::Standalone,
+                args: vec![
+                    Expr::Call(Call {
+                        name: "bar".to_string(),
+                        dimension: FunctionDimension::Scalar,
+                        syntax: CallSyntax::Piped,
+                        args: vec![Expr::Path(vec![PathPart::Column("foo".to_string())])],
+                        order_by: vec![],
+                    }),
+                    Expr::Number("0".to_string()),
+                ],
+                order_by: vec![],
+            }))
+        );
+    }
+
+    #[test]
+    fn test_parse_anonymous_function() {
+        let p = |s: &str| {
+            expr()
+                .then_ignore(end())
+                .parse(s)
+                .into_result()
+                .map_err(|_| ())
+        };
+
+        // An anonymous function applied via a pipe. The piped-in value becomes the sole argument,
+        // and the body references the parameter.
+        assert_eq!(
+            p("foo|(@x => @x * 2)"),
+            Ok(Expr::AnonymousFunctionCall(Box::new(
+                AnonymousFunctionCall {
+                    params: vec!["x".to_string()],
+                    body: FunctionBody {
+                        assignments: vec![],
+                        expr: Expr::Product(
+                            Box::new(Expr::Variable("x".to_string())),
+                            Box::new(Expr::Number("2".to_string())),
+                        ),
+                    },
+                    args: vec![Expr::Path(vec![PathPart::Column("foo".to_string())])],
+                }
+            )))
+        );
+
+        // An anonymous function may take multiple parameters and contain a local assignment. The
+        // piped-in value is the first argument; parenthesized values supply the rest.
+        assert_eq!(
+            p("foo|(@a @b => @s = @a + @b @s * 2)(3)"),
+            Ok(Expr::AnonymousFunctionCall(Box::new(
+                AnonymousFunctionCall {
+                    params: vec!["a".to_string(), "b".to_string()],
+                    body: FunctionBody {
+                        assignments: vec![Assignment {
+                            name: "s".to_string(),
+                            expr: Expr::Sum(
+                                Box::new(Expr::Variable("a".to_string())),
+                                Box::new(Expr::Variable("b".to_string())),
+                            ),
+                        }],
+                        expr: Expr::Product(
+                            Box::new(Expr::Variable("s".to_string())),
+                            Box::new(Expr::Number("2".to_string())),
+                        ),
+                    },
+                    args: vec![
+                        Expr::Path(vec![PathPart::Column("foo".to_string())]),
+                        Expr::Number("3".to_string()),
+                    ],
+                }
+            )))
         );
     }
 

@@ -210,6 +210,24 @@ pub enum Expr {
     /// A window function application, written as `%%( ... )%func(args)`. The `%%( ... )` defines the
     /// window (partition and ordering), and the trailing `%func` applies a window function over it.
     Window(WindowFn),
+    /// An anonymous function applied to arguments, e.g. `value|(@d => @d:<0)`. Anonymous functions
+    /// can only be applied immediately, via a pipe, so this node always carries its arguments. Like
+    /// a user-defined function, its parameters are bound to the arguments and its body is inlined.
+    AnonymousFunctionCall(Box<AnonymousFunctionCall>),
+}
+
+/// An anonymous function applied to arguments, written as `value|(@param => body)`. The piped-in
+/// value becomes the first argument. There is no way to name or store an anonymous function, so it
+/// is always applied at the point where it is written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnonymousFunctionCall {
+    /// Parameter names, without the `@` sigil, in order.
+    pub params: Vec<String>,
+    /// The function body: zero or more local assignments followed by a single result expression.
+    pub body: FunctionBody,
+    /// The arguments to which the function is applied. The first is the piped-in value; any others
+    /// come from parenthesized arguments following the anonymous function.
+    pub args: Vec<Expr>,
 }
 
 /// A window function application: a function applied over a window defined by partition and ordering
