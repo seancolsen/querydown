@@ -96,6 +96,29 @@ add a `db_skip` to its ```` ```toml options ```` block: `db_skip = true` (all en
 This setup is also the foundation for future data-driven E2E tests: seed rows into the tables and assert
 on result sets instead of just running `EXPLAIN`.
 
+## Regenerating documentation tables of contents
+
+Several docs (currently [docs/language.md](docs/language.md) and
+[docs/cheat-sheet.md](docs/cheat-sheet.md)) carry an auto-generated table of contents marked off by
+`<!-- START doctoc ... -->` / `<!-- END doctoc ... -->` comments. These are produced by
+[doctoc](https://github.com/thlorenz/doctoc), which is installed in the container by the
+[Dockerfile](Dockerfile). **Whenever you change the headings in one of those docs, re-run doctoc so its
+TOC stays in sync**, then commit the regenerated file.
+
+Run it from `/workspace` inside the container:
+
+```sh
+# language.md was generated without a "Table of Contents" title, so keep --notitle for it:
+doctoc --notitle docs/language.md
+
+# cheat-sheet.md keeps the default title:
+doctoc docs/cheat-sheet.md
+```
+
+doctoc edits the file in place and rewrites only the region between the marker comments; the rest of the
+document is untouched. If you add a new doc with its own doctoc markers, follow whichever title
+convention you want and add the matching command above.
+
 ## Optional: VS Code / Codespaces dev container
 
 If you use VS Code, [.devcontainer/devcontainer.json](../.devcontainer/devcontainer.json) lets you run your **whole editor** inside this same container instead of opening a shell with `docker compose run`. It's a supplement — it reuses the exact same `docker-compose.yml` (Dockerfile, cache volumes, UID matching, entrypoint), so nothing about the CLI workflow above changes.
