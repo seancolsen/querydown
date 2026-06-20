@@ -166,54 +166,16 @@ pub fn convert_condition_set(
     let conditions = condition_set
         .entries
         .into_iter()
-        .map(|expr| convert_condition_entry(expr, scope))
+        .map(|entry| match entry {
+            // A bare string standing alone as a boolean condition is a default text search term.
+            // The parser produces this for an unquoted bare word as well as a quoted string (see
+            // the `condition_entry` parser); a backtick-quoted identifier remains an `Expr::Path`
+            // and so is treated as an ordinary column reference here.
+            Expr::String(term) => convert_default_text_search(term, scope),
+            entry => convert_expr(entry, scope),
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(cmp::condition_set(conditions, &condition_set.conjunction))
-}
-
-/// Converts a single entry of a condition set. This is almost always [`convert_expr`], but it also
-/// recognizes a bare **default text search** term: a standalone string (or bare alphanumeric word)
-/// that carries no comparison operator. Such an entry is a low-friction way to search across many of
-/// the base table's columns at once (see the "Default text search" section of the language guide).
-fn convert_condition_entry(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
-    match default_text_search_term(&expr, scope) {
-        Some(term) => convert_default_text_search(term, scope),
-        None => convert_expr(expr, scope),
-    }
-}
-
-/// If `expr`, appearing as a boolean condition, should be treated as a default text search term,
-/// returns that term. A quoted string literal always qualifies. A bare word (parsed as a
-/// single-column path) qualifies only when it begins with a letter, contains only alphanumeric
-/// characters, and does not resolve to a real or computed column on the base table — in which case
-/// it would otherwise be a column reference.
-fn default_text_search_term(expr: &Expr, scope: &Scope) -> Option<String> {
-    match expr {
-        Expr::String(s) => Some(s.clone()),
-        Expr::Path(parts) => {
-            let [PathPart::Column(name)] = parts.as_slice() else {
-                return None;
-            };
-            let is_bare_word = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-                && name.chars().all(|c| c.is_ascii_alphanumeric());
-            if is_bare_word && !resolves_to_column(name, scope) {
-                Some(name.clone())
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
-/// Whether `name` resolves to a real column or a computed column on the scope's base table.
-fn resolves_to_column(name: &str, scope: &Scope) -> bool {
-    let base_table = scope.get_base_table();
-    scope
-        .options
-        .resolve_identifier(&base_table.column_lookup, name)
-        .is_some()
-        || scope.get_computed_column(&base_table.name, name).is_some()
 }
 
 /// Compiles a default text search for `term` against the scope's base table. If the base table has a

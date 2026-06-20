@@ -13,25 +13,27 @@ fn compile(input: &str) -> Result<String, String> {
 }
 
 #[test]
-fn bare_word_resolving_to_a_real_column_is_a_column_reference() {
-    // `title` is a real column, so as a bare condition it stays a column reference rather than
-    // becoming a default text search across all text columns.
+fn bare_word_is_a_search_even_when_it_matches_a_column_name() {
+    // A bare word always searches; it does not defer to a column of the same name. `title` is a
+    // real column, yet `#issues title` searches for the literal text "title" across every text-like
+    // column of the base table.
     let sql = compile("#issues title $id").unwrap();
+    assert!(sql.contains("'title'"), "got: {sql}");
+    assert!(sql.contains(r#""issues"."description""#), "got: {sql}");
+    assert!(sql.contains(r#""issues"."status""#), "got: {sql}");
+}
+
+#[test]
+fn backtick_quoting_forces_a_column_reference() {
+    // Backtick-quoting a bare word designates it as a column reference rather than a search term —
+    // the parser preserves this distinction, which a bare word alone cannot express.
+    let sql = compile("#issues `title` $id").unwrap();
     assert!(sql.contains(r#""issues"."title""#), "got: {sql}");
-    // A real-column reference does not search `description` the way a text search would.
     assert!(!sql.contains("description"), "got: {sql}");
 }
 
 #[test]
-fn bare_word_resolving_to_a_computed_column_is_not_a_search() {
-    // A computed column behaves like a real column, so a bare reference to it is not a search.
-    let sql = compile("#issues.is_open = status:=\"open\"\n#issues is_open $id").unwrap();
-    assert!(sql.contains(r#""issues"."status" = 'open'"#), "got: {sql}");
-}
-
-#[test]
-fn unresolved_bare_word_becomes_a_default_text_search() {
-    // `accessibility` is not a column, so it searches every text-like column of the base table.
+fn bare_word_searches_every_text_column() {
     let sql = compile("#issues accessibility $id").unwrap();
     assert!(sql.contains(r#""issues"."title""#), "got: {sql}");
     assert!(sql.contains(r#""issues"."description""#), "got: {sql}");
@@ -41,10 +43,19 @@ fn unresolved_bare_word_becomes_a_default_text_search() {
 
 #[test]
 fn bare_word_with_underscore_is_not_a_search_term() {
-    // The bare-word form only applies to letter-initial, strictly alphanumeric words. A word with
-    // an underscore that does not resolve to a column is an error, not a search.
+    // The bare-search-word form only applies to letter-initial, strictly alphanumeric words. A word
+    // with an underscore is a column reference, so an unknown one is an error rather than a search.
     let err = compile("#issues not_a_column $id").unwrap_err();
     assert!(err.contains("not_a_column"), "got: {err}");
+}
+
+#[test]
+fn backtick_quoting_a_word_in_a_bracketed_set_is_a_column_reference() {
+    // The bare-vs-backtick distinction also holds inside a boolean `[ ]`/`{ }` condition set.
+    let sql = compile("#issues [`status` `title`] $id").unwrap();
+    assert!(sql.contains(r#""issues"."status""#), "got: {sql}");
+    assert!(sql.contains(r#""issues"."title""#), "got: {sql}");
+    assert!(!sql.contains("strpos"), "got: {sql}");
 }
 
 #[test]

@@ -5,7 +5,8 @@ use crate::tokens::*;
 
 use super::utils::*;
 use super::{
-    column_layout::result_columns, expr::comparison_operator, expr::expr, sorting::sorting,
+    column_layout::result_columns, expr::comparison_operator, expr::condition_entry, expr::expr,
+    sorting::sorting,
 };
 
 /// A pre-base-table definition. Several kinds of definition share the same position in the source
@@ -187,7 +188,9 @@ fn transformation<'src>() -> impl Psr<'src, Transformation> {
 /// This is exposed so that the filtering section of a query can be parsed in isolation, separate
 /// from sorting and display.
 pub fn conditions<'src>() -> impl Psr<'src, ConditionSet> {
-    expr()
+    // Each top-level filtering expression is a condition-set entry, so a lone bare word here is a
+    // default text search term rather than a column reference (see `condition_entry`).
+    condition_entry(expr())
         .padded_by(pad())
         .repeated()
         .collect::<Vec<Expr>>()

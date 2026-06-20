@@ -375,6 +375,12 @@ The default text search is a simple way to give users a low-friction search acro
 
 In the above example, "feature" is parsed as a default text search term because it comes before any display columns and it does not have a comparison operator. Bare strings (without quotes) will only work if they begin with a letter and contain only alphanumeric characters.
 
+A bare word is _always_ a search term, even when it happens to match a column name — so `#issues title` searches for the literal text "title" rather than referencing the `title` column. If you instead want to reference a column as a bare condition (e.g. a boolean column), quote it with backticks, just as you would on the [right-hand side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison):
+
+```qd
+#issues `is_blocked`
+```
+
 You can search for any string using the default text search if you explicitly quote it:
 
 ```qd

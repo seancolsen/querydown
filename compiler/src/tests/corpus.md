@@ -588,6 +588,26 @@ WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('feature' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('feature' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('feature' COLLATE "C")) > 0, FALSE));
 ```
 
+### Bare word searches even when it names a column
+
+A bare word always searches; it does not defer to a column of the same name. Even though `title` is a
+column, `#issues title` searches for the literal text "title". To reference the column itself as a
+bare condition, quote it with backticks (`` `title` ``).
+
+> Issues mentioning the word "title"
+
+```qd
+#issues title
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('title' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('title' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('title' COLLATE "C")) > 0, FALSE));
+```
+
 ### Default text search with a quoted string
 
 Quoting the search term lets it contain characters (like `:`) that a bare word may not.

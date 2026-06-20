@@ -1,7 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
-use crate::parser::expr::condition_set::condition_set;
+use crate::parser::expr::condition_set::expansion_set;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
@@ -12,7 +12,7 @@ pub fn comparison<'src>(
     range_expr: impl Psr<'src, Expr>,
 ) -> impl Psr<'src, Comparison> {
     let left = choice((
-        condition_set(condition_set_expr.clone())
+        expansion_set(condition_set_expr.clone())
             .then_ignore(pad().then(just(COMPARISON_EXPAND)))
             .map(ComparisonSide::Expansion),
         range(range_expr.clone()).map(ComparisonSide::Range),
@@ -21,7 +21,7 @@ pub fn comparison<'src>(
     let right = choice((
         just(COMPARISON_EXPAND)
             .then(pad())
-            .ignore_then(condition_set(condition_set_expr).map(ComparisonSide::Expansion)),
+            .ignore_then(expansion_set(condition_set_expr).map(ComparisonSide::Expansion)),
         range(range_expr).map(ComparisonSide::Range),
         right_side_expr.map(ComparisonSide::Expr),
     ));

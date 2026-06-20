@@ -10,6 +10,7 @@ mod pipe;
 mod window;
 
 pub use comparison::operator as comparison_operator;
+pub use condition_set::condition_entry;
 pub use path::path_to_one;
 
 use chumsky::{prelude::*, text::*};
@@ -272,27 +273,26 @@ mod tests {
                 })]
             }))
         );
+        // Within a boolean condition set, a bare word is a default text search term (an
+        // `Expr::String`), not a column reference. A backtick-quoted identifier would instead be a
+        // column reference.
         assert_eq!(
             p("[a b]"),
             Ok(Expr::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
-                entries: vec![
-                    Expr::Path(vec![PathPart::Column("a".to_string())]),
-                    Expr::Path(vec![PathPart::Column("b".to_string())]),
-                ]
+                entries: vec![Expr::String("a".to_string()), Expr::String("b".to_string()),]
             }))
         );
         assert_eq!(
             p("{a b}"),
             Ok(Expr::ConditionSet(ConditionSet {
                 conjunction: Conjunction::And,
-                entries: vec![
-                    Expr::Path(vec![PathPart::Column("a".to_string())]),
-                    Expr::Path(vec![PathPart::Column("b".to_string())]),
-                ]
+                entries: vec![Expr::String("a".to_string()), Expr::String("b".to_string()),]
             }))
         );
 
+        // The comma "OR" shorthand combines full expressions, so a bare word there remains a column
+        // reference (the bare-search-term form is only recognized for whitespace-separated entries).
         // The comma is shorthand for an "OR" condition set.
         assert_eq!(
             p("a,b"),
