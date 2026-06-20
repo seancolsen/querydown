@@ -127,17 +127,66 @@ fn negation<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
         .foldr(e, |_, expr| Expr::Not(Box::new(expr)))
 }
 
+/// One operand of the comma "OR" shorthand: either a bare word or a general expression. A bare word
+/// is held as a string so it can be resolved differently depending on whether it stands alone (a
+/// column reference) or is part of a multi-operand `OR` (a default text search term).
+enum OrOperand {
+    Bare(String),
+    Expr(Expr),
+}
+
+impl OrOperand {
+    /// How a bare word resolves when it is the _sole_ operand (no comma): as a column reference,
+    /// exactly as if it had been parsed as a path. This keeps a lone bare word — e.g. a result
+    /// column `$foo` or a sort expression `\\foo` — a column reference rather than a search term.
+    fn into_lone_expr(self) -> Expr {
+        match self {
+            OrOperand::Bare(word) => Expr::Path(vec![PathPart::Column(word)]),
+            OrOperand::Expr(expr) => expr,
+        }
+    }
+
+    /// How a bare word resolves when it is _one of several_ comma-separated operands: as a default
+    /// text search term (an `Expr::String`), the same as a bare word standing alone in a boolean
+    /// condition.
+    fn into_or_entry(self) -> Expr {
+        match self {
+            OrOperand::Bare(word) => Expr::String(word),
+            OrOperand::Expr(expr) => expr,
+        }
+    }
+}
+
 /// Joins comma-separated expressions into an "OR" condition set, e.g. `foo:1,bar:2`. This is the
 /// lowest-precedence operator in the language. A single expression with no trailing comma is passed
 /// through unchanged, so this rule is transparent when no comma is present.
+///
+/// Each operand is boolean, so a bare word operand of a multi-operand `OR` is a default text search
+/// term (e.g. `foo,bar` searches for "foo" or "bar"). A bare word that turns out to stand alone
+/// remains a column reference, so this rule is transparent for non-condition uses like a result
+/// column `$foo`.
 fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
-    e.separated_by(just(CONDITION_SET_OR_SHORTHAND).padded_by(pad()))
-        .at_least(1)
-        .collect::<Vec<Expr>>()
-        .map(|mut entries| {
-            if entries.len() == 1 {
-                entries.pop().unwrap()
+    let operand = choice((
+        condition_set::bare_search_operand().map(OrOperand::Bare),
+        e.map(OrOperand::Expr),
+    ));
+    operand
+        .clone()
+        .then(
+            just(CONDITION_SET_OR_SHORTHAND)
+                .padded_by(pad())
+                .ignore_then(operand)
+                .repeated()
+                .collect::<Vec<OrOperand>>(),
+        )
+        .map(|(first, rest)| {
+            if rest.is_empty() {
+                first.into_lone_expr()
             } else {
+                let entries = std::iter::once(first)
+                    .chain(rest)
+                    .map(OrOperand::into_or_entry)
+                    .collect();
                 Expr::ConditionSet(ConditionSet::via_or(entries))
             }
         })
@@ -291,17 +340,13 @@ mod tests {
             }))
         );
 
-        // The comma "OR" shorthand combines full expressions, so a bare word there remains a column
-        // reference (the bare-search-term form is only recognized for whitespace-separated entries).
-        // The comma is shorthand for an "OR" condition set.
+        // The comma is shorthand for an "OR" condition set. Each operand is boolean, so a bare word
+        // operand is a default text search term (an `Expr::String`), not a column reference.
         assert_eq!(
             p("a,b"),
             Ok(Expr::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
-                entries: vec![
-                    Expr::Path(vec![PathPart::Column("a".to_string())]),
-                    Expr::Path(vec![PathPart::Column("b".to_string())]),
-                ]
+                entries: vec![Expr::String("a".to_string()), Expr::String("b".to_string()),]
             }))
         );
 
@@ -311,9 +356,9 @@ mod tests {
             Ok(Expr::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
                 entries: vec![
-                    Expr::Path(vec![PathPart::Column("a".to_string())]),
-                    Expr::Path(vec![PathPart::Column("b".to_string())]),
-                    Expr::Path(vec![PathPart::Column("c".to_string())]),
+                    Expr::String("a".to_string()),
+                    Expr::String("b".to_string()),
+                    Expr::String("c".to_string()),
                 ]
             }))
         );

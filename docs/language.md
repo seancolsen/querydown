@@ -387,6 +387,12 @@ You can search for any string using the default text search if you explicitly qu
 #issues "localhost:3000"
 ```
 
+Because the comma is shorthand for an [OR condition set](#or-condition-sets), bare terms can be combined with it to search for either term:
+
+```qd
+#issues foo,bar
+```
+
 #### Configuring the default text search
 
 You can use [custom comparisons](#custom-comparisons) to customize the default text search columns to your liking.

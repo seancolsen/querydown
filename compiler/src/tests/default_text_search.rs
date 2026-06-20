@@ -50,6 +50,25 @@ fn bare_word_with_underscore_is_not_a_search_term() {
 }
 
 #[test]
+fn comma_shorthand_searches_each_bare_operand() {
+    // `foo,bar` is an "OR" of two default text searches: issues containing "foo" or "bar".
+    let sql = compile("#issues foo,bar $id").unwrap();
+    assert!(sql.contains("'foo'"), "got: {sql}");
+    assert!(sql.contains("'bar'"), "got: {sql}");
+    // Both operands search; neither is treated as a column reference.
+    assert!(!sql.contains(r#""issues"."foo""#), "got: {sql}");
+    assert!(!sql.contains(r#""issues"."bar""#), "got: {sql}");
+}
+
+#[test]
+fn comma_shorthand_mixes_searches_and_comparisons() {
+    // A comparison operand keeps its meaning while a bare operand becomes a search.
+    let sql = compile("#issues status:=open,bar $id").unwrap();
+    assert!(sql.contains(r#""issues"."status" = 'open'"#), "got: {sql}");
+    assert!(sql.contains("'bar'"), "got: {sql}");
+}
+
+#[test]
 fn backtick_quoting_a_word_in_a_bracketed_set_is_a_column_reference() {
     // The bare-vs-backtick distinction also holds inside a boolean `[ ]`/`{ }` condition set.
     let sql = compile("#issues [`status` `title`] $id").unwrap();

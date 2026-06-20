@@ -626,6 +626,25 @@ WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE));
 ```
 
+### Default text search with the comma "OR" shorthand
+
+Each operand of the comma `,` shorthand is a boolean condition, so a bare operand is its own default
+text search. This finds issues matching either term.
+
+> Issues mentioning "foo" or "bar"
+
+```qd
+#issues foo,bar
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE));
+```
+
 ### Default text search alongside other conditions
 
 A default text search term can be freely mixed with ordinary comparisons.
