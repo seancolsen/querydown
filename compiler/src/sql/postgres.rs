@@ -12,6 +12,10 @@ pub struct Postgres();
 // Postgres escapes a `"` inside a quoted identifier by doubling it. No current input exercises an
 // identifier containing those characters, so this is left for later.
 impl Dialect for Postgres {
+    fn introspection_sql(&self) -> &'static str {
+        include_str!("../../resources/introspection/postgres.sql")
+    }
+
     fn quote_identifier(&self, ident: &str) -> String {
         format!(r#""{}""#, ident.replace(r"\", r"\\").replace('"', r#"\""#))
     }

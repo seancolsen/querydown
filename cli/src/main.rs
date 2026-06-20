@@ -14,8 +14,18 @@ struct Cli {
 enum Command {
     /// Compile Querydown code to SQL
     Compile(CompileArgs),
-    /// Analyze a database to generate a schema JSON file
-    Introspect,
+    /// Print the SQL query that introspects a database to generate its schema JSON.
+    ///
+    /// The printed query yields a single row with a single column containing the schema JSON.
+    /// Run it against your database, then pass the result to `compile --schema`.
+    Introspect(IntrospectArgs),
+}
+
+#[derive(Debug, Args)]
+struct IntrospectArgs {
+    /// The SQL dialect to target.
+    #[arg(short, long, value_enum, default_value_t = DialectOption::Postgres)]
+    dialect: DialectOption,
 }
 
 #[derive(Debug, Args)]
@@ -73,14 +83,18 @@ fn compile(args: CompileArgs) {
     }
 }
 
-fn introspect() {
-    todo!()
+fn introspect(args: IntrospectArgs) {
+    let dialect: Box<dyn Dialect> = match args.dialect {
+        DialectOption::Postgres => Box::new(Postgres()),
+        DialectOption::Duckdb => Box::new(DuckDB()),
+    };
+    println!("{}", dialect.introspection_sql());
 }
 
 fn main() {
     let args = Cli::parse();
     match args.command {
         Command::Compile(args) => compile(args),
-        Command::Introspect => introspect(),
+        Command::Introspect(args) => introspect(args),
     }
 }
