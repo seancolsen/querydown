@@ -50,6 +50,7 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
         Expr::Not(e) => Ok(cond::not(convert_expr(*e, scope)?)),
         Expr::Window(w) => super::window::convert_window(w, scope),
         Expr::AnonymousFunctionCall(c) => convert_anonymous_function_call(*c, scope),
+        Expr::Subquery(q) => super::convert_subquery(*q, scope),
     }
 }
 

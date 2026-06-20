@@ -1054,13 +1054,15 @@ reference an earlier constant.
 
 ### Defining a constant using the result of a query
 
-_(🚧 Not yet implemented)_
+A constant may be defined as a `#( ... )` subquery whose inner query produces a single value. The
+subquery is **inlined** as a parenthesized scalar subquery (e.g. `(SELECT … )`) wherever the constant
+is referenced.
 
-> Find issues created after the the most recent comment was created
+> Find issues created after the most recent comment was created
 
 ```qd
-@date_of_latest_comment = #( #comments created_at%max )
-#issues created_at:>date_of_latest_comment
+@date_of_latest_comment = #( #comments $created_at%max )
+#issues created_at:>@date_of_latest_comment
 ```
 
 ### Computed columns
@@ -1163,7 +1165,10 @@ With this definition, attempting to call `participant:~"david"` will fail.
 
 ### User-defined tables
 
-_(🚧 Not yet implemented)_
+A user-defined table is defined before the base table with `#name = #( query )`. It names a
+subquery, which compiles to a CTE. The name can then be used as the base table of the query — or of a
+later user-defined table. Each user-defined table's output columns become the columns available
+wherever it is used as a base table.
 
 > For each project, count the number of months in which at least 10 issues were created
 

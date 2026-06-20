@@ -463,6 +463,8 @@ fn expr_all_match(expr: &Expr) -> bool {
                 && c.body.assignments.iter().all(|a| expr_all_match(&a.expr))
                 && expr_all_match(&c.body.expr)
         }
+        // A scalar subquery is self-contained; it does not participate in operator switching.
+        Expr::Subquery(_) => true,
         Expr::Number(_)
         | Expr::Date(_)
         | Expr::Duration(_)
@@ -545,6 +547,8 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
                 .for_each(|a| rewrite_match_operator(&mut a.expr, new_operator));
             rewrite_match_operator(&mut c.body.expr, new_operator);
         }
+        // A scalar subquery is self-contained; its inner operators are not rewritten.
+        Expr::Subquery(_) => {}
         Expr::Number(_)
         | Expr::Date(_)
         | Expr::Duration(_)

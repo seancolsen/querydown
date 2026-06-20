@@ -51,10 +51,10 @@ impl Serialize for AnnotationValue {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Query {
-    /// The definitions (constants, functions, custom comparisons, and computed columns) written
-    /// before the base table.
+    /// The definitions (constants, functions, custom comparisons, computed columns, and user-defined
+    /// tables) written before the base table.
     pub definitions: Definitions,
     pub base_table: String,
     pub transformations: Vec<Transformation>,
@@ -109,6 +109,18 @@ pub struct Definitions {
     /// scoped to a table, which can then be referenced (by name) like a real column elsewhere in the
     /// query — including within the definitions of later computed columns.
     pub computed_columns: Vec<ComputedColumn>,
+    /// User-defined table definitions, written as `#name = #( query )` before the base table. Each
+    /// names a subquery that can then be used as the base table of the query (or of a later
+    /// user-defined table). Compiles to a CTE.
+    pub tables: Vec<TableDef>,
+}
+
+/// A user-defined table definition, written as `#name = #( query )` before the query's base table.
+/// The named subquery is compiled to a CTE that can be used as a base table by name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableDef {
+    pub name: String,
+    pub query: Query,
 }
 
 /// A computed column definition, written as `#table.name = expr` before the query's base table.
@@ -171,7 +183,7 @@ pub struct CustomComparisonDef {
     pub body: Expr,
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Transformation {
     pub conditions: ConditionSet,
     pub sorting: Vec<SortExpr>,
@@ -214,6 +226,10 @@ pub enum Expr {
     /// can only be applied immediately, via a pipe, so this node always carries its arguments. Like
     /// a user-defined function, its parameters are bound to the arguments and its body is inlined.
     AnonymousFunctionCall(Box<AnonymousFunctionCall>),
+    /// A scalar subquery, written as `#( query )`. The inner query must produce a single value, which
+    /// is inlined as a parenthesized `(SELECT ...)`. This is what gives a constant defined via
+    /// `@name = #( ... )` its value.
+    Subquery(Box<Query>),
 }
 
 /// An anonymous function applied to arguments, written as `value|(@param => body)`. The piped-in
@@ -477,13 +493,13 @@ pub enum FunctionDimension {
     Aggregate,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ResultColumnStatement {
     Spec(ColumnSpec),
     Glob(ColumnGlob),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ColumnSpec {
     pub expr: Expr,
     pub alias: Option<String>,
@@ -493,7 +509,7 @@ pub struct ColumnSpec {
     pub annotation: Option<AnnotationValue>,
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ColumnControl {
     pub sort: Option<SortSpec>,
     pub group: Option<GroupSpec>,
@@ -531,7 +547,7 @@ pub enum SortDirection {
     Desc,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct ColumnGlob {
     pub head: Vec<PathPart>,
     pub specs: Vec<ColumnSpec>,

@@ -89,6 +89,9 @@ fn contains_aggregate(expr: &Expr) -> bool {
                     .any(|a| contains_aggregate(&a.expr))
                 || contains_aggregate(&c.body.expr)
         }
+        // A scalar subquery produces a single value for the outer query; it is not itself a GROUP BY
+        // aggregate of the outer query's rows.
+        Expr::Subquery(_) => false,
         Expr::Number(_)
         | Expr::Date(_)
         | Expr::Duration(_)

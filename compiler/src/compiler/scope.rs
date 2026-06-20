@@ -52,16 +52,6 @@ pub struct Scope<'a, 'b> {
 }
 
 impl<'a, 'b> Scope<'a, 'b> {
-    pub fn build(
-        options: &'a Options,
-        schema: &'a Schema,
-        base_table_name: &'a str,
-    ) -> Result<Self, String> {
-        let base_table = get_table_by_name(options, schema, base_table_name)
-            .ok_or(format!("Base table `{}` does not exist.", base_table_name))?;
-        Ok(Self::build_with_base_table(options, schema, base_table))
-    }
-
     /// Builds a top-level scope whose base table is supplied directly (rather than looked up by
     /// name in the schema). This is used for the stages of a query pipeline, whose base "table" is
     /// a synthetic table representing the output of the previous stage.

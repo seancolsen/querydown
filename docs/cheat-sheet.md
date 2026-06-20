@@ -130,7 +130,8 @@ See [case expressions](./language.md#case-expressions) docs.
 | `@@plus_one = @v => @v + 1` | [scalar function](./language.md#user-defined-functions) | ❌ |
 | `@@plus = @a @b => a + b` | function with two params | ❌ |
 | `#foo.@@bar = @a => @a + col` | [table-scoped function](./language.md#table-scoped-functions) | ❌ |
-| `#foo = #( )` | [temporary table](./language.md#user-defined-tables) | ❌ |
+| `#foo = #( )` | [temporary table](./language.md#user-defined-tables) | ✅ |
+| `@foo = #( )` | [constant from a subquery](./language.md#defining-a-constant-using-the-result-of-a-query) | ✅ |
 
 ## Transformations
 

@@ -16,35 +16,52 @@ enum Definition {
     Function(FunctionDef),
     CustomComparison(CustomComparisonDef),
     ComputedColumn(ComputedColumn),
+    Table(TableDef),
 }
 
 pub fn query<'src>() -> impl Psr<'src, Query> {
-    let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
-    let transformations = transformation()
-        .separated_by(pad().then(exactly(TRANSFORMATION_DELIMITER)).then(pad()))
-        .collect::<Vec<Transformation>>();
-    pad().ignore_then(
-        definitions()
+    pad().ignore_then(query_body().then_ignore(pad().then(end())))
+}
+
+/// Parses the body of a query — its definitions, base table, and transformations — into a [`Query`],
+/// without requiring that the whole input be consumed.
+///
+/// This is wrapped in [`recursive`] so that a `#( ... )` subquery, which may appear within a constant
+/// or user-defined table definition, can itself contain a complete query (including further
+/// subqueries). The recursive handle is threaded into the definition parsers that accept subqueries.
+fn query_body<'src>() -> impl Psr<'src, Query> {
+    recursive(|query| {
+        let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
+        let transformations = transformation()
+            .separated_by(pad().then(exactly(TRANSFORMATION_DELIMITER)).then(pad()))
+            .collect::<Vec<Transformation>>();
+        definitions_with(query)
             .then(base_table)
             .then_ignore(pad())
             .then(transformations)
-            .then_ignore(pad().then(end()))
             .map(|((definitions, base_table), transformations)| Query {
                 definitions,
                 base_table,
                 transformations,
-            }),
-    )
+            })
+    })
 }
 
-/// Parses the run of definitions (constants, functions, custom comparisons, and computed columns)
-/// that may precede the base table, sorting them by kind into a [`Definitions`]. Yields an empty
-/// [`Definitions`] when none are present.
+/// Parses the run of definitions (constants, functions, custom comparisons, computed columns, and
+/// user-defined tables) that may precede the base table, sorting them by kind into a
+/// [`Definitions`]. Yields an empty [`Definitions`] when none are present.
 ///
 /// This is exposed so that the definitions section of a query can be parsed in isolation, separate
-/// from the base table and transformations.
+/// from the base table and transformations. It builds its own [`query_body`] parser so that
+/// subqueries within definitions can be parsed.
 pub fn definitions<'src>() -> impl Psr<'src, Definitions> {
-    definition()
+    definitions_with(query_body())
+}
+
+/// Parses the run of definitions, using `query` to parse any `#( ... )` subqueries that appear within
+/// constant or user-defined table definitions.
+fn definitions_with<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Definitions> {
+    definition(query)
         .then_ignore(pad())
         .repeated()
         .collect::<Vec<Definition>>()
@@ -56,6 +73,7 @@ pub fn definitions<'src>() -> impl Psr<'src, Definitions> {
                     Definition::Function(f) => result.functions.push(f),
                     Definition::CustomComparison(c) => result.custom_comparisons.push(c),
                     Definition::ComputedColumn(c) => result.computed_columns.push(c),
+                    Definition::Table(t) => result.tables.push(t),
                 }
             }
             result
@@ -63,27 +81,56 @@ pub fn definitions<'src>() -> impl Psr<'src, Definitions> {
 }
 
 /// Parses any of the definitions that may precede the base table.
-fn definition<'src>() -> impl Psr<'src, Definition> {
+fn definition<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Definition> {
     choice((
         // `function` is tried before `constant` because both begin with `@`; the `@@` prefix of a
         // function would otherwise be misread as the start of a constant.
         function().map(Definition::Function),
-        constant().map(Definition::Constant),
-        // `custom_comparison` is tried before `computed_column` because both begin with
-        // `#table.name`; only the operator that follows the name distinguishes them.
+        constant(query.clone()).map(Definition::Constant),
+        // `table` is tried before `custom_comparison` and `computed_column` because all three begin
+        // with `#name`; a table definition is distinguished by the `= #(` that follows its name,
+        // whereas the other two have a `.` before the `=`.
+        table_def(query).map(Definition::Table),
         custom_comparison().map(Definition::CustomComparison),
         computed_column().map(Definition::ComputedColumn),
     ))
 }
 
-/// Parses one user-defined constant definition, e.g. `@user_id = 1234`. The right-hand side is a
-/// single expression whose value gets inlined wherever the constant is referenced.
-fn constant<'src>() -> impl Psr<'src, ConstantDef> {
+/// Parses one user-defined constant definition, e.g. `@user_id = 1234`. The right-hand side is
+/// either a `#( ... )` subquery or a single expression, whose value gets inlined wherever the
+/// constant is referenced.
+fn constant<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, ConstantDef> {
+    let value = choice((subquery(query), expr()));
     just(CONST_SIGIL)
         .ignore_then(ident().map(|s: &str| s.to_string()))
         .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
-        .then(expr())
+        .then(value)
         .map(|(name, expr)| ConstantDef { name, expr })
+}
+
+/// Parses one user-defined table definition, e.g. `#project_months = #( #issues ... )`. The
+/// right-hand side is a `#( ... )` subquery whose result becomes a CTE usable as a base table.
+fn table_def<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, TableDef> {
+    just(TABLE_SIGIL)
+        .ignore_then(db_identifier())
+        .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
+        .then(table_subquery(query))
+        .map(|(name, query)| TableDef { name, query })
+}
+
+/// Parses a `#( query )` subquery into the [`Query`] it wraps.
+fn table_subquery<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Query> {
+    just(TABLE_SIGIL)
+        .ignore_then(just(EXPR_PAREN_L))
+        .ignore_then(pad())
+        .ignore_then(query)
+        .then_ignore(pad())
+        .then_ignore(just(EXPR_PAREN_R))
+}
+
+/// Parses a `#( query )` scalar subquery into an [`Expr::Subquery`].
+fn subquery<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Expr> {
+    table_subquery(query).map(|q| Expr::Subquery(Box::new(q)))
 }
 
 /// Parses a variable reference's name, e.g. the `date` in `@date`.
@@ -358,6 +405,54 @@ mod tests {
                 Box::new(Expr::Number("2".to_string())),
             )
         );
+    }
+
+    #[test]
+    fn test_parse_query_with_constant_from_subquery() {
+        // A constant may be defined as a `#( ... )` scalar subquery. The right-hand side parses into
+        // an `Expr::Subquery` wrapping the inner query.
+        let result = query()
+            .parse("@latest = #( #comments $created_at%max )\n#issues created_at:>@latest")
+            .into_result()
+            .unwrap();
+        assert_eq!(result.base_table, "issues".to_string());
+        assert_eq!(result.definitions.constants.len(), 1);
+        let constant = &result.definitions.constants[0];
+        assert_eq!(constant.name, "latest".to_string());
+        let Expr::Subquery(inner) = &constant.expr else {
+            panic!("expected a subquery, got {:?}", constant.expr);
+        };
+        assert_eq!(inner.base_table, "comments".to_string());
+    }
+
+    #[test]
+    fn test_parse_query_with_user_defined_table() {
+        // A user-defined table definition `#name = #( query )` parses into a `TableDef`, and the
+        // name can then be used as the query's base table.
+        let result = query()
+            .parse("#project_months = #( #issues $project \\g $%count -> issue_count )\n#project_months $project")
+            .into_result()
+            .unwrap();
+        assert_eq!(result.base_table, "project_months".to_string());
+        assert_eq!(result.definitions.tables.len(), 1);
+        let table = &result.definitions.tables[0];
+        assert_eq!(table.name, "project_months".to_string());
+        assert_eq!(table.query.base_table, "issues".to_string());
+        // A table definition is not mistaken for a computed column or custom comparison.
+        assert!(result.definitions.computed_columns.is_empty());
+        assert!(result.definitions.custom_comparisons.is_empty());
+    }
+
+    #[test]
+    fn test_table_definition_distinguished_from_computed_column() {
+        // `#table.name = expr` is a computed column, whereas `#name = #( ... )` is a table; the two
+        // are told apart by what follows the name.
+        let result = query()
+            .parse("#users.adult = birth_date|age|years|floor:>=21\n#users $adult")
+            .into_result()
+            .unwrap();
+        assert_eq!(result.definitions.computed_columns.len(), 1);
+        assert!(result.definitions.tables.is_empty());
     }
 
     #[test]

@@ -2097,6 +2097,28 @@ WHERE
   "issues"."author" = 1000;
 ```
 
+### Constant defined from a subquery
+
+> A constant may be defined as a `#( ... )` subquery that produces a single value. The subquery is
+> inlined as a parenthesized scalar subquery wherever the constant is referenced.
+
+```qd
+@date_of_latest_comment = #( #comments $created_at%max )
+#issues created_at:>@date_of_latest_comment $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."created_at" > (
+    SELECT
+      max("comments"."created_at")
+    FROM "comments"
+  );
+```
+
 ## User-defined functions
 
 ### Simple scalar function
@@ -2598,6 +2620,74 @@ SELECT
 FROM "pipe0"
 WHERE
   "pipe0"."comment_count" >= 10;
+```
+
+## User-defined tables
+
+A user-defined table, written as `#name = #( query )` before the base table, names a subquery that compiles to a CTE. The name can then be used as the base table of the query, or of a later user-defined table.
+
+### User-defined table as a base table
+
+> For each project, count its issues in a user-defined table, then keep the projects with at least ten issues and count how many such projects each grouping has.
+
+```qd
+#project_counts = #(
+  #issues $project \g $%count -> issue_count
+)
+#project_counts issue_count:>=10 $project \g $%count
+```
+
+```sql
+WITH
+  "project_counts" AS (
+    SELECT
+      "issues"."project" AS "project",
+      count(*) AS "issue_count"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "project_counts"."project",
+  count(*)
+FROM "project_counts"
+WHERE
+  "project_counts"."issue_count" >= 10
+GROUP BY "project_counts"."project";
+```
+
+### User-defined table referencing an earlier one
+
+> A user-defined table may use a previously-defined user-defined table as its base table. Each compiles to its own CTE, in definition order.
+
+```qd
+#a = #(
+  #issues $project \g $%count -> n
+)
+#b = #(
+  #a n:>=5 $project
+)
+#b $project
+```
+
+```sql
+WITH
+  "a" AS (
+    SELECT
+      "issues"."project" AS "project",
+      count(*) AS "n"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "b" AS (
+    SELECT
+      "a"."project" AS "project"
+    FROM "a"
+    WHERE
+      "a"."n" >= 5
+  )
+SELECT
+  "b"."project"
+FROM "b";
 ```
 
 ## Window functions

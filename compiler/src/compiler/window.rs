@@ -139,6 +139,8 @@ pub fn expr_contains_window(expr: &Expr) -> bool {
         | Expr::String(_)
         | Expr::Variable(_)
         | Expr::Path(_)
+        // A scalar subquery is a self-contained query; an outer window function cannot reach into it.
+        | Expr::Subquery(_)
         | Expr::HasQuantity(_) => false,
     }
 }

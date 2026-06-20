@@ -85,3 +85,52 @@ fn sections_parsed_in_isolation_compile_like_a_whole_query() {
 
     assert_eq!(from_sections, whole);
 }
+
+#[test]
+fn constant_from_subquery_is_inlined_as_scalar_subquery() {
+    // A constant defined with `#( ... )` inlines as a parenthesized scalar subquery wherever it is
+    // referenced.
+    let sql = compile("@latest = #( #comments $created_at%max )\n#issues created_at:>@latest $id")
+        .unwrap();
+    assert!(
+        sql.contains(r#"> (SELECT"#) && sql.contains(r#"max("comments"."created_at")"#),
+        "got: {sql}"
+    );
+}
+
+#[test]
+fn user_defined_table_is_usable_as_a_base_table() {
+    // A user-defined table compiles to a CTE that the main query reads from as its base table.
+    let sql = compile(
+        "#project_counts = #( #issues $project \\g $%count -> issue_count )\n\
+         #project_counts issue_count:>=10 $project",
+    )
+    .unwrap();
+    assert!(sql.contains(r#""project_counts" AS ("#), "got: {sql}");
+    assert!(sql.contains(r#"FROM "project_counts""#), "got: {sql}");
+    assert!(
+        sql.contains(r#""project_counts"."issue_count" >= 10"#),
+        "got: {sql}"
+    );
+}
+
+#[test]
+fn user_defined_table_can_reference_an_earlier_one() {
+    // A user-defined table may use a previously-defined user-defined table as its base table.
+    let sql = compile(
+        "#a = #( #issues $project \\g $%count -> n )\n\
+         #b = #( #a n:>=5 $project )\n\
+         #b $project",
+    )
+    .unwrap();
+    assert!(sql.contains(r#""a" AS ("#), "got: {sql}");
+    assert!(sql.contains(r#""b" AS ("#), "got: {sql}");
+    assert!(sql.contains(r#"FROM "a""#), "got: {sql}");
+    assert!(sql.contains(r#"FROM "b""#), "got: {sql}");
+}
+
+#[test]
+fn user_defined_table_with_unknown_base_table_is_rejected() {
+    let err = compile("#foo = #( #nonexistent $id )\n#foo $id").unwrap_err();
+    assert!(err.contains("nonexistent"), "got: {err}");
+}
