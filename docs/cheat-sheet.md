@@ -117,9 +117,9 @@ See [case expressions](./language.md#case-expressions) docs.
 | `+` `-` `*` `/` | basic arithmetic operators | ✅ |
 | <tt>&VerticalLine;</tt> | [pipe a value into a scalar function](./language.md#function-piping) | ✅ |
 | `%` | pipe a value to an aggregate function | ✅ |
-| `@@` | [call a scalar function without piping](./language.md#function-calling) | ❌ |
+| `@@` | [call a scalar function without piping](./language.md#function-calling) | ✅ |
 | `%%( )` | [window definition](./language.md#window-functions) | ✅ |
-| `=>` | [anonymous scalar function](./language.md#anonymous-functions) | ❌ |
+| `=>` | [anonymous scalar function](./language.md#anonymous-functions) | ✅ |
 
 ## Variables
 

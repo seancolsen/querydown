@@ -262,8 +262,6 @@ $ ?
 
 ### Anonymous functions
 
-_(🚧 Not yet implemented)_
-
 > Categorize each issue into being either "overdue", "due soon", or "due later".
 
 ```qd
@@ -284,8 +282,6 @@ In the code above:
 1. The body of the anonymous function can reference `@d` as the number of days until the issues due date, using the same value in multiple places with minimal repetition.
 
 ### Function calling
-
-_(🚧 Not yet implemented)_
 
 Use `@@` to call a function without using a pipe.
 

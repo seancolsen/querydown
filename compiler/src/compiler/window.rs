@@ -125,6 +125,14 @@ pub fn expr_contains_window(expr: &Expr) -> bool {
         }
         Expr::ConditionSet(cs) => cs.entries.iter().any(expr_contains_window),
         Expr::Comparison(c) => side_contains_window(&c.left) || side_contains_window(&c.right),
+        Expr::AnonymousFunctionCall(c) => {
+            c.args.iter().any(expr_contains_window)
+                || c.body
+                    .assignments
+                    .iter()
+                    .any(|a| expr_contains_window(&a.expr))
+                || expr_contains_window(&c.body.expr)
+        }
         Expr::Number(_)
         | Expr::Date(_)
         | Expr::Duration(_)

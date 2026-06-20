@@ -12,7 +12,7 @@ use super::{
     constants::{
         DEFAULT_TEXT_SEARCH_COMPARISON_NAME, VAR_FALSE, VAR_INFINITY, VAR_NOW, VAR_NULL, VAR_TRUE,
     },
-    functions::convert_call,
+    functions::{convert_anonymous_function_call, convert_call},
     paths::{clarify_path, ClarifiedPathTail},
     scope::Scope,
 };
@@ -49,6 +49,7 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
         Expr::Comparison(c) => convert_comparison(*c, scope),
         Expr::Not(e) => Ok(cond::not(convert_expr(*e, scope)?)),
         Expr::Window(w) => super::window::convert_window(w, scope),
+        Expr::AnonymousFunctionCall(c) => convert_anonymous_function_call(*c, scope),
     }
 }
 

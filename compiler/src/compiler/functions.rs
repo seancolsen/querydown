@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
-use querydown_parser::ast::{Call, Expr, FunctionDef, FunctionDimension, SortExpr};
+use querydown_parser::ast::{
+    AnonymousFunctionCall, Assignment, Call, Expr, FunctionBody, FunctionDef, FunctionDimension,
+    SortExpr,
+};
 
 use crate::{
     compiler::{
@@ -47,20 +50,45 @@ fn convert_user_function_call(
     args: Vec<Expr>,
     scope: &mut Scope,
 ) -> Result<SqlExpr, String> {
-    if args.len() != def.params.len() {
+    apply_function(&def.name, def.params, def.body, args, scope)
+}
+
+/// Applies an inline anonymous function (e.g. `value|(@d => @d:<0)`). This works exactly like
+/// applying a user-defined function: the parameters are bound to the arguments and the body is
+/// inlined. The only difference is that an anonymous function has no name.
+pub fn convert_anonymous_function_call(
+    call: AnonymousFunctionCall,
+    scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    apply_function("(anonymous)", call.params, call.body, call.args, scope)
+}
+
+/// Shared logic for applying a function (named or anonymous): bind its parameters to the arguments
+/// and its local assignments, then compile its body expression.
+fn apply_function(
+    name: &str,
+    params: Vec<String>,
+    body: FunctionBody,
+    args: Vec<Expr>,
+    scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    if args.len() != params.len() {
         return Err(msg::function_wrong_arg_count(
-            &def.name,
-            def.params.len(),
+            name,
+            params.len(),
             args.len(),
         ));
     }
-    let bindings: Vec<(String, Expr)> = def
-        .params
+    let bindings: Vec<(String, Expr)> = params
         .into_iter()
         .zip(args)
-        .chain(def.body.assignments.into_iter().map(|a| (a.name, a.expr)))
+        .chain(
+            body.assignments
+                .into_iter()
+                .map(|a: Assignment| (a.name, a.expr)),
+        )
         .collect();
-    scope.with_variable_bindings(bindings, |scope| convert_expr(def.body.expr, scope))
+    scope.with_variable_bindings(bindings, |scope| convert_expr(body.expr, scope))
 }
 
 fn convert_aggregate_call(

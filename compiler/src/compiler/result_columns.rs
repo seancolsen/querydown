@@ -80,6 +80,15 @@ fn contains_aggregate(expr: &Expr) -> bool {
         // requirement. Combining `\g` grouping with a window function in the same stage is not
         // supported; use a pipeline (`~~~`) to group the output of a window stage.
         Expr::Window(_) => false,
+        // An anonymous function aggregates if any of its arguments or its body do.
+        Expr::AnonymousFunctionCall(c) => {
+            c.args.iter().any(contains_aggregate)
+                || c.body
+                    .assignments
+                    .iter()
+                    .any(|a| contains_aggregate(&a.expr))
+                || contains_aggregate(&c.body.expr)
+        }
         Expr::Number(_)
         | Expr::Date(_)
         | Expr::Duration(_)
