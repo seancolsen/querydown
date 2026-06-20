@@ -564,6 +564,123 @@ WHERE
   "issues"."title" IS NULL;
 ```
 
+## Default text search
+
+### Basic default text search
+
+A bare word that carries no comparison operator is a default text search term. It is matched (via
+case-insensitive "contains") against every text-like column of the base table — here `title`,
+`description`, and `status`. Multiple terms are combined with `AND`, so each term must be found in at
+least one of those columns.
+
+> Issues mentioning both "accessibility" and "feature"
+
+```qd
+#issues accessibility feature
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE)) AND
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('feature' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('feature' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('feature' COLLATE "C")) > 0, FALSE));
+```
+
+### Default text search with a quoted string
+
+Quoting the search term lets it contain characters (like `:`) that a bare word may not.
+
+> Issues mentioning "localhost:3000"
+
+```qd
+#issues "localhost:3000"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE));
+```
+
+### Default text search alongside other conditions
+
+A default text search term can be freely mixed with ordinary comparisons.
+
+> Open issues mentioning "accessibility"
+
+```qd
+#issues accessibility status:="open" $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE)) AND
+  "issues"."status" = 'open';
+```
+
+### Default text search (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Issues mentioning "accessibility", targeting DuckDB
+
+```qd
+#issues accessibility
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  (COALESCE(contains(lower(strip_accents("issues"."title")), lower(strip_accents('accessibility'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."description")), lower(strip_accents('accessibility'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."status")), lower(strip_accents('accessibility'))), FALSE));
+```
+
+### Configuring the default text search
+
+A `__querydown_default_text_search` custom comparison on the base table overrides which columns the
+default text search examines. Here `status` is dropped (it would otherwise be included) and a search
+across all comment bodies is added.
+
+> Issues mentioning "accessibility" in their title, description, or any comment
+
+```qd
+#issues.__querydown_default_text_search:@x = [
+  title:@x
+  description:@x
+  ++#comments{body:@x}
+]
+#issues accessibility
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues".*
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR "cte0"."pk" IS NOT NULL);
+```
+
 ## Case expressions
 
 ### Basic case expression

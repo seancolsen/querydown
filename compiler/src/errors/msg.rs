@@ -129,3 +129,11 @@ pub fn custom_comparison_operator_mismatch(name: &str) -> String {
 pub fn custom_comparison_with_range(name: &str) -> String {
     format!("The custom comparison `{name}` cannot be used with a range.")
 }
+
+pub fn no_default_text_search_columns(table_name: &str) -> String {
+    format!(
+        "The table `{table_name}` has no text-like columns, so it cannot be used with the default \
+         text search. Define a `__querydown_default_text_search` custom comparison on the table to \
+         configure its default text search."
+    )
+}

@@ -9,6 +9,11 @@ pub const PIPELINE_CTE_ALIAS_PREFIX: &str = "pipe";
 /// We may eventually make this configurable
 pub const INDENT_SPACER: &str = "  ";
 
+/// The name of the custom comparison that, when defined on a table, configures that table's default
+/// text search (see [`super::expr::convert_condition_set`]). When a table has no such custom
+/// comparison, the default text search falls back to searching all of the table's text-like columns.
+pub const DEFAULT_TEXT_SEARCH_COMPARISON_NAME: &str = "__querydown_default_text_search";
+
 pub const VAR_INFINITY: &str = "infinity";
 pub const VAR_NOW: &str = "now";
 pub const VAR_TRUE: &str = "true";

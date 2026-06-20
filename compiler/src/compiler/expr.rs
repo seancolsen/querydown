@@ -2,14 +2,16 @@ use querydown_parser::ast::*;
 
 use crate::{
     errors::msg,
-    schema::links::Link,
+    schema::{links::Link, ValueType},
     sql::expr::build::*,
     sql::tree::{CtePurpose, SqlExpr},
 };
 
 use super::{
     comparisons::convert_comparison,
-    constants::{VAR_FALSE, VAR_INFINITY, VAR_NOW, VAR_NULL, VAR_TRUE},
+    constants::{
+        DEFAULT_TEXT_SEARCH_COMPARISON_NAME, VAR_FALSE, VAR_INFINITY, VAR_NOW, VAR_NULL, VAR_TRUE,
+    },
     functions::convert_call,
     paths::{clarify_path, ClarifiedPathTail},
     scope::Scope,
@@ -164,9 +166,101 @@ pub fn convert_condition_set(
     let conditions = condition_set
         .entries
         .into_iter()
-        .map(|expr| convert_expr(expr, scope))
+        .map(|expr| convert_condition_entry(expr, scope))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(cmp::condition_set(conditions, &condition_set.conjunction))
+}
+
+/// Converts a single entry of a condition set. This is almost always [`convert_expr`], but it also
+/// recognizes a bare **default text search** term: a standalone string (or bare alphanumeric word)
+/// that carries no comparison operator. Such an entry is a low-friction way to search across many of
+/// the base table's columns at once (see the "Default text search" section of the language guide).
+fn convert_condition_entry(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
+    match default_text_search_term(&expr, scope) {
+        Some(term) => convert_default_text_search(term, scope),
+        None => convert_expr(expr, scope),
+    }
+}
+
+/// If `expr`, appearing as a boolean condition, should be treated as a default text search term,
+/// returns that term. A quoted string literal always qualifies. A bare word (parsed as a
+/// single-column path) qualifies only when it begins with a letter, contains only alphanumeric
+/// characters, and does not resolve to a real or computed column on the base table — in which case
+/// it would otherwise be a column reference.
+fn default_text_search_term(expr: &Expr, scope: &Scope) -> Option<String> {
+    match expr {
+        Expr::String(s) => Some(s.clone()),
+        Expr::Path(parts) => {
+            let [PathPart::Column(name)] = parts.as_slice() else {
+                return None;
+            };
+            let is_bare_word = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+                && name.chars().all(|c| c.is_ascii_alphanumeric());
+            if is_bare_word && !resolves_to_column(name, scope) {
+                Some(name.clone())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Whether `name` resolves to a real column or a computed column on the scope's base table.
+fn resolves_to_column(name: &str, scope: &Scope) -> bool {
+    let base_table = scope.get_base_table();
+    scope
+        .options
+        .resolve_identifier(&base_table.column_lookup, name)
+        .is_some()
+        || scope.get_computed_column(&base_table.name, name).is_some()
+}
+
+/// Compiles a default text search for `term` against the scope's base table. If the base table has a
+/// `__querydown_default_text_search` custom comparison defined, that comparison configures the
+/// search. Otherwise the search is an `OR` across all of the base table's text-like columns, each
+/// matched against `term` with the type-aware match operator (case-insensitive "contains").
+fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExpr, String> {
+    let base_table_name = scope.get_base_table().name.clone();
+
+    // A custom comparison with the reserved name lets the schema author configure the search.
+    if scope
+        .get_custom_comparison(&base_table_name, DEFAULT_TEXT_SEARCH_COMPARISON_NAME)
+        .is_some()
+    {
+        let comparison = Comparison {
+            left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                DEFAULT_TEXT_SEARCH_COMPARISON_NAME.to_string(),
+            )])),
+            operator: Operator::Match,
+            right: ComparisonSide::Expr(Expr::String(term)),
+        };
+        return convert_comparison(comparison, scope);
+    }
+
+    // Otherwise, search every text-like column of the base table, in column order.
+    let base_table = scope.get_base_table();
+    let mut text_columns: Vec<(usize, String)> = base_table
+        .columns
+        .values()
+        .filter(|column| column.r#type == ValueType::Text)
+        .map(|column| (column.id, column.name.clone()))
+        .collect();
+    text_columns.sort_by_key(|(id, _)| *id);
+    if text_columns.is_empty() {
+        return Err(msg::no_default_text_search_columns(&base_table_name));
+    }
+    let entries = text_columns
+        .into_iter()
+        .map(|(_, column_name)| {
+            Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(column_name)])),
+                operator: Operator::Match,
+                right: ComparisonSide::Expr(Expr::String(term.clone())),
+            }))
+        })
+        .collect();
+    convert_condition_set(ConditionSet::via_or(entries), scope)
 }
 
 fn convert_case(case: Case, scope: &mut Scope) -> Result<SqlExpr, String> {
