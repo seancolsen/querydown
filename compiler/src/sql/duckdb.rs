@@ -13,6 +13,10 @@ use super::{
 pub struct DuckDB();
 
 impl Dialect for DuckDB {
+    fn introspection_sql(&self) -> &'static str {
+        include_str!("../../resources/introspection/duckdb.sql")
+    }
+
     // For now, DuckDB mirrors Postgres for everything except the methods we've specifically
     // targeted for dialect differences. We delegate the shared behavior to Postgres to avoid
     // duplicating its logic. As we identify more dialect differences, these delegations can be

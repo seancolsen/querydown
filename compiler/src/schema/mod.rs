@@ -182,7 +182,9 @@ impl ValueType {
                 ValueType::Text
             }
             "integer" | "int" | "int4" | "int8" | "bigint" | "smallint" | "numeric" | "decimal"
-            | "real" | "double precision" | "float" | "float4" | "float8" => ValueType::Number,
+            | "real" | "double precision" | "double" | "float" | "float4" | "float8" => {
+                ValueType::Number
+            }
             "date" => ValueType::Date,
             "timestamp" | "timestamptz" | "datetime" => ValueType::Time,
             "boolean" | "bool" => ValueType::Boolean,

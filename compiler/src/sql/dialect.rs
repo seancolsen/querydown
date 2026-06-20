@@ -99,6 +99,13 @@ where
 }
 
 pub trait Dialect {
+    /// The static SQL query that introspects a live database of this dialect, producing the schema
+    /// JSON the compiler consumes. It yields a single row with a single column containing the JSON.
+    /// Consumers run this query themselves and feed the result back into [`Compiler::new`].
+    ///
+    /// [`Compiler::new`]: crate::Compiler::new
+    fn introspection_sql(&self) -> &'static str;
+
     /// Quote a table or column for use in SQL.
     fn quote_identifier(&self, ident: &str) -> String;
 
