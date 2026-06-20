@@ -142,14 +142,13 @@ fn args_2(
 
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc); 31] = [
+    let templates: [(&str, ScalarFunc); 30] = [
         ("abs",         |e, s| args_1(e, s, abs)),
         ("age",         |e, s| args_1(e, s, |a| subtract(now(), a))),
-        ("ago",         |e, s| args_1(e, s, |a| subtract(now(), a))),
         ("and",         |e, s| args_v(e, s, build::cmp::and)),
-        ("away",        |e, s| args_1(e, s, |a| subtract(a, now()))),
         ("ceil",        |e, s| args_1(e, s, ceil)),
         ("concat",      |e, s| args_v(e, s, concat)),
+        ("countdown",   |e, s| args_1(e, s, |a| subtract(a, now()))),
         ("days",        |e, s| args_1(e, s, days)),
         ("divide",      |e, s| args_2(e, s, divide)),
         ("floor",       |e, s| args_1(e, s, floor)),

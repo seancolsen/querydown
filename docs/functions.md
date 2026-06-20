@@ -126,7 +126,7 @@ Returns the absolute value of a number, compiling to SQL `ABS`.
 Rounds a number up to the nearest integer, compiling to SQL `CEIL`.
 
 ```qd
-#issues $title $due_date|away|days|ceil
+#issues $title $due_date|countdown|days|ceil
 ```
 
 ### `floor`
@@ -134,7 +134,7 @@ Rounds a number up to the nearest integer, compiling to SQL `CEIL`.
 Rounds a number down to the nearest integer, compiling to SQL `FLOOR`.
 
 ```qd
-#issues $title $due_date|away|days|floor
+#issues $title $due_date|countdown|days|floor
 ```
 
 ### `plus`
@@ -142,7 +142,7 @@ Rounds a number down to the nearest integer, compiling to SQL `FLOOR`.
 Adds two numbers. Equivalent to the `+` operator, but usable in a pipeline.
 
 ```qd
-#issues $title $due_date|away|days|plus(7)
+#issues $title $due_date|countdown|days|plus(7)
 ```
 
 ### `minus`
@@ -150,7 +150,7 @@ Adds two numbers. Equivalent to the `+` operator, but usable in a pipeline.
 Subtracts the argument from the piped value. Equivalent to the `-` operator, but usable in a pipeline.
 
 ```qd
-#issues $title $due_date|away|days|minus(7)
+#issues $title $due_date|countdown|days|minus(7)
 ```
 
 ### `times`
@@ -182,7 +182,7 @@ Returns the remainder after dividing the piped value by the argument, compiling 
 Raises the value to a lower bound, returning the greater of the piped value and the argument. Compiles to SQL `GREATEST`.
 
 ```qd
-#issues $title $due_date|away|days|keep_above(0) // never below 0
+#issues $title $due_date|countdown|days|keep_above(0) // never below 0
 ```
 
 ### `keep_below`
@@ -190,7 +190,7 @@ Raises the value to a lower bound, returning the greater of the piped value and 
 Caps the value at an upper bound, returning the lesser of the piped value and the argument. Compiles to SQL `LEAST`.
 
 ```qd
-#issues $title $due_date|away|days|keep_below(30) // never above 30
+#issues $title $due_date|countdown|days|keep_below(30) // never above 30
 ```
 
 ### `max`
@@ -198,7 +198,7 @@ Caps the value at an upper bound, returning the lesser of the piped value and th
 Returns the greatest of all its arguments (the piped value plus any in parentheses), compiling to SQL `GREATEST`. This is a row-wise scalar function; for the aggregate version see [`max`](#max-1) below.
 
 ```qd
-#issues $title $due_date|away|days|max(0)
+#issues $title $due_date|countdown|days|max(0)
 ```
 
 ### `min`
@@ -206,7 +206,7 @@ Returns the greatest of all its arguments (the piped value plus any in parenthes
 Returns the least of all its arguments (the piped value plus any in parentheses), compiling to SQL `LEAST`. This is a row-wise scalar function; for the aggregate version see [`min`](#min-1) below.
 
 ```qd
-#issues $title $due_date|away|days|min(0)
+#issues $title $due_date|countdown|days|min(0)
 ```
 
 ## Date & time functions
@@ -219,22 +219,12 @@ Returns the interval elapsed _since_ a past timestamp, compiling to `NOW() - val
 #issues $title $created_at|age|days
 ```
 
-### `ago`
-
-Returns the timestamp that lies a given duration _in the past_, compiling to `NOW() - value`. Typically applied to a [duration literal](./language.md#duration-literals) within a condition.
-
-```qd
-#issues created_at:>6m|ago // created within the last 6 months
-```
-
-_(`age` and `ago` are equivalent; the two names exist for readability depending on whether you apply the function to a date or to a duration.)_
-
-### `away`
+### `countdown`
 
 Returns the interval from now _until_ a future timestamp, compiling to `value - NOW()`. The counterpart to [`age`](#age): for a future date it is positive, and for a past date it is negative. Typically applied to a date column and chained with [`days`](#days), [`hours`](#hours), etc.
 
 ```qd
-#issues $title $due_date|away|days // days until each issue is due
+#issues $title $due_date|countdown|days // days until each issue is due
 ```
 
 ### `years`

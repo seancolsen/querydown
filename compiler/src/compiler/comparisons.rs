@@ -1,6 +1,7 @@
 use querydown_parser::ast::*;
 
 use crate::{
+    compiler::constants::VAR_NOW,
     compiler::expr::{convert_expr, convert_expr_with_path_prefix},
     errors::msg,
     schema::ValueType,
@@ -132,6 +133,21 @@ fn convert_simple_comparison(
         return convert_expr(right.to_owned(), scope).map(cmp::is_null);
     }
 
+    // Date/duration magic: comparing a date-like value on the left against a duration literal on the
+    // right means "within that duration of now" — i.e. `ABS(now - date) <op> duration` — which reads
+    // intuitively whether the date lies in the past or the future. The reversed order (duration on
+    // the left, date on the right) is deliberately left alone, producing the usual database type
+    // error just as a direct date-vs-duration comparison does today.
+    if is_date_like(left, scope) && matches!(right, Expr::Duration(_)) {
+        if let Some(build_cmp) = numeric_comparison(operator) {
+            let date = convert_expr(left.to_owned(), scope)?;
+            let duration = convert_expr(right.to_owned(), scope)?;
+            let elapsed = math::abs(date_time::extract_epoch(math::subtract(func::now(), date)));
+            let limit = date_time::extract_epoch(duration);
+            return Ok(build_cmp(elapsed, limit));
+        }
+    }
+
     let left_converted = convert_expr(left.to_owned(), scope)?;
     let right_converted = convert_expr(right.to_owned(), scope)?;
 
@@ -203,6 +219,36 @@ fn classify_value_type(expr: &Expr, scope: &Scope) -> ValueType {
             }
         }
         _ => ValueType::Unknown,
+    }
+}
+
+/// Whether `expr` is statically known to be a date or datetime value: a date literal, the `@now`
+/// constant, or a column path typed as a date/time. Used to recognize the date side of the
+/// date/duration magic in [`convert_simple_comparison`].
+fn is_date_like(expr: &Expr, scope: &Scope) -> bool {
+    match expr {
+        Expr::Date(_) => true,
+        Expr::Variable(name) => name == VAR_NOW,
+        Expr::Path(_) => matches!(
+            classify_value_type(expr, scope),
+            ValueType::Date | ValueType::Time
+        ),
+        _ => false,
+    }
+}
+
+/// Maps a comparison operator to the SQL builder for comparing two numeric (epoch-second) operands,
+/// used by the date/duration magic. Operators that don't define an ordering have no mapping, so the
+/// magic doesn't apply to them.
+fn numeric_comparison(operator: Operator) -> Option<fn(SqlExpr, SqlExpr) -> SqlExpr> {
+    use Operator::*;
+    match operator {
+        Eq | Match => Some(cmp::eq),
+        Gt => Some(cmp::gt),
+        Gte => Some(cmp::gte),
+        Lt => Some(cmp::lt),
+        Lte => Some(cmp::lte),
+        Like | RegexMatch => None,
     }
 }
 

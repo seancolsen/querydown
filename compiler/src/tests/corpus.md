@@ -44,7 +44,7 @@ SELECT "Patrons".* FROM "Patrons";
 
 ```qd
 #issues
-created_at:>6m|ago
+created_at:<6m
 --#assignments
 ++#labels{name:..["Regression" "Bug"]}
 10..20:#comments{!user.team.name:"Backend"}
@@ -82,7 +82,7 @@ FROM "Checkouts";
 > Checkouts from over one month ago and not yet returned
 
 ```qd
-#checkouts check_in_time:@null check_out_time:<1m|ago
+#checkouts check_in_time:@null check_out_time:<@now|minus(1m)
 ```
 
 ```sql
@@ -99,7 +99,7 @@ WHERE
 > Checkouts from over one month ago and not yet returned
 
 ```qd
-#checkouts checkInTime:@null checkOutTime:<1m|ago
+#checkouts checkInTime:@null checkOutTime:<@now|minus(1m)
 ```
 
 ```sql
@@ -165,7 +165,7 @@ WHERE
 ### Duration
 
 ```qd
-#issues created_at:>6y|ago
+#issues created_at:>@now|minus(6y)
 ```
 
 ```sql
@@ -181,7 +181,7 @@ WHERE
 > Duration units are case-insensitive.
 
 ```qd
-#issues created_at:>6Y|ago
+#issues created_at:>@now|minus(6Y)
 ```
 
 ```sql
@@ -193,6 +193,74 @@ WHERE
 ```
 
 ## Comparisons
+
+### Date within a past duration of now
+
+> Issues created within the past 6 months. Comparing a date against a duration compiles to an
+> absolute-value comparison against now, so it works whether the date is in the past or the future.
+
+```qd
+#issues created_at:<6m
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(months => 6));
+```
+
+### Date within a future duration of now
+
+> Issues due within 6 months. Note that this uses the same `:<` operator as the past-date example,
+> even though the dates lie in the future.
+
+```qd
+#issues due_date:<6m
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(months => 6));
+```
+
+### Date beyond a duration of now
+
+> Issues created more than 6 months from now (in either direction).
+
+```qd
+#issues created_at:>6m
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) > EXTRACT(epoch FROM make_interval(months => 6));
+```
+
+### Date within a duration of now (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+```qd
+#issues created_at:<6m
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM to_months(6));
+```
 
 ### Negated comparison
 
@@ -317,7 +385,7 @@ dialect = "duckdb"
 > DuckDB has no `make_interval`, so a single-part duration uses a `to_*` function.
 
 ```qd
-#issues created_at:>6y|ago
+#issues created_at:>@now|minus(6y)
 ```
 
 ```sql
@@ -337,7 +405,7 @@ dialect = "duckdb"
 > A multi-part duration sums `to_*` functions, parenthesized so it stays atomic when subtracted.
 
 ```qd
-#issues created_at:>1y2d|ago
+#issues created_at:>@now|minus(1y2d)
 ```
 
 ```sql
@@ -417,7 +485,7 @@ WHERE
 ### Range containing pipes
 
 ```qd
-#issues created_at:(2y|ago)..(1y|ago)
+#issues created_at:(@now|minus(2y))..(@now|minus(1y))
 ```
 
 ```sql
@@ -1273,7 +1341,7 @@ TODO
 > Users who have not created any issues in the past year
 
 ```qd
-#users --#issues{created_at:>1y|ago}
+#users --#issues{created_at:>@now|minus(1y)}
 ```
 
 ```sql
@@ -1300,7 +1368,7 @@ WHERE
 > Users, showing the number of issues created in the past year
 
 ```qd
-#users $#issues{created_at:>1y|ago}
+#users $#issues{created_at:>@now|minus(1y)}
 ```
 
 ```sql

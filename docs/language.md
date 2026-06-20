@@ -223,7 +223,7 @@ Functions can be applied to values via `|` (pipe) syntax.
 > Show issues, along with the number of days until the due date.
 
 ```qd
-#issues $* $due_date|away|days
+#issues $* $due_date|countdown|days
 ```
 
 - See a list of [all named functions](./functions.md).
@@ -243,8 +243,8 @@ A case expression requires at least one variant and a fallback. It compiles to a
 #issues
 $title
 $ ?
-  due_date|away|days:<0  ~ "overdue"
-  due_date|away|days:<30 ~ "due soon"
+  due_date|countdown|days:<0  ~ "overdue"
+  due_date|countdown|days:<30 ~ "due soon"
   ~~                       "due later"
 ```
 
@@ -257,12 +257,12 @@ _(🚧 Not yet implemented)_
 ```qd
 #issues
 $title
-$due_date|away|days|(@d => ? @d:<0~"overdue" @d:<30~"due soon" ~~"due later")
+$due_date|countdown|days|(@d => ? @d:<0~"overdue" @d:<30~"due soon" ~~"due later")
 ```
 
 In the code above:
 
-1. `due_date|away|days` computes the number of days until the issues's due date
+1. `due_date|countdown|days` computes the number of days until the issues's due date
 1. That value is fed into the `@d` argument of the anonymous function:
 
     ```
@@ -331,6 +331,32 @@ This will _not_ find issues where the status is "done".
 Note that the match operator falls back to an equality comparison here because the id column is not text. Here `id:123` is the same is `id:=123`.
 
 The comparison operators `:<` `:<=` `:>` `:>=` also allow you to perform inequality comparisons on numeric, datetime, and duration types.
+
+### Comparing dates with durations
+
+When you compare a date or datetime against a [duration literal](#duration-literals), Querydown interprets the comparison as a question about how far the date lies from _now_, in either direction. The comparison `date:<duration` matches when the date falls within `duration` of the present moment &mdash; whether the date is in the past or the future.
+
+> Find issues created within the past 6 months:
+
+```qd
+#issues created_at:<6m
+```
+
+> Find issues due within 6 months:
+
+```qd
+#issues due_date:<6m
+```
+
+Both queries use `:<`, even though one date lies in the past and the other in the future. Under the hood the comparison compiles to `ABS(NOW() - date) < duration`, so the sign of the difference doesn't matter.
+
+The date must be on the **left** and the duration on the **right**. The reversed order is an error, just as comparing a datetime against a duration directly would be.
+
+If you actually want to account for the direction of the difference, compare against a datetime instead of a duration. For example, to find issues that are more than 1 week overdue:
+
+```qd
+#issues due_date:<@now|minus(1w)
+```
 
 ### Regular expression matching
 
@@ -570,7 +596,7 @@ Use `$*` to specify all columns. This gives you control to add a column after al
 > Show all issues columns, and also show the number of days until each issue's due date
 
 ```
-#issues $* $due_date|away|days
+#issues $* $due_date|countdown|days
 ```
 
 ### Column glob on related table

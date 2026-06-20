@@ -1,5 +1,5 @@
 export const starting_querydown = `#issues
-created_at:>6m|ago
+created_at:<6m
 --#assignments
 ++#labels{name:..["Regression" "Bug"]}
 10..20:#comments{user.team.name!"Backend"}
