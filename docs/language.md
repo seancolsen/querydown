@@ -924,25 +924,72 @@ Note:
 
 ## Window functions
 
-_(🚧 Not yet implemented)_
+A **window function** computes a value across a set of rows related to the current row, without
+collapsing those rows the way a [grouped aggregate](#grouping-and-aggregation) does.
 
-Windows are defined via `%%( )`. Inside the parentheses, you use the same syntax as with [column globs](#column-globs), but one additional flag is available: `\p` for "partition".
+A window is defined via `%%( )`. Inside the parentheses, you use the same syntax as with [column
+globs](#column-globs), with two relevant flags:
 
-After the window definition, you apply an aggregate function, such as `row_number`, `lag`, `dense_rank`, etc.
+- `\p` marks a **partition** expression (`PARTITION BY`). An entry with no flag is also treated as a
+  partition expression.
+- `\s` marks an **ordering** expression (`ORDER BY`), and accepts the usual `\d` (descending), `\n`
+  (nulls first), and ordinal modifiers described under [sorting](#multiple-sorting).
 
-> Find issues which have a lot of sequential comments from the same user. Show the max number of sequential comments within the issue, along with the names of all the users who tied for making that many sequential comments:
+After the window definition, `%func` applies the window function. Any **value arguments** are
+supplied in parentheses after the function name, space-separated (the same convention as [function
+piping](#function-piping)). Ranking functions like `row_number` take no value argument.
+
+> Number each issue within its project, ordered by creation date:
 
 ```qd
-#comments
-$issue
-$user
-$%%(issue\p user\p created_on\s)%row_number -> cumulative_total
-~~~
-%%(issue\p cumulative_total\sd)%row_number:1
-$issue \g
-$cumulative_total
-$user.username%list
+#issues $id $title $%%(project\p created_at\s)%row_number -> rn
 ```
+
+> A running count of issues within each project, in creation-date order:
+
+```qd
+#issues $id $%%(project\p created_at\s)%count -> running_count
+```
+
+> The previous issue's status within each project (offset `1`, defaulting to `"none"`):
+
+```qd
+#issues $id $%%(project\p created_at\s)%lag(status 1 "none") -> previous_status
+```
+
+_(See a list of [all window functions](./functions.md#window-functions).)_
+
+### Filtering on a window function
+
+SQL does not permit window functions in a `WHERE` clause. When you use one in a condition, Querydown
+automatically computes the window value in a subquery and applies your filter to the result.
+
+> The most recent issue in each project (the classic "top row per group"):
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 $id $title $project
+```
+
+This compiles to a query that computes `row_number() OVER (…)` in an inner subquery and then filters
+`= 1` in the outer query. Any ordinary (non-window) conditions in the same stage stay in the inner
+subquery.
+
+Equivalently, you can compute the window value as a column in one [pipeline](#pipeline-of-multiple-queries)
+stage and filter it as a plain column in the next stage:
+
+```qd
+#issues $id $title $project $%%(project\p created_at\sd)%row_number -> rn
+~~~
+rn:1 $id $title $project
+```
+
+### Limitations
+
+- There is no syntax for an explicit **frame clause** (`ROWS`/`RANGE BETWEEN …`); windows use each
+  function's SQL default frame. Note in particular that `last_value` and `nth_value` use the default
+  frame ending at the current row.
+- A single stage cannot combine `\g` [grouping](#grouping-and-aggregation) with a window function. Use a
+  [pipeline](#pipeline-of-multiple-queries) to group the output of a window stage.
 
 ## Variables
 

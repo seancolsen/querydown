@@ -7,28 +7,30 @@ mod paths;
 mod rendering;
 mod result_columns;
 mod scope;
+mod window;
 
 use std::collections::HashMap;
 
 use querydown_parser::ast::{
-    AnnotationValue, ComputedColumn, ConstantDef, CustomComparisonDef, FunctionDef, Query,
+    AnnotationValue, ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, Query,
     Transformation,
 };
 use querydown_parser::parse;
 use serde::Serialize;
 
 use crate::{
-    schema::{primitive_schema::PrimitiveSchema, Column, Schema, Table, ValueType},
-    sql::tree::{Cte, Select},
+    schema::{primitive_schema::PrimitiveSchema, Column as SchemaColumn, Schema, Table, ValueType},
+    sql::tree::{Column, Cte, Select, SqlExpr},
     Options,
 };
 
 use self::{
     constants::PIPELINE_CTE_ALIAS_PREFIX,
-    expr::convert_condition_set,
+    expr::{convert_condition_set, convert_expr},
     rendering::Render,
     result_columns::{convert_result_columns, convert_sort_exprs, ConvertedResultColumns},
     scope::Scope,
+    window::{extract_window_conditions, SplitConditions, WindowProjection},
 };
 
 /// The output of compiling Querydown code: the generated SQL plus column-level annotation.
@@ -67,7 +69,6 @@ impl Compiler {
     /// independently — via the parser crate's section parsers — reassemble them with
     /// [`Query::from_parts`], and then compile the result, rather than handing over a single string.
     pub fn compile_query(&self, query: Query) -> Result<CompileResult, String> {
-
         let transformations = if query.transformations.is_empty() {
             vec![Transformation::default()]
         } else {
@@ -155,8 +156,18 @@ impl Compiler {
         scope.register_custom_comparisons(custom_comparisons.to_vec())?;
         scope.register_computed_columns(computed_columns.to_vec())?;
 
+        // SQL disallows window functions in a `WHERE` clause. When a stage's conditions reference a
+        // window function, the window-bearing conditions are split off to be applied in an outer
+        // query that wraps this one (see `wrap_stage_for_windows`).
+        let SplitConditions {
+            inner: inner_conditions,
+            outer: outer_conditions,
+            projections,
+        } = extract_window_conditions(transformation.conditions);
+        let is_wrapped = !projections.is_empty();
+
         let mut select = Select::from(base_table.name.clone());
-        select.conditions = convert_condition_set(transformation.conditions, &mut scope)?;
+        select.conditions = convert_condition_set(inner_conditions, &mut scope)?;
         let standalone_sorting = convert_sort_exprs(transformation.sorting, &mut scope)?;
         let ConvertedResultColumns {
             mut columns,
@@ -165,6 +176,40 @@ impl Compiler {
             column_annotations,
             output_names,
         } = convert_result_columns(transformation.result_columns, &mut scope)?;
+
+        select.grouping = grouping;
+        // Standalone `\\` sorts take precedence over column `\s` sorts, hence they come first.
+        select.sorting = standalone_sorting
+            .into_iter()
+            .chain(column_sorting)
+            .collect();
+
+        if is_wrapped {
+            // Give every real result column an explicit, unique alias so the wrapping query can
+            // reference it by name. With no explicit result columns, expand the base table's columns.
+            let real_output_names = if columns.is_empty() {
+                let (expanded, names) = expand_base_table_columns(base_table, &scope);
+                columns = expanded;
+                names
+            } else {
+                let names = dedupe_names(output_names);
+                for (column, name) in columns.iter_mut().zip(names.iter()) {
+                    column.alias = Some(name.clone());
+                }
+                names
+            };
+            select.columns = columns;
+            return self.wrap_stage_for_windows(
+                scope,
+                select,
+                real_output_names,
+                column_annotations,
+                projections,
+                outer_conditions,
+                constants,
+                functions,
+            );
+        }
 
         let output_names = if columns.is_empty() {
             // With no explicit result columns, the stage emits every column of its base table.
@@ -188,12 +233,6 @@ impl Compiler {
         };
 
         select.columns = columns;
-        select.grouping = grouping;
-        // Standalone `\\` sorts take precedence over column `\s` sorts, hence they come first.
-        select.sorting = standalone_sorting
-            .into_iter()
-            .chain(column_sorting)
-            .collect();
         (select.joins, select.ctes) = scope.decompose_join_tree();
 
         Ok(StageOutput {
@@ -202,6 +241,89 @@ impl Compiler {
             column_annotations,
         })
     }
+
+    /// Wraps a stage whose conditions reference window functions. The supplied `inner` select is
+    /// finished (its window values are projected as hidden columns, its real columns aliased to
+    /// `output_names`) and becomes a CTE. An outer select reads from that CTE, selecting the real
+    /// columns through and applying the window predicate that SQL would not permit in a `WHERE`.
+    #[allow(clippy::too_many_arguments)]
+    fn wrap_stage_for_windows(
+        &self,
+        mut scope: Scope,
+        mut inner: Select,
+        output_names: Vec<String>,
+        column_annotations: Vec<Option<AnnotationValue>>,
+        projections: Vec<WindowProjection>,
+        outer_conditions: querydown_parser::ast::ConditionSet,
+        constants: &[ConstantDef],
+        functions: &[FunctionDef],
+    ) -> Result<StageOutput, String> {
+        // Project each extracted window function as a hidden column on the inner select, aliased so
+        // the outer query can filter on it.
+        for projection in &projections {
+            let sql = convert_expr(Expr::Window(projection.window.clone()), &mut scope)?;
+            inner
+                .columns
+                .push(Column::new(sql, Some(projection.alias.clone())));
+        }
+        (inner.joins, inner.ctes) = scope.decompose_join_tree();
+
+        let wrap_alias = scope.get_alias("qdwin_src");
+
+        // Compile the outer (window) conditions against a synthetic table whose columns are the
+        // inner select's outputs: the real result columns plus the projected window values.
+        let mut wrap_column_names = output_names.clone();
+        wrap_column_names.extend(projections.iter().map(|p| p.alias.clone()));
+        let synthetic = build_pipeline_table(wrap_alias.clone(), &wrap_column_names);
+        let mut outer_scope = Scope::build_with_base_table(&self.options, &self.schema, &synthetic);
+        outer_scope.register_constants(constants.to_vec());
+        outer_scope.register_functions(functions.to_vec());
+        let outer_conditions_sql = convert_condition_set(outer_conditions, &mut outer_scope)?;
+
+        let inner_cte = Cte {
+            alias: wrap_alias.clone(),
+            select: inner,
+            join_column_name: String::new(),
+        };
+        let mut outer = Select::from(wrap_alias.clone());
+        outer.columns = output_names
+            .iter()
+            .map(|name| {
+                Column::new(
+                    SqlExpr::atom(self.options.dialect.table_column(&wrap_alias, name)),
+                    Some(name.clone()),
+                )
+            })
+            .collect();
+        outer.conditions = outer_conditions_sql;
+        outer.ctes = vec![inner_cte];
+
+        Ok(StageOutput {
+            select: outer,
+            output_names,
+            column_annotations,
+        })
+    }
+}
+
+/// Builds an explicit [`Column`] for every column of `base_table` (aliased to the column name),
+/// returning the columns together with their names. Used when a wrapped stage has no explicit result
+/// columns and must still expose each base-table column by name to the wrapping query.
+fn expand_base_table_columns(base_table: &Table, scope: &Scope) -> (Vec<Column>, Vec<String>) {
+    let mut entries: Vec<(usize, String)> = base_table
+        .columns
+        .values()
+        .map(|c| (c.id, c.name.clone()))
+        .collect();
+    entries.sort_by_key(|(id, _)| *id);
+    let mut columns = Vec::with_capacity(entries.len());
+    let mut names = Vec::with_capacity(entries.len());
+    for (_, name) in entries {
+        let expr = scope.table_column_expr(&base_table.name, &name);
+        columns.push(Column::new(expr, Some(name.clone())));
+        names.push(name);
+    }
+    (columns, names)
 }
 
 /// The compiled output of a single pipeline stage.
@@ -236,7 +358,7 @@ fn build_pipeline_table(name: String, column_names: &[String]) -> Table {
         let id = index + 1;
         columns.insert(
             id,
-            Column {
+            SchemaColumn {
                 id,
                 name: column_name.clone(),
                 r#type: ValueType::Unknown,

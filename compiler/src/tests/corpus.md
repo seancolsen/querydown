@@ -2242,3 +2242,180 @@ FROM "pipe0"
 WHERE
   "pipe0"."comment_count" >= 10;
 ```
+
+## Window functions
+
+### Row number
+
+> Number each issue within its project, ordered by creation date.
+
+```qd
+#issues $id $%%(project\p created_at\s)%row_number -> rn
+```
+
+```sql
+SELECT
+  "issues"."id",
+  row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" ASC NULLS LAST) AS "rn"
+FROM "issues";
+```
+
+### Running aggregate over a window
+
+> A running total of issue ids within each project, in creation-date order.
+
+```qd
+#issues $id $%%(project\p created_at\s)%sum(id) -> running
+```
+
+```sql
+SELECT
+  "issues"."id",
+  sum("issues"."id") OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" ASC NULLS LAST) AS "running"
+FROM "issues";
+```
+
+### Window function with value arguments
+
+> The previous issue's id within each project (offset 1, default 0), most recent first.
+
+```qd
+#issues $id $%%(project\p created_at\sd)%lag(id 1 0) -> prev
+```
+
+```sql
+SELECT
+  "issues"."id",
+  lag("issues"."id", 1, 0) OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "prev"
+FROM "issues";
+```
+
+### Count over a partition
+
+> How many issues share each project (a partition with no ordering). `count` may be used on its own to mean `count(*)`.
+
+```qd
+#issues $id $%%(project\p)%count -> n_in_project
+```
+
+```sql
+SELECT
+  "issues"."id",
+  count(*) OVER (PARTITION BY "issues"."project") AS "n_in_project"
+FROM "issues";
+```
+
+### Ntile bucketing
+
+> Split issues into four buckets per status, ordered by id.
+
+```qd
+#issues $id $%%(status\p id\s)%ntile(4) -> quartile
+```
+
+```sql
+SELECT
+  "issues"."id",
+  ntile(4) OVER (PARTITION BY "issues"."status" ORDER BY "issues"."id" ASC NULLS LAST) AS "quartile"
+FROM "issues";
+```
+
+### Rank (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Window functions compile identically on DuckDB.
+
+```qd
+#issues $id $%%(status\p id\s)%rank -> r
+```
+
+```sql
+SELECT
+  "issues"."id",
+  rank() OVER (PARTITION BY "issues"."status" ORDER BY "issues"."id" ASC NULLS LAST) AS "r"
+FROM "issues";
+```
+
+### Filtering on a window function
+
+> The most recent issue in each project. Because SQL forbids window functions in `WHERE`, the window value is computed in a wrapping subquery and filtered in the outer query.
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 $id $title $project
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title",
+      "issues"."project" AS "project",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "qdwin_src"."id" AS "id",
+  "qdwin_src"."title" AS "title",
+  "qdwin_src"."project" AS "project"
+FROM "qdwin_src"
+WHERE
+  "qdwin_src"."qdwin0" = 1;
+```
+
+### Filtering on a window function alongside an ordinary filter
+
+> Non-window conditions stay in the inner query; only the window predicate is applied in the outer query.
+
+```qd
+#issues status:="open" %%(project\p created_at\sd)%row_number:1 $id $project
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."project" AS "project",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    WHERE
+      "issues"."status" = 'open'
+  )
+SELECT
+  "qdwin_src"."id" AS "id",
+  "qdwin_src"."project" AS "project"
+FROM "qdwin_src"
+WHERE
+  "qdwin_src"."qdwin0" = 1;
+```
+
+### Window column flowing between pipeline stages
+
+> Compute a per-group sequence number in one stage, then filter it in the next stage as an ordinary column.
+
+```qd
+#comments $issue $user $%%(issue\p user\p created_at\s)%row_number -> seq
+~~~
+seq:1 $issue $user
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "comments"."issue" AS "issue",
+      "comments"."user" AS "user",
+      row_number() OVER (PARTITION BY "comments"."issue", "comments"."user" ORDER BY "comments"."created_at" ASC NULLS LAST) AS "seq"
+    FROM "comments"
+  )
+SELECT
+  "pipe0"."issue",
+  "pipe0"."user"
+FROM "pipe0"
+WHERE
+  "pipe0"."seq" = 1;
+```

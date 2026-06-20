@@ -207,6 +207,26 @@ pub enum Expr {
     /// Boolean negation of an expression, written with a `!` prefix, e.g. `!foo:2` or `!is_deleted`.
     /// This binds more loosely than comparison, so `!foo:2` negates the whole comparison.
     Not(Box<Expr>),
+    /// A window function application, written as `%%( ... )%func(args)`. The `%%( ... )` defines the
+    /// window (partition and ordering), and the trailing `%func` applies a window function over it.
+    Window(WindowFn),
+}
+
+/// A window function application: a function applied over a window defined by partition and ordering
+/// expressions. Written as `%%( partition\p ordering\s )%func(args)`. Compiles to a SQL window
+/// function (`func(args) OVER (PARTITION BY ... ORDER BY ...)`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowFn {
+    /// The window function name as written, e.g. `row_number`, `sum`, `lag`.
+    pub function: String,
+    /// The function's value arguments (e.g. the column for `sum`, or the column plus offset and
+    /// default for `lag`). Empty for ranking functions like `row_number`.
+    pub args: Vec<Expr>,
+    /// The `PARTITION BY` expressions, taken from the window definition's `\p`-flagged entries (and
+    /// any entries with no flag).
+    pub partition_by: Vec<Expr>,
+    /// The `ORDER BY` entries, taken from the window definition's `\s`-flagged entries.
+    pub order_by: Vec<SortExpr>,
 }
 
 impl Expr {

@@ -361,3 +361,89 @@ Multiplies the values of a numeric column together. DuckDB has a native `product
 ```qd
 #projects $name $#issues.id%product
 ```
+
+## Window functions
+
+Window functions compute a value across a set of rows related to the current row, without collapsing
+them. They are applied over a window definition with the `%%( … )%func` syntax — see [Window
+functions](./language.md#window-functions) in the language guide for the syntax, including how
+partitioning, ordering, and value arguments are written.
+
+The set below is restricted to functions that both Postgres and DuckDB support. Value arguments (the
+column to operate on, plus any extras) are written in parentheses after the function name.
+
+### `row_number`
+
+Assigns a unique sequential integer (starting at 1) to each row within its partition, in the window's
+order. Takes no value argument. Compiles to SQL `row_number`.
+
+```qd
+#issues $id $%%(project\p created_at\s)%row_number -> rn
+```
+
+### `rank`
+
+Ranks rows within the partition, leaving gaps after ties. Takes no value argument. Compiles to SQL
+`rank`.
+
+### `dense_rank`
+
+Like `rank`, but without gaps after ties. Takes no value argument. Compiles to SQL `dense_rank`.
+
+### `percent_rank`
+
+The relative rank of a row as a value between 0 and 1. Takes no value argument. Compiles to SQL
+`percent_rank`.
+
+### `cume_dist`
+
+The cumulative distribution of a row within its partition. Takes no value argument. Compiles to SQL
+`cume_dist`.
+
+### `ntile`
+
+Divides each partition into the given number of buckets and returns the bucket number of each row.
+Takes the bucket count as its argument. Compiles to SQL `ntile`.
+
+```qd
+#issues $id $%%(status\p id\s)%ntile(4) -> quartile
+```
+
+### `lag`
+
+Returns a value from a row a given number of rows *before* the current row. Arguments: the column,
+then an optional offset (default 1), then an optional default value for when no such row exists.
+Compiles to SQL `lag`.
+
+```qd
+#issues $id $%%(project\p created_at\s)%lag(status 1 "none") -> previous_status
+```
+
+### `lead`
+
+Like `lag`, but reads from a row *after* the current row. Compiles to SQL `lead`.
+
+### `first_value`
+
+Returns the value of the given column from the first row of the window frame. Compiles to SQL
+`first_value`.
+
+### `last_value`
+
+Returns the value of the given column from the last row of the window frame. Compiles to SQL
+`last_value`. Note that the default frame ends at the current row.
+
+### `nth_value`
+
+Returns the value of the given column from the nth row of the window frame. Arguments: the column and
+the position `n`. Compiles to SQL `nth_value`.
+
+### `count`, `sum`, `avg`, `min`, `max`
+
+The standard aggregates can also be applied as window functions, producing a running or
+partition-wide value rather than collapsing rows. Each takes the column to aggregate; `count` may be
+used on its own (`%count`) to mean `count(*)`.
+
+```qd
+#issues $id $%%(project\p created_at\s)%sum(id) -> running_total
+```

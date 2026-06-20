@@ -76,6 +76,10 @@ fn contains_aggregate(expr: &Expr) -> bool {
             comparison_side_contains_aggregate(&c.left)
                 || comparison_side_contains_aggregate(&c.right)
         }
+        // A window function is not a GROUP BY aggregate, so it does not satisfy the grouping
+        // requirement. Combining `\g` grouping with a window function in the same stage is not
+        // supported; use a pipeline (`~~~`) to group the output of a window stage.
+        Expr::Window(_) => false,
         Expr::Number(_)
         | Expr::Date(_)
         | Expr::Duration(_)

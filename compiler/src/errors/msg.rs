@@ -18,6 +18,29 @@ pub fn unknown_aggregate_function(function_name: &str) -> String {
     format!("Aggregate function `{}` does not exist.", function_name)
 }
 
+pub fn unknown_window_function(function_name: &str) -> String {
+    format!("Window function `{}` does not exist.", function_name)
+}
+
+pub fn window_fn_wrong_arg_count(
+    function_name: &str,
+    min_args: usize,
+    max_args: usize,
+    actual: usize,
+) -> String {
+    if min_args == max_args {
+        format!(
+            "The window function `{function_name}` expects {min_args} argument(s) but received \
+             {actual}."
+        )
+    } else {
+        format!(
+            "The window function `{function_name}` expects between {min_args} and {max_args} \
+             arguments but received {actual}."
+        )
+    }
+}
+
 pub fn unknown_variable(variable_name: &str) -> String {
     format!("Unknown variable `{}`.", variable_name)
 }

@@ -7,6 +7,7 @@ mod has_quantity;
 mod number;
 mod path;
 mod pipe;
+mod window;
 
 pub use comparison::operator as comparison_operator;
 pub use path::path_to_one;
@@ -20,6 +21,7 @@ use crate::tokens::*;
 use self::{
     case::case, comparison::comparison, condition_set::condition_set, date::date,
     duration::duration, has_quantity::has_quantity, number::number, path::path, pipe::pipe,
+    window::window,
 };
 
 pub fn expr<'src>() -> impl Psr<'src, Expr> {
@@ -58,6 +60,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             date().map(Expr::Date),
             string().map(Expr::String),
             variable().map(Expr::Variable),
+            window(prec_comma.clone()),
             path(prec_comma.clone()).map(Expr::Path),
             has_quantity(prec_comma.clone()).map(Expr::HasQuantity),
             case(prec_comma.clone()).map(Expr::Case),

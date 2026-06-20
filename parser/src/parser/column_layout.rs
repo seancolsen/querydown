@@ -72,7 +72,7 @@ fn column_spec<'src>() -> impl Psr<'src, ColumnSpec> {
         })
 }
 
-fn column_control<'src>() -> impl Psr<'src, ColumnControl> {
+pub(crate) fn column_control<'src>() -> impl Psr<'src, ColumnControl> {
     #[derive(Clone)]
     enum Flag {
         Sort,
