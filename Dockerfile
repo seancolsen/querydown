@@ -47,8 +47,8 @@ RUN rustup component add clippy rustfmt \
     && rustup target add wasm32-unknown-unknown \
     && curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
 
-# Claude Code CLI.
-RUN npm install -g @anthropic-ai/claude-code
+# Claude Code CLI and doctoc (regenerates the docs tables of contents — see DEVELOPMENT.md).
+RUN npm install -g @anthropic-ai/claude-code doctoc
 
 # Ensure cargo is on PATH for login shells too (the base image's ENV PATH is
 # otherwise reset by /etc/profile in a `bash -l` context).
