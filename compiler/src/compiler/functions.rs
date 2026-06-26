@@ -214,6 +214,7 @@ fn agg_1(
     order_by: Vec<SortExpr>,
     scope: &mut Scope,
     agg_wrapper: AggWrapper,
+    coalesce_to_zero: bool,
 ) -> Result<SqlExpr, String> {
     let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let Expr::Path(path_parts) = arg0 else {
@@ -228,7 +229,7 @@ fn agg_1(
                 return Err(msg::aggregate_fn_applied_to_a_path_without_a_column());
             };
             let aggregate_expr_template =
-                AggregateExprTemplate::new(column_name, agg_wrapper, order_by);
+                AggregateExprTemplate::new(column_name, agg_wrapper, order_by, coalesce_to_zero);
             scope.join_chain_to_many(
                 &head,
                 chain_to_many,
@@ -260,16 +261,16 @@ pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
     // between dialects.
     #[rustfmt::skip]
     let templates: [(&str, AggregateFunc); 10] = [
-        ("all_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_and(a, ob))),
-        ("any_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_or(a, ob))),
-        ("avg",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| avg(a, ob))),
-        ("count",    |e, ob, s| agg_1(e, ob, s, |a, ob, _| count(a, ob))),
-        ("distinct", |e, ob, s| agg_1(e, ob, s, |a, ob, _| count_distinct(a, ob))),
-        ("list",     |e, ob, s| agg_1(e, ob, s, |a, ob, _| array_agg(a, ob))),
-        ("max",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| max(a, ob))),
-        ("min",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| min(a, ob))),
-        ("product",  |e, ob, s| agg_1(e, ob, s, |a, _ob, d| d.aggregate_product(a))),
-        ("sum",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| sum(a, ob))),
+        ("all_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_and(a, ob), false)),
+        ("any_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_or(a, ob), false)),
+        ("avg",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| avg(a, ob), false)),
+        ("count",    |e, ob, s| agg_1(e, ob, s, |a, ob, _| count(a, ob), true)),
+        ("distinct", |e, ob, s| agg_1(e, ob, s, |a, ob, _| count_distinct(a, ob), true)),
+        ("list",     |e, ob, s| agg_1(e, ob, s, |a, ob, _| array_agg(a, ob), false)),
+        ("max",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| max(a, ob), false)),
+        ("min",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| min(a, ob), false)),
+        ("product",  |e, ob, s| agg_1(e, ob, s, |a, _ob, d| d.aggregate_product(a), false)),
+        ("sum",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| sum(a, ob), false)),
     ];
     templates
         .into_iter()

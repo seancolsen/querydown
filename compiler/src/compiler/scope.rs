@@ -11,6 +11,7 @@ use crate::{
         links::{FilteredLink, Link, LinkToOne},
         Schema, Table,
     },
+    sql::expr::build,
     sql::tree::{Cte, CtePurpose, Join, SqlExpr},
     Options,
 };
@@ -328,6 +329,7 @@ impl<'a, 'b> Scope<'a, 'b> {
         let ValueViaCte {
             select,
             value_alias,
+            coalesce_to_zero,
         } = build_cte_select(chain, aggregate_expr_template_opt, self, purpose)?;
         let cte_alias = self.get_cte_alias();
         let cte = Cte {
@@ -336,7 +338,14 @@ impl<'a, 'b> Scope<'a, 'b> {
             join_column_name: starting_column.name.clone(),
         };
         self.integrate_chain(head.as_ref(), Some(cte));
-        Ok(self.table_column_expr(&cte_alias, &value_alias))
+        let reference = self.table_column_expr(&cte_alias, &value_alias);
+        // The CTE is joined via a LEFT JOIN, so base rows with no related records yield NULL. For
+        // counts we coalesce that NULL to zero.
+        if coalesce_to_zero {
+            Ok(build::cond::coalesce(vec![reference, build::value::zero()]))
+        } else {
+            Ok(reference)
+        }
     }
 
     fn get_cte_alias(&mut self) -> String {
