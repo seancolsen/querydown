@@ -63,3 +63,19 @@ fn ungrouped_query_with_naked_column_is_allowed() {
     // Without any grouping, a plain column is fine.
     assert!(compile("#issues $title").is_ok());
 }
+
+#[test]
+fn count_of_related_records_is_coalesced_to_zero() {
+    // A to-many count is computed in a CTE joined via LEFT JOIN, so issues with no comments would
+    // otherwise yield NULL. The count is coalesced to zero so those rows show 0 instead.
+    let sql = compile("#issues $title $#comments").unwrap();
+    assert!(sql.contains("COALESCE(\"cte0\".\"v1\", 0)"), "got: {sql}");
+}
+
+#[test]
+fn non_count_aggregate_over_related_records_is_not_coalesced() {
+    // Only counts are coalesced to zero; a `max` over a to-many path should remain NULL when there
+    // are no related records.
+    let sql = compile("#issues $id $#comments.created_at%max").unwrap();
+    assert!(!sql.contains("COALESCE"), "got: {sql}");
+}

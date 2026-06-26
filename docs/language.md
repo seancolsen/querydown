@@ -720,6 +720,8 @@ In querydown (unlike SQL) all joined data is aggregated with respect to the base
 
 In our [example schema](#example-schema), each project has multiple issues. When the base table is `#projects`, the expression `#issues` means: _count the number of issues related to each project_.
 
+A project with no related issues shows `0` rather than NULL. Counts are always coalesced to zero so that the absence of related records reads as a count of zero.
+
 ### Specifying an aggregate function
 
 Specific aggregate functions can be applied via `%` (similar to pipe syntax).

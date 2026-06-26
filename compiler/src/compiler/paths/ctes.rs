@@ -28,6 +28,10 @@ pub type AggWrapper = fn(SqlExpr, String, &dyn Dialect) -> SqlExpr;
 pub struct ValueViaCte {
     pub select: Select,
     pub value_alias: String,
+    /// True when the CTE's value is a count, which should be coalesced to zero in the outer query.
+    /// Because the CTE is joined via a LEFT JOIN, base-table rows with no related records produce a
+    /// NULL value. For counts we want those rows to show `0` instead.
+    pub coalesce_to_zero: bool,
 }
 
 pub struct AggregateExprTemplate {
@@ -43,14 +47,23 @@ pub struct AggregateExprTemplate {
     /// expression along with the compiled ORDER BY string.
     agg_wrapper: AggWrapper,
     order_by: Vec<SortExpr>,
+    /// True when this aggregate produces a count (e.g. `count` or `distinct`), so that its value is
+    /// coalesced to zero in the outer query.
+    coalesce_to_zero: bool,
 }
 
 impl AggregateExprTemplate {
-    pub fn new(column_name: String, agg_wrapper: AggWrapper, order_by: Vec<SortExpr>) -> Self {
+    pub fn new(
+        column_name: String,
+        agg_wrapper: AggWrapper,
+        order_by: Vec<SortExpr>,
+        coalesce_to_zero: bool,
+    ) -> Self {
         Self {
             column_name,
             agg_wrapper,
             order_by,
+            coalesce_to_zero,
         }
     }
 }
@@ -130,8 +143,11 @@ pub fn build_cte_select(
     select.ctes.extend(cte_ctes);
 
     if purpose == CtePurpose::AggregateValue {
+        // A bare to-many path with no aggregate template is a plain count of related records.
+        let mut coalesce_to_zero = aggregate_expr_template_opt.is_none();
         let value_expr = match aggregate_expr_template_opt {
             Some(template) => {
+                coalesce_to_zero = template.coalesce_to_zero;
                 let column_name = template.column_name;
                 let column_id = cte_scope
                     .options
@@ -159,10 +175,12 @@ pub fn build_cte_select(
         return Ok(ValueViaCte {
             select,
             value_alias,
+            coalesce_to_zero,
         });
     }
     Ok(ValueViaCte {
         select,
         value_alias: CTE_PK_COLUMN_ALIAS.to_owned(),
+        coalesce_to_zero: false,
     })
 }

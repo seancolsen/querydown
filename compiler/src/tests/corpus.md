@@ -991,6 +991,31 @@ WHERE
 
 ## Paths to many
 
+### Count of related records is coalesced to zero
+
+> Issues, showing the number of comments on each. An issue with no comments shows `0`, not NULL, because the count is coalesced to zero.
+
+```qd
+#issues $title $#comments
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
 ### Path to many with column at end
 
 > Issues, showing the date of their most recent comment.
@@ -1035,7 +1060,7 @@ WITH
   )
 SELECT
   "issues"."id" AS "id",
-  "cte0"."v1" AS "total_comments_by_author"
+  COALESCE("cte0"."v1", 0) AS "total_comments_by_author"
 FROM "issues"
 LEFT JOIN "users" ON
   "issues"."author" = "users"."id"
@@ -1383,7 +1408,7 @@ WITH
     GROUP BY "issues"."author"
   )
 SELECT
-  "cte0"."v1"
+  COALESCE("cte0"."v1", 0)
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk";
@@ -1899,7 +1924,7 @@ SELECT
   "issues"."title",
   "issues"."created_at",
   "issues"."due_date",
-  "cte0"."v1"
+  COALESCE("cte0"."v1", 0)
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk";
@@ -2610,7 +2635,7 @@ WITH
       )
     SELECT
       "issues"."id" AS "id",
-      "cte0"."v1" AS "comment_count"
+      COALESCE("cte0"."v1", 0) AS "comment_count"
     FROM "issues"
     LEFT JOIN "cte0" ON
       "issues"."id" = "cte0"."pk"
