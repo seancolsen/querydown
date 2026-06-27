@@ -167,9 +167,13 @@ fn convert_simple_comparison(
         Like => Ok(cmp::like(left_converted, right_converted)),
         RegexMatch => Ok(match_regex(left_converted, right_converted, scope)),
         // The match operator applies type-aware matching: case-insensitive "contains" when the
-        // left-hand side is known to be text, falling back to exact equality otherwise.
+        // left-hand side is known to be text, falling back to exact equality otherwise. An empty
+        // string literal on the right is a special case: "contains" would match every row, so we
+        // use strict equality instead, making `description:""` find rows with an empty description
+        // (mirroring `description:=""`).
         Match => {
-            if classify_value_type(left, scope) == ValueType::Text {
+            let right_is_empty_string = matches!(right, Expr::String(s) if s.is_empty());
+            if !right_is_empty_string && classify_value_type(left, scope) == ValueType::Text {
                 Ok(scope
                     .options
                     .dialect

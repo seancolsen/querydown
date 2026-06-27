@@ -578,6 +578,26 @@ WHERE
   COALESCE(contains(lower(strip_accents("issues"."title")), lower(strip_accents('performance'))), FALSE);
 ```
 
+### Text match against an empty string is exact equality
+
+An empty string literal on the right-hand side of `:` is matched via strict equality rather than
+"contains" (which would match every row). This makes `description:""` find rows with an empty
+description, the same as the explicit `description:=""`.
+
+> Issues with an empty description
+
+```qd
+#issues description:""
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."description" = '';
+```
+
 ### Explicit equality on text
 
 The `:=` operator forces exact equality, even for text columns.
