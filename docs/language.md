@@ -318,6 +318,8 @@ This does a case-insensitive search for "performance" anywhere in the issue titl
 
 The match comparison operator (`:`) behaves differently according to the type of expression on the left-hand-side. Text values will match via contains logic, while other values (e.g. numbers, dates, etc) are compared using strict equality.
 
+As a special case, matching a text value against an **empty string** uses strict equality rather than contains logic (which would otherwise match every row). This means `#issues description:""` finds issues with an empty description, the same as `#issues description:=""`.
+
 ### Equality comparisons
 
 > Find issues where the status exactly equals "do"
