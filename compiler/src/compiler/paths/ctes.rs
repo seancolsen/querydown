@@ -11,6 +11,7 @@ use crate::{
     schema::{
         chain::Chain,
         links::{FilteredLink, Link},
+        TableId,
     },
     sql::expr::build,
     sql::{
@@ -50,6 +51,11 @@ pub struct AggregateExprTemplate {
     /// True when this aggregate produces a count (e.g. `count` or `distinct`), so that its value is
     /// coalesced to zero in the outer query.
     coalesce_to_zero: bool,
+    /// The table from whose context the `order_by` expressions are evaluated: the table named by the
+    /// first `#` part of the aggregated path. This lets a sort reference a column of the join table
+    /// (e.g. `#issue_labels.label.name%list(\\id)` sorts by `issue_labels.id`), rather than only
+    /// columns of the path's final table.
+    order_by_anchor_table_id: TableId,
 }
 
 impl AggregateExprTemplate {
@@ -58,12 +64,14 @@ impl AggregateExprTemplate {
         agg_wrapper: AggWrapper,
         order_by: Vec<SortExpr>,
         coalesce_to_zero: bool,
+        order_by_anchor_table_id: TableId,
     ) -> Self {
         Self {
             column_name,
             agg_wrapper,
             order_by,
             coalesce_to_zero,
+            order_by_anchor_table_id,
         }
     }
 }
@@ -155,8 +163,18 @@ pub fn build_cte_select(
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &ending_table.name))?;
                 let column = ending_table.columns.get(column_id).unwrap();
                 let reference = cte_scope.table_column_expr(&ending_table.name, &column.name);
+                // Sorting conditions are evaluated from the context of the table named by the first
+                // `#` part of the path (the anchor), not the path's final table. The anchor is
+                // already joined into this CTE (it lies along the chain), so we share the CTE's
+                // existing aliases to avoid a duplicate-alias collision when a sort reaches a table
+                // the CTE already joined.
                 let order_by_str = {
-                    let mut ob_scope = cte_scope.spawn(ending_table);
+                    let anchor_table = schema
+                        .tables
+                        .get(&template.order_by_anchor_table_id)
+                        .unwrap();
+                    let mut ob_scope =
+                        cte_scope.spawn_with_aliases(anchor_table, cte_scope.cloned_aliases());
                     let s = render_order_by(template.order_by, &mut ob_scope)?;
                     let (ob_joins, ob_ctes) = ob_scope.decompose_join_tree();
                     select.joins.extend(ob_joins);

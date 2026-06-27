@@ -226,6 +226,14 @@ impl<'a, 'b> Scope<'a, 'b> {
     }
 
     pub fn spawn(&'b self, base_table: &'a Table) -> Self {
+        self.spawn_with_aliases(base_table, HashSet::new())
+    }
+
+    /// Like [`Scope::spawn`], but seeds the new scope's set of reserved table aliases. This is used
+    /// when the spawned scope renders SQL that is folded back into the parent's query (e.g. an
+    /// aggregate's `ORDER BY`), so that any joins it introduces avoid colliding with aliases the
+    /// parent has already assigned.
+    pub fn spawn_with_aliases(&'b self, base_table: &'a Table, aliases: HashSet<String>) -> Self {
         Scope {
             parent: Some(self),
             options: self.options,
@@ -233,7 +241,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             base_table,
             join_tree: JoinTree::new(base_table.name.to_owned()),
             path_prefix: vec![],
-            aliases: HashSet::new(),
+            aliases,
             cte_naming_index: 0,
             scalar_functions: HashMap::new(),
             aggregate_functions: HashMap::new(),
@@ -242,6 +250,12 @@ impl<'a, 'b> Scope<'a, 'b> {
             user_functions: HashMap::new(),
             custom_comparisons: HashMap::new(),
         }
+    }
+
+    /// Returns a copy of the table aliases currently reserved in this scope. Used to seed a spawned
+    /// scope via [`Scope::spawn_with_aliases`].
+    pub fn cloned_aliases(&self) -> HashSet<String> {
+        self.aliases.clone()
     }
 
     pub fn with_path_prefix<T>(

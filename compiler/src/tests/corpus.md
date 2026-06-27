@@ -1173,10 +1173,12 @@ LEFT JOIN "cte0" ON
 
 ### List aggregate with ORDER BY
 
-> Issues with an array of their label names sorted alphabetically.
+> Issues with an array of their label names sorted alphabetically. A sorting expression attached to
+> an aggregate function is evaluated from the context of the first `#` table in the aggregated path,
+> which here is `labels` (reached via the elided join through `issue_labels`).
 
 ```qd
-#issues $id $#issue_labels.label.name%list(\\name)
+#issues $id $#labels.name%list(\\name)
 ```
 
 ```sql
@@ -1203,7 +1205,7 @@ LEFT JOIN "cte0" ON
 > Issues with an array of their label names sorted reverse-alphabetically.
 
 ```qd
-#issues $id $#issue_labels.label.name%list(\\name \d)
+#issues $id $#labels.name%list(\\name \d)
 ```
 
 ```sql
@@ -1215,6 +1217,67 @@ WITH
     FROM "issue_labels"
     JOIN "labels" ON
       "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate sorted by a join-table column
+
+> Issues with an array of their label names, sorted by a column of the join table rather than a
+> column of the labels themselves. Because the aggregated path begins with `#issue_labels`, the
+> sorting expression `\\id` is evaluated from the context of the `issue_labels` join table, so the
+> array is ordered by `issue_labels.id`.
+
+```qd
+#issues $id $#issue_labels.label.name%list(\\id)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg("labels"."name" ORDER BY "issue_labels"."id" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate sorted via a path from the join table
+
+> The sorting expression may itself follow a path out of the first `#` table. Here `\\label.name`
+> walks from `issue_labels` to its `label`, sorting the array by the label name — the same result as
+> sorting from `#labels` directly, but reached explicitly through the join table.
+
+```qd
+#issues $id $#issue_labels.label.name%list(\\label.name)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg("labels"."name" ORDER BY "labels_1"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    LEFT JOIN "labels" AS "labels_1" ON
+      "issue_labels"."label" = "labels_1"."id"
     GROUP BY "issue_labels"."issue"
   )
 SELECT

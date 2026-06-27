@@ -8,7 +8,7 @@ use crate::{
     schema::{
         chain::{Chain, ChainIntersecting},
         links::{FilteredLink, Link, LinkToOne, MultiLink},
-        ChainSearchBase, Table,
+        ChainSearchBase, Table, TableId,
     },
 };
 
@@ -25,14 +25,20 @@ pub struct ClarifiedPath {
 #[derive(Debug)]
 pub enum ClarifiedPathTail {
     Column(String),
-    /// chain, column_name
-    ChainToMany((Chain<FilteredLink>, Option<String>)),
+    /// chain, column_name, order_by_anchor_table_id
+    ///
+    /// The `order_by_anchor_table_id` identifies the table named by the first `#` part of the path
+    /// (the first table reached via a to-many link). Any sorting conditions attached to an aggregate
+    /// function applied to this path are evaluated from the context of that table — see
+    /// [`crate::compiler::paths::build_cte_select`].
+    ChainToMany((Chain<FilteredLink>, Option<String>, TableId)),
 }
 
 pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath, String> {
     let linked_path = build_linked_path(parts, scope)?;
     let chain_opt = linked_path.chain;
     let column_name_opt = linked_path.column;
+    let first_to_many_end_table_id = linked_path.first_to_many_end_table_id;
     let Some(chain) = chain_opt else {
         return column_name_opt
             .map(|column_name| ClarifiedPath {
@@ -69,9 +75,15 @@ pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath
         }
     }
     let tail = if let Some(chain_to_many) = chain_to_many_opt {
+        // `first_to_many_end_table_id` is always set when a to-many chain exists, since the chain
+        // begins at a to-many link produced by a `#` (TableWithMany) path part. The fallback to the
+        // chain's ending table is a defensive default that should never be reached.
+        let anchor_table_id =
+            first_to_many_end_table_id.unwrap_or_else(|| chain_to_many.get_ending_table_id());
         Some(ClarifiedPathTail::ChainToMany((
             chain_to_many,
             column_name_opt,
+            anchor_table_id,
         )))
     } else {
         column_name_opt.map(ClarifiedPathTail::Column)
@@ -86,12 +98,17 @@ struct LinkedPath {
     /// column, then the column will be treated as a link and will be included in the chain,
     /// making the `column` field `None`.
     pub column: Option<String>,
+    /// The table reached by the first `#` (TableWithMany) part of the path, i.e. the ending table of
+    /// that part's chain. This anchors any sorting conditions attached to an aggregate function. It
+    /// is `None` when the path contains no to-many part.
+    pub first_to_many_end_table_id: Option<TableId>,
 }
 
 fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, String> {
     let mut current_table_opt: Option<&Table> = Some(scope.get_base_table());
     let mut chain_opt: Option<Chain<FilteredLink>> = None;
     let mut final_column_name: Option<String> = None;
+    let mut first_to_many_end_table_id: Option<TableId> = None;
     for part in parts {
         let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
         match part {
@@ -130,6 +147,9 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                     get_chain_to_table_with_many(base, &table_with_many, None, scope)?;
                 new_chain.set_final_condition_set(condition_set);
                 new_chain.allow_intersecting();
+                if first_to_many_end_table_id.is_none() {
+                    first_to_many_end_table_id = Some(new_chain.get_ending_table_id());
+                }
                 current_table_opt = scope.schema.tables.get(&new_chain.get_ending_table_id());
                 chain_opt = match chain_opt {
                     Some(mut chain) => {
@@ -145,6 +165,7 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
     Ok(LinkedPath {
         chain: chain_opt,
         column: final_column_name,
+        first_to_many_end_table_id,
     })
 }
 

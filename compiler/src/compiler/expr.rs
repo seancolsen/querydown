@@ -100,10 +100,10 @@ fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Stri
             let table_name = scope.join_chain_to_one(&chain_to_one);
             Ok(scope.table_column_expr(&table_name, &column_name))
         }
-        (_, Some(ClarifiedPathTail::ChainToMany((_, Some(column_name))))) => Err(
+        (_, Some(ClarifiedPathTail::ChainToMany((_, Some(column_name), _)))) => Err(
             msg::path_to_many_with_column_name_and_no_agg_fn(&column_name),
         ),
-        (head, Some(ClarifiedPathTail::ChainToMany((chain_to_many, None)))) => {
+        (head, Some(ClarifiedPathTail::ChainToMany((chain_to_many, None, _)))) => {
             scope.join_chain_to_many(&head, chain_to_many, None, CtePurpose::AggregateValue)
         }
     }

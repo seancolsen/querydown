@@ -224,12 +224,17 @@ fn agg_1(
     match tail {
         // Aggregating data that joins many records (e.g. `#issues.created_at%max`). This is handled
         // by building a CTE that performs the aggregation grouped by the linking column.
-        Some(ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt))) => {
+        Some(ClarifiedPathTail::ChainToMany((chain_to_many, column_name_opt, anchor_table_id))) => {
             let Some(column_name) = column_name_opt else {
                 return Err(msg::aggregate_fn_applied_to_a_path_without_a_column());
             };
-            let aggregate_expr_template =
-                AggregateExprTemplate::new(column_name, agg_wrapper, order_by, coalesce_to_zero);
+            let aggregate_expr_template = AggregateExprTemplate::new(
+                column_name,
+                agg_wrapper,
+                order_by,
+                coalesce_to_zero,
+                anchor_table_id,
+            );
             scope.join_chain_to_many(
                 &head,
                 chain_to_many,

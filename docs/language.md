@@ -58,6 +58,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Mandatory aggregation](#mandatory-aggregation)
   - [Aggregate counts](#aggregate-counts)
   - [Specifying an aggregate function](#specifying-an-aggregate-function)
+  - [Sorting within an aggregate function](#sorting-within-an-aggregate-function)
   - ["Has some" and "has none" conditions](#has-some-and-has-none-conditions)
   - [Conditions to filter aggregate data](#conditions-to-filter-aggregate-data)
   - [Transitive relationships](#transitive-relationships)
@@ -735,6 +736,33 @@ Specific aggregate functions can be applied via `%` (similar to pipe syntax).
 ```
 
 _(See a list of [all aggregate functions](./functions.md#aggregate-functions).)_
+
+### Sorting within an aggregate function
+
+Some aggregate functions (notably [`list`](./functions.md#list)) produce a result whose order is
+meaningful. You can control that order by attaching one or more [standalone sorting
+expressions](#sorting-outside-of-result-columns) (written with the `\\` prefix) inside the
+function's parentheses.
+
+> For each issue, list its label names in alphabetical order
+
+```
+#issues $title $#labels.name%list(\\name)
+```
+
+A sorting expression attached to an aggregate is evaluated **from the context of the first `#` table
+in the aggregated path**, not from the path's final column. This lets you sort by a column of an
+intermediate join table that the path passes through.
+
+> For each issue, list its label names, ordered by the join table's own `id` column
+
+```
+#issues $title $#issue_labels.label.name%list(\\id)
+```
+
+Here the path begins with `#issue_labels`, so `\\id` refers to `issue_labels.id`. To sort by a column
+that is reached by following a path out of that first `#` table, write the full path in the sorting
+expression — for example `\\label.name` sorts by the related label's name.
 
 ### "Has some" and "has none" conditions
 
