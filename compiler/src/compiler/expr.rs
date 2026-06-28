@@ -112,7 +112,7 @@ fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Stri
 /// If `parts` names a computed column, returns the head of the path (the parts that lead to the
 /// table hosting the computed column) together with the computed column's expression. A real column
 /// of the same name always takes precedence, in which case this returns `None`.
-fn resolve_computed_column(
+pub(super) fn resolve_computed_column(
     parts: &[PathPart],
     scope: &Scope,
 ) -> Result<Option<(Vec<PathPart>, Expr)>, String> {

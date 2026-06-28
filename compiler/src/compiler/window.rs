@@ -10,51 +10,63 @@
 use querydown_parser::ast::{Comparison, ComparisonSide, Expr, WindowFn};
 
 use crate::{
-    compiler::{expr::convert_expr, paths::render_order_by, scope::Scope},
+    compiler::{expr::convert_expr, functions::TypeRule, paths::render_order_by, scope::Scope},
     errors::msg,
+    schema::ValueType,
     sql::tree::SqlExpr,
 };
 
-/// The SQL realization of a window function: its SQL name plus the inclusive range of value
-/// arguments it accepts (not counting partition/ordering, which come from the window definition).
+/// The SQL realization of a window function: its SQL name, the inclusive range of value arguments it
+/// accepts (not counting partition/ordering, which come from the window definition), and the rule
+/// for the type of value it produces (used by type inference).
 struct WindowFnSpec {
     sql_name: &'static str,
     min_args: usize,
     max_args: usize,
+    return_type: TypeRule,
 }
 
 /// Looks up a window function by its Querydown name, returning how it maps to SQL. The set is
 /// restricted to window functions that both Postgres and DuckDB support.
 fn window_fn_spec(name: &str) -> Option<WindowFnSpec> {
-    let spec = |sql_name, min_args, max_args| {
+    let spec = |sql_name, min_args, max_args, return_type| {
         Some(WindowFnSpec {
             sql_name,
             min_args,
             max_args,
+            return_type,
         })
     };
+    use TypeRule::*;
+    use ValueType::*;
     match name {
         // Ranking functions — no value arguments.
-        "row_number" => spec("row_number", 0, 0),
-        "rank" => spec("rank", 0, 0),
-        "dense_rank" => spec("dense_rank", 0, 0),
-        "percent_rank" => spec("percent_rank", 0, 0),
-        "cume_dist" => spec("cume_dist", 0, 0),
-        "ntile" => spec("ntile", 1, 1),
-        // Offset / positional functions.
-        "lag" => spec("lag", 1, 3),
-        "lead" => spec("lead", 1, 3),
-        "first_value" => spec("first_value", 1, 1),
-        "last_value" => spec("last_value", 1, 1),
-        "nth_value" => spec("nth_value", 2, 2),
+        "row_number" => spec("row_number", 0, 0, Fixed(Number)),
+        "rank" => spec("rank", 0, 0, Fixed(Number)),
+        "dense_rank" => spec("dense_rank", 0, 0, Fixed(Number)),
+        "percent_rank" => spec("percent_rank", 0, 0, Fixed(Number)),
+        "cume_dist" => spec("cume_dist", 0, 0, Fixed(Number)),
+        "ntile" => spec("ntile", 1, 1, Fixed(Number)),
+        // Offset / positional functions return one of the partition's values unchanged.
+        "lag" => spec("lag", 1, 3, SameAsArg(0)),
+        "lead" => spec("lead", 1, 3, SameAsArg(0)),
+        "first_value" => spec("first_value", 1, 1, SameAsArg(0)),
+        "last_value" => spec("last_value", 1, 1, SameAsArg(0)),
+        "nth_value" => spec("nth_value", 2, 2, SameAsArg(0)),
         // Aggregate functions usable as window functions.
-        "count" => spec("count", 0, 1),
-        "sum" => spec("sum", 1, 1),
-        "avg" => spec("avg", 1, 1),
-        "min" => spec("min", 1, 1),
-        "max" => spec("max", 1, 1),
+        "count" => spec("count", 0, 1, Fixed(Number)),
+        "sum" => spec("sum", 1, 1, Fixed(Number)),
+        "avg" => spec("avg", 1, 1, Fixed(Number)),
+        "min" => spec("min", 1, 1, SameAsArg(0)),
+        "max" => spec("max", 1, 1, SameAsArg(0)),
         _ => None,
     }
+}
+
+/// The type-inference rule for a window function, or `None` if the name isn't a known window
+/// function. Used by [`crate::compiler::typing`] to propagate types through window expressions.
+pub(super) fn window_fn_return_type(name: &str) -> Option<TypeRule> {
+    window_fn_spec(name).map(|spec| spec.return_type)
 }
 
 /// Converts a window function application into a SQL `func(...) OVER (...)` expression.

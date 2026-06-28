@@ -1,7 +1,6 @@
 use querydown_parser::ast::*;
 
 use crate::{
-    compiler::constants::VAR_NOW,
     compiler::expr::{convert_expr, convert_expr_with_path_prefix},
     errors::msg,
     schema::ValueType,
@@ -15,6 +14,7 @@ use crate::{
 use super::{
     paths::{clarify_path, ClarifiedPathTail},
     scope::Scope,
+    typing::infer_type,
 };
 
 pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, String> {
@@ -173,7 +173,7 @@ fn convert_simple_comparison(
         // (mirroring `description:=""`).
         Match => {
             let right_is_empty_string = matches!(right, Expr::String(s) if s.is_empty());
-            if !right_is_empty_string && classify_value_type(left, scope) == ValueType::Text {
+            if !right_is_empty_string && infer_type(left, scope) == ValueType::Text {
                 Ok(scope
                     .options
                     .dialect
@@ -185,60 +185,12 @@ fn convert_simple_comparison(
     }
 }
 
-/// Best-effort, shallow classification of an expression's value type, used to decide how the match
-/// operator (`:`) behaves. Only direct column references (optionally reached through to-one join
-/// chains) are classified; anything else returns [`ValueType::Unknown`], which the caller treats as
-/// a fall back to exact equality.
-fn classify_value_type(expr: &Expr, scope: &Scope) -> ValueType {
-    let Expr::Path(parts) = expr else {
-        return ValueType::Unknown;
-    };
-    // Mirror `convert_path`'s handling of the scope's path prefix so we classify the same column
-    // that gets compiled.
-    let prefixed_parts: Vec<PathPart> = scope
-        .path_prefix
-        .iter()
-        .cloned()
-        .chain(parts.iter().cloned())
-        .collect();
-    let Ok(clarified) = clarify_path(prefixed_parts, scope) else {
-        return ValueType::Unknown;
-    };
-    let column_type = |table: &crate::schema::Table, column_name: &str| -> ValueType {
-        scope
-            .options
-            .resolve_identifier(&table.column_lookup, column_name)
-            .and_then(|id| table.columns.get(id))
-            .map(|column| column.r#type.clone())
-            .unwrap_or(ValueType::Unknown)
-    };
-    match (clarified.head, clarified.tail) {
-        (None, Some(ClarifiedPathTail::Column(column_name))) => {
-            column_type(scope.get_base_table(), &column_name)
-        }
-        (Some(chain_to_one), Some(ClarifiedPathTail::Column(column_name))) => {
-            match scope.schema.tables.get(&chain_to_one.get_ending_table_id()) {
-                Some(table) => column_type(table, &column_name),
-                None => ValueType::Unknown,
-            }
-        }
-        _ => ValueType::Unknown,
-    }
-}
-
-/// Whether `expr` is statically known to be a date or datetime value: a date literal, the `@now`
-/// constant, or a column path typed as a date/time. Used to recognize the date side of the
-/// date/duration magic in [`convert_simple_comparison`].
-fn is_date_like(expr: &Expr, scope: &Scope) -> bool {
-    match expr {
-        Expr::Date(_) => true,
-        Expr::Variable(name) => name == VAR_NOW,
-        Expr::Path(_) => matches!(
-            classify_value_type(expr, scope),
-            ValueType::Date | ValueType::Time
-        ),
-        _ => false,
-    }
+/// Whether `expr` is statically inferred to be a date or datetime value. Used to recognize the date
+/// side of the date/duration magic in [`convert_simple_comparison`]. The inference propagates
+/// through functions, arithmetic, and so on (see [`infer_type`]), so e.g. `created_at%max` (a
+/// datetime run through `max`) is recognized as a datetime.
+fn is_date_like(expr: &Expr, scope: &mut Scope) -> bool {
+    matches!(infer_type(expr, scope), ValueType::Date | ValueType::Time)
 }
 
 /// Maps a comparison operator to the SQL builder for comparing two numeric (epoch-second) operands,

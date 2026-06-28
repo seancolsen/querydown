@@ -16,9 +16,30 @@ use crate::{
         scope::Scope,
     },
     errors::msg::{self, unknown_aggregate_function, unknown_scalar_function},
+    schema::ValueType,
     sql::expr::build::{self, agg::*, cond::*, date_time::*, func::*, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
 };
+
+/// Describes the [`ValueType`] a function produces, in terms of the function's arguments. This lets
+/// type inference (see [`crate::compiler::typing`]) propagate a value's type through a function call
+/// without compiling or evaluating it — for example, recognizing that `created_at%max` is still a
+/// datetime because `max` preserves its argument's type.
+#[derive(Debug, Clone)]
+pub enum TypeRule {
+    /// The function always returns this type, regardless of its arguments (e.g. `length` → number).
+    Fixed(ValueType),
+    /// The function returns the same type as the argument at this index (e.g. `max`/`min`, which
+    /// return one of their inputs unchanged).
+    SameAsArg(usize),
+    /// The function returns the common type of all its arguments — that shared type if they all
+    /// agree, otherwise [`ValueType::Unknown`]. Used by variadic type-preserving functions like
+    /// `if_null` (coalesce) and `keep_above`/`keep_below` (greatest/least).
+    UnifyArgs,
+    /// The function returns an array whose element type is that of the argument at this index (e.g.
+    /// the `list` aggregate).
+    ArrayOfArg(usize),
+}
 
 pub fn convert_call(call: Call, scope: &mut Scope) -> Result<SqlExpr, String> {
     match call.dimension {
@@ -33,7 +54,7 @@ fn convert_scalar_call(name: &str, e: Vec<Expr>, s: &mut Scope) -> Result<SqlExp
     // Built-in scalar functions take precedence; a user-defined function of the same name is only
     // consulted if no built-in matches.
     if let Some(func) = s.get_scalar_function(name) {
-        return func(e, s);
+        return (func.call)(e, s);
     }
     if let Some(def) = s.get_user_function(name).cloned() {
         return convert_user_function_call(def, e, s);
@@ -108,14 +129,28 @@ fn convert_aggregate_call(
     let func = s
         .get_aggregate_function(name)
         .ok_or_else(|| unknown_aggregate_function(name))?;
-    func(e, order_by, s)
+    (func.call)(e, order_by, s)
 }
 
-pub type ScalarFuncMap = HashMap<String, ScalarFunc>;
+pub type ScalarFuncMap = HashMap<String, ScalarFunction>;
 pub type ScalarFunc = fn(Vec<Expr>, &mut Scope) -> Result<SqlExpr, String>;
 
-pub type AggregateFuncMap = HashMap<String, AggregateFunc>;
+pub type AggregateFuncMap = HashMap<String, AggregateFunction>;
 pub type AggregateFunc = fn(Vec<Expr>, Vec<SortExpr>, &mut Scope) -> Result<SqlExpr, String>;
+
+/// A built-in scalar function: the closure that compiles it, paired with the rule describing the
+/// type of value it returns (consulted by type inference).
+pub struct ScalarFunction {
+    pub call: ScalarFunc,
+    pub return_type: TypeRule,
+}
+
+/// A built-in aggregate function: the closure that compiles it, paired with the rule describing the
+/// type of value it returns (consulted by type inference).
+pub struct AggregateFunction {
+    pub call: AggregateFunc,
+    pub return_type: TypeRule,
+}
 
 /// Get the first item out of an Iterator, ensuring it has no more
 fn iter_one<T>(items: impl IntoIterator<Item = T>) -> Option<T> {
@@ -169,42 +204,48 @@ fn args_2(
 }
 
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
+    use TypeRule::*;
+    use ValueType::*;
+    // Each row pairs a function's compiler with the rule for the type it returns. The duration-
+    // producing functions (`age`, `countdown`, `days`, …) report `Unknown` because there is no
+    // dedicated duration value type. Addition and subtraction preserve their left operand's type so
+    // that `date|plus(1w)` stays a date.
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc); 30] = [
-        ("abs",         |e, s| args_1(e, s, abs)),
-        ("age",         |e, s| args_1(e, s, |a| subtract(now(), a))),
-        ("and",         |e, s| args_v(e, s, build::cmp::and)),
-        ("ceil",        |e, s| args_1(e, s, ceil)),
-        ("concat",      |e, s| args_v(e, s, concat)),
-        ("countdown",   |e, s| args_1(e, s, |a| subtract(a, now()))),
-        ("days",        |e, s| args_1(e, s, days)),
-        ("divide",      |e, s| args_2(e, s, divide)),
-        ("floor",       |e, s| args_1(e, s, floor)),
-        ("hours",       |e, s| args_1(e, s, hours)),
-        ("if_null",     |e, s| args_v(e, s, coalesce)),
-        ("keep_above",  |e, s| args_v(e, s, greatest)),
-        ("keep_below",  |e, s| args_v(e, s, least)),
-        ("length",      |e, s| args_1(e, s, char_length)),
-        ("lowercase",   |e, s| args_1(e, s, lower)),
-        ("max",         |e, s| args_v(e, s, greatest)),
-        ("md5",         |e, s| args_1(e, s, md5)),
-        ("min",         |e, s| args_v(e, s, least)),
-        ("minus",       |e, s| args_2(e, s, subtract)),
-        ("minutes",     |e, s| args_1(e, s, minutes)),
-        ("mod",         |e, s| args_2(e, s, modulo)),
-        ("not",         |e, s| args_1(e, s, not)),
-        ("or",          |e, s| args_v(e, s, build::cmp::or)),
-        ("plus",        |e, s| args_2(e, s, add)),
-        ("seconds",     |e, s| args_1(e, s, seconds)),
-        ("times",       |e, s| args_2(e, s, multiply)),
-        ("trim",        |e, s| args_1(e, s, trim)),
-        ("uppercase",   |e, s| args_1(e, s, upper)),
-        ("xor",         |e, s| args_v(e, s, build::cmp::xor)),
-        ("years",       |e, s| args_1(e, s, years)),
+    let templates: [(&str, ScalarFunc, TypeRule); 30] = [
+        ("abs",         |e, s| args_1(e, s, abs),                    SameAsArg(0)),
+        ("age",         |e, s| args_1(e, s, |a| subtract(now(), a)), Fixed(Unknown)),
+        ("and",         |e, s| args_v(e, s, build::cmp::and),        Fixed(Boolean)),
+        ("ceil",        |e, s| args_1(e, s, ceil),                   Fixed(Number)),
+        ("concat",      |e, s| args_v(e, s, concat),                 Fixed(Text)),
+        ("countdown",   |e, s| args_1(e, s, |a| subtract(a, now())), Fixed(Unknown)),
+        ("days",        |e, s| args_1(e, s, days),                   Fixed(Unknown)),
+        ("divide",      |e, s| args_2(e, s, divide),                 Fixed(Number)),
+        ("floor",       |e, s| args_1(e, s, floor),                  Fixed(Number)),
+        ("hours",       |e, s| args_1(e, s, hours),                  Fixed(Unknown)),
+        ("if_null",     |e, s| args_v(e, s, coalesce),               UnifyArgs),
+        ("keep_above",  |e, s| args_v(e, s, greatest),               UnifyArgs),
+        ("keep_below",  |e, s| args_v(e, s, least),                  UnifyArgs),
+        ("length",      |e, s| args_1(e, s, char_length),            Fixed(Number)),
+        ("lowercase",   |e, s| args_1(e, s, lower),                  Fixed(Text)),
+        ("max",         |e, s| args_v(e, s, greatest),               UnifyArgs),
+        ("md5",         |e, s| args_1(e, s, md5),                    Fixed(Text)),
+        ("min",         |e, s| args_v(e, s, least),                  UnifyArgs),
+        ("minus",       |e, s| args_2(e, s, subtract),               SameAsArg(0)),
+        ("minutes",     |e, s| args_1(e, s, minutes),                Fixed(Unknown)),
+        ("mod",         |e, s| args_2(e, s, modulo),                 Fixed(Number)),
+        ("not",         |e, s| args_1(e, s, not),                    Fixed(Boolean)),
+        ("or",          |e, s| args_v(e, s, build::cmp::or),         Fixed(Boolean)),
+        ("plus",        |e, s| args_2(e, s, add),                    SameAsArg(0)),
+        ("seconds",     |e, s| args_1(e, s, seconds),                Fixed(Unknown)),
+        ("times",       |e, s| args_2(e, s, multiply),               Fixed(Number)),
+        ("trim",        |e, s| args_1(e, s, trim),                   Fixed(Text)),
+        ("uppercase",   |e, s| args_1(e, s, upper),                  Fixed(Text)),
+        ("xor",         |e, s| args_v(e, s, build::cmp::xor),        Fixed(Boolean)),
+        ("years",       |e, s| args_1(e, s, years),                  Fixed(Unknown)),
     ];
     templates
         .into_iter()
-        .map(|(s, f)| (s.to_string(), f))
+        .map(|(name, call, return_type)| (name.to_string(), ScalarFunction { call, return_type }))
         .collect()
 }
 
@@ -262,23 +303,28 @@ fn agg_1(
 }
 
 pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
+    use TypeRule::*;
+    use ValueType::*;
     // Each wrapper ignores the trailing `&dyn Dialect` argument except `product`, whose SQL differs
-    // between dialects.
+    // between dialects. The trailing `TypeRule` describes the type each aggregate returns: `max`/`min`
+    // preserve their argument's type, `list` wraps it in an array, and the rest are fixed.
     #[rustfmt::skip]
-    let templates: [(&str, AggregateFunc); 10] = [
-        ("all_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_and(a, ob), false)),
-        ("any_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_or(a, ob), false)),
-        ("avg",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| avg(a, ob), false)),
-        ("count",    |e, ob, s| agg_1(e, ob, s, |a, ob, _| count(a, ob), true)),
-        ("distinct", |e, ob, s| agg_1(e, ob, s, |a, ob, _| count_distinct(a, ob), true)),
-        ("list",     |e, ob, s| agg_1(e, ob, s, |a, ob, _| array_agg(a, ob), false)),
-        ("max",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| max(a, ob), false)),
-        ("min",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| min(a, ob), false)),
-        ("product",  |e, ob, s| agg_1(e, ob, s, |a, _ob, d| d.aggregate_product(a), false)),
-        ("sum",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| sum(a, ob), false)),
+    let templates: [(&str, AggregateFunc, TypeRule); 10] = [
+        ("all_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_and(a, ob), false),       Fixed(Boolean)),
+        ("any_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_or(a, ob), false),        Fixed(Boolean)),
+        ("avg",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| avg(a, ob), false),            Fixed(Number)),
+        ("count",    |e, ob, s| agg_1(e, ob, s, |a, ob, _| count(a, ob), true),           Fixed(Number)),
+        ("distinct", |e, ob, s| agg_1(e, ob, s, |a, ob, _| count_distinct(a, ob), true),  Fixed(Number)),
+        ("list",     |e, ob, s| agg_1(e, ob, s, |a, ob, _| array_agg(a, ob), false),      ArrayOfArg(0)),
+        ("max",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| max(a, ob), false),            SameAsArg(0)),
+        ("min",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| min(a, ob), false),            SameAsArg(0)),
+        ("product",  |e, ob, s| agg_1(e, ob, s, |a, _ob, d| d.aggregate_product(a), false), Fixed(Number)),
+        ("sum",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| sum(a, ob), false),            Fixed(Number)),
     ];
     templates
         .into_iter()
-        .map(|(s, f)| (s.to_string(), f))
+        .map(|(name, call, return_type)| {
+            (name.to_string(), AggregateFunction { call, return_type })
+        })
         .collect()
 }

@@ -7,6 +7,7 @@ mod paths;
 mod rendering;
 mod result_columns;
 mod scope;
+mod typing;
 mod window;
 
 use std::collections::HashMap;

@@ -19,8 +19,8 @@ use crate::{
 use super::{
     constants::*,
     functions::{
-        get_standard_aggregate_functions, get_standard_scalar_functions, AggregateFunc,
-        AggregateFuncMap, ScalarFunc, ScalarFuncMap,
+        get_standard_aggregate_functions, get_standard_scalar_functions, AggregateFuncMap,
+        AggregateFunction, ScalarFuncMap, ScalarFunction,
     },
     join_tree::JoinTree,
     paths::{build_cte_select, AggregateExprTemplate, ValueViaCte},
@@ -377,14 +377,14 @@ impl<'a, 'b> Scope<'a, 'b> {
         get_table_by_name(self.options, self.schema, name)
     }
 
-    pub fn get_scalar_function(&self, name: &str) -> Option<&ScalarFunc> {
+    pub fn get_scalar_function(&self, name: &str) -> Option<&ScalarFunction> {
         self.scalar_functions.get(name).or_else(|| {
             self.parent
                 .and_then(|parent| parent.get_scalar_function(name))
         })
     }
 
-    pub fn get_aggregate_function(&self, name: &str) -> Option<&AggregateFunc> {
+    pub fn get_aggregate_function(&self, name: &str) -> Option<&AggregateFunction> {
         self.aggregate_functions.get(name).or_else(|| {
             self.parent
                 .and_then(|parent| parent.get_aggregate_function(name))

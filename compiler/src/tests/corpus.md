@@ -262,6 +262,34 @@ WHERE
   ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM to_months(6));
 ```
 
+### Aggregated date within a duration of now
+
+> Issues whose most recent comment was made within the past week. Type inference recognizes that a
+> datetime column run through `max` is still a datetime, so the date/duration comparison magic
+> applies to the aggregated value just as it would to a plain column.
+
+```qd
+#issues #comments.created_at%max:<1w
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues".*
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "cte0"."v1")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
 ### Negated comparison
 
 > Issues whose status is not "open"

@@ -363,6 +363,14 @@ Both queries use `:<`, even though one date lies in the past and the other in th
 
 The date must be on the **left** and the duration on the **right**. The reversed order is an error, just as comparing a datetime against a duration directly would be.
 
+The left-hand side doesn't need to be a plain date column. Querydown infers the type of the expression, propagating it through functions, so any expression that works out to a date or datetime can be compared against a duration. For example, a datetime run through an aggregate function is still a datetime:
+
+> Find issues whose most recent comment was made within the past week:
+
+```qd
+#issues #comments.created_at%max:<1w
+```
+
 If you actually want to account for the direction of the difference, compare against a datetime instead of a duration. For example, to find issues that are more than 1 week overdue:
 
 ```qd
