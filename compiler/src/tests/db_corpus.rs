@@ -2,8 +2,9 @@
 //! syntax and query-planning bugs that the string-comparison corpus test ([`super::corpus`])
 //! can't.
 //!
-//! Gated behind the `db-tests` cargo feature because it requires the `postgres` and `duckdb`
-//! binaries on PATH (the dev container provides them — see DEVELOPMENT.md). Run with:
+//! Gated behind the `db-tests` cargo feature. Postgres requires the `postgres` binaries on PATH
+//! (the dev container provides them — see DEVELOPMENT.md); DuckDB is compiled and statically linked
+//! via the bundled `duckdb` crate. Run with:
 //!
 //! ```text
 //! cargo test --features db-tests
@@ -108,13 +109,14 @@ fn check_case(env: &TestEnv, case: &TestCase<Opts>, dialect: &str) -> Result<(),
     })
 }
 
-/// Owns a temporary Postgres server and DuckDB database for the duration of the test. The server is
-/// stopped and all temp files removed on drop, so cleanup happens even if a panic unwinds the test.
+/// Owns a temporary Postgres server and an in-memory DuckDB database for the duration of the test.
+/// The server is stopped and all temp files removed on drop, so cleanup happens even if a panic
+/// unwinds the test; the DuckDB connection is closed when it is dropped along with the struct.
 struct TestEnv {
     root: PathBuf,
     pg_data: PathBuf,
     pg_sock: PathBuf,
-    duckdb_file: PathBuf,
+    duckdb: duckdb::Connection,
 }
 
 impl TestEnv {
@@ -128,7 +130,7 @@ impl TestEnv {
 
         let env = TestEnv {
             pg_data: root.join("pgdata"),
-            duckdb_file: root.join("corpus.duckdb"),
+            duckdb: duckdb::Connection::open_in_memory().expect("open in-memory DuckDB"),
             pg_sock,
             root,
         };
@@ -208,23 +210,22 @@ impl TestEnv {
     fn setup_duckdb(&self) {
         for ddl in SCHEMA_DDL_FILES {
             let ddl_sql = get_test_resource(ddl);
-            run_checked(
-                Command::new("duckdb")
-                    .arg(&self.duckdb_file)
-                    .arg("-c")
-                    .arg(&ddl_sql),
-                &format!("load {ddl} into duckdb"),
-            );
+            self.duckdb
+                .execute_batch(&ddl_sql)
+                .unwrap_or_else(|e| panic!("load {ddl} into duckdb failed: {e}"));
         }
     }
 
     fn explain_duckdb(&self, sql: &str) -> Result<(), String> {
-        capture(
-            Command::new("duckdb")
-                .arg(&self.duckdb_file)
-                .arg("-c")
-                .arg(format!("EXPLAIN {sql}")),
-        )
+        // `prepare` parses and binds the query (where an unresolved function from a missing
+        // extension like ICU would fail); draining the `EXPLAIN` rows forces planning to run too.
+        let mut stmt = self
+            .duckdb
+            .prepare(&format!("EXPLAIN {sql}"))
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+        while rows.next().map_err(|e| e.to_string())?.is_some() {}
+        Ok(())
     }
 }
 
@@ -258,17 +259,12 @@ fn capture(cmd: &mut Command) -> Result<(), String> {
     let output = cmd
         .output()
         .map_err(|e| format!("failed to spawn process: {e}"))?;
-    let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         return Err(format!("{}\n{}", stderr.trim(), stdout.trim())
             .trim()
             .to_owned());
-    }
-    // DuckDB's CLI has historically exited 0 even on query errors, so also treat an "Error:" on
-    // stderr as a failure.
-    if stderr.contains("Error:") {
-        return Err(stderr.trim().to_owned());
     }
     Ok(())
 }

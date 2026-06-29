@@ -80,14 +80,18 @@ How it works:
 - Every case is compiled under **both** dialects (Postgres and DuckDB) — not just the dialect it
   declares for its string-match assertion — and each result is validated with `EXPLAIN`, so queries are
   planned but never executed. No data is inserted; empty, correctly typed tables are enough.
-- The test starts a throwaway Postgres server (unix socket in a temp dir) and a temporary DuckDB
-  database once, loads the schemas, runs all cases, then tears everything down.
+- The test starts a throwaway Postgres server (unix socket in a temp dir) and an in-memory DuckDB
+  database once, loads the schemas, runs all cases, then tears everything down. DuckDB is compiled
+  and statically linked via the bundled `duckdb` crate rather than the `duckdb` CLI, so the tests
+  exercise the same library a downstream application would embed — notably *without* the ICU
+  extension that the official CLI bundles.
 - Table structure comes from hand-authored DDL in
   [compiler/resources/test/](../compiler/resources/test/): `issue_schema.sql` and `library_schema.sql`.
   **When you add or rename a column in a `*_schema.json`, make the matching change in its `*_schema.sql`**
   (an unknown column surfaces as an `EXPLAIN` failure).
-- The `postgres` and `duckdb` binaries are installed by the [Dockerfile](../Dockerfile); the feature is
-  off by default so a plain `cargo test` doesn't need them.
+- The `postgres` binaries are installed by the [Dockerfile](../Dockerfile); DuckDB is built from
+  source by the bundled `duckdb` crate (the first build takes a while). The feature is off by
+  default so a plain `cargo test` doesn't need Postgres.
 
 To exclude a specific case that intentionally produces SQL which won't plan against the minimal schema,
 add a `db_skip` to its ```` ```toml options ```` block: `db_skip = true` (all engines) or

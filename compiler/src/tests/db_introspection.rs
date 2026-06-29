@@ -1,8 +1,9 @@
 //! Runs each dialect's [`introspection_sql`](crate::Dialect::introspection_sql) query against a
 //! real database and verifies the JSON it returns round-trips into a working [`Compiler`].
 //!
-//! Gated behind the `db-tests` cargo feature because it requires the `postgres` and `duckdb`
-//! binaries on PATH (the dev container provides them — see DEVELOPMENT.md). Run with:
+//! Gated behind the `db-tests` cargo feature. Postgres requires the `postgres` binaries on PATH
+//! (the dev container provides them — see DEVELOPMENT.md); DuckDB is compiled and statically linked
+//! via the bundled `duckdb` crate. Run with:
 //!
 //! ```text
 //! cargo test --features db-tests
@@ -181,39 +182,21 @@ impl Drop for PgEnv {
 // --- DuckDB -----------------------------------------------------------------------------------
 
 struct DuckEnv {
-    root: PathBuf,
-    file: PathBuf,
+    conn: duckdb::Connection,
 }
 
 impl DuckEnv {
     fn setup() -> Self {
-        let root =
-            std::env::temp_dir().join(format!("querydown_introspect_duck_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).expect("create temp root dir");
-        let env = DuckEnv {
-            file: root.join("introspect.duckdb"),
-            root,
-        };
-        run_checked(
-            Command::new("duckdb").arg(&env.file).arg("-c").arg(DDL),
-            "load DDL into duckdb",
-        );
-        env
+        let conn = duckdb::Connection::open_in_memory().expect("open in-memory DuckDB");
+        conn.execute_batch(DDL).expect("load DDL into duckdb");
+        DuckEnv { conn }
     }
 
     fn run_query(&self, sql: &str) -> String {
-        capture(
-            Command::new("duckdb")
-                .arg(&self.file)
-                .args(["-noheader", "-list", "-c", sql]),
-        )
-    }
-}
-
-impl Drop for DuckEnv {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
+        // The introspection query yields a single row with the schema JSON in its lone column.
+        self.conn
+            .query_row(sql, [], |row| row.get::<_, String>(0))
+            .unwrap_or_else(|e| panic!("duckdb introspection query failed: {e}"))
     }
 }
 

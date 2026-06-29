@@ -17,9 +17,10 @@ ARG USER_GID=1000
 
 # System packages + Node.js 20 (needed for the site and for Claude Code).
 #
-# `postgresql` and `duckdb` (installed below) back the `db-tests` feature, which runs the compiled
-# corpus SQL against real databases (see DEVELOPMENT.md). The Postgres binaries land under
-# /usr/lib/postgresql/<ver>/bin; symlink them onto PATH so `cargo test` can spawn them.
+# `postgresql` backs the `db-tests` feature, which runs the compiled corpus SQL against real
+# databases (see DEVELOPMENT.md). The Postgres binaries land under /usr/lib/postgresql/<ver>/bin;
+# symlink them onto PATH so `cargo test` can spawn them. DuckDB is no longer installed as a CLI —
+# the `db-tests` feature compiles and statically links it via the bundled `duckdb` crate.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
@@ -33,14 +34,6 @@ RUN apt-get update \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
-
-# DuckDB CLI. Pin a version here to test against a specific DuckDB release (and to add more
-# versions later); this currently tracks the latest stable release.
-RUN curl -fsSL https://github.com/duckdb/duckdb/releases/latest/download/duckdb_cli-linux-amd64.zip \
-        -o /tmp/duckdb.zip \
-    && unzip /tmp/duckdb.zip -d /usr/local/bin \
-    && chmod +x /usr/local/bin/duckdb \
-    && rm /tmp/duckdb.zip
 
 # Rust components and the wasm target/tooling used by bindings/js.
 RUN rustup component add clippy rustfmt \

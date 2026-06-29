@@ -12,13 +12,20 @@ querydown-parser = { version = "0.0.1", path = "../parser" }
 itertools = "0.10.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# DuckDB is compiled and statically linked from source (the `bundled` feature) rather than shelled
+# out to the `duckdb` CLI. This matches how downstream applications embed DuckDB via this crate, so
+# the DB tests exercise the same statically-linked library — notably *without* the ICU extension
+# that the official CLI bundles. It is optional and only pulled in by the `db-tests` feature, so a
+# plain `cargo test` (or any normal build) doesn't pay the 20+ minute cost of compiling it.
+duckdb = { version = "1.4.4", features = ["bundled"], optional = true }
 
 [dev-dependencies]
 testcase-markdown = "0.0.1"
 toml = "0.7.3"
 
 [features]
-# Runs the corpus SQL against real Postgres and DuckDB databases. Requires the `postgres` and
-# `duckdb` binaries on PATH (the dev container provides them). See DEVELOPMENT.md.
-db-tests = []
+# Runs the corpus SQL against real Postgres and DuckDB databases. Postgres requires the `postgres`
+# binaries on PATH (the dev container provides them); DuckDB is bundled via the optional `duckdb`
+# crate. See DEVELOPMENT.md.
+db-tests = ["dep:duckdb"]
 
