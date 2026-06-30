@@ -47,7 +47,8 @@
         { "name": "id", "type": "integer" },
         { "name": "name", "type": "text" },
         { "name": "product", "type": "integer" },
-        { "name": "is_active", "type": "boolean" }
+        { "name": "is_active", "type": "boolean" },
+        { "name": "is_pro_bono", "type": "boolean" }
       ]
     },
     {

@@ -46,7 +46,7 @@ SELECT "Patrons".* FROM "Patrons";
 #issues
 created_at:<6m
 --#assignments
-++#labels{name:..["Regression" "Bug"]}
+++#labels{name:["Regression" "Bug"]}
 10..20:#comments{!user.team.name:"Backend"}
 $*
 $author.username
@@ -439,7 +439,7 @@ The expansion set is on the right-hand side of the comparison, so its bare words
 `colour` are string literals — the same as if each were quoted.
 
 ```qd
-#issues title:~..[color colour]
+#issues title:~[color colour]
 ```
 
 ```sql
@@ -456,7 +456,7 @@ The left-hand expansion `{title description}` references columns (it is on the l
 right-hand expansion `[color colour]` holds string literals (it is on the right).
 
 ```qd
-#issues {title description}..:~..[color colour]
+#issues {title description}:~[color colour]
 ```
 
 ```sql
@@ -466,6 +466,41 @@ FROM "issues"
 WHERE
   ("issues"."title" ~* 'color' OR "issues"."title" ~* 'colour') AND
   ("issues"."description" ~* 'color' OR "issues"."description" ~* 'colour');
+```
+
+### Expansion of a boolean comparison
+
+A condition set on the left of a comparison expands automatically, distributing the comparison across
+each entry. This finds projects that are neither active nor pro-bono.
+
+```qd
+#projects {is_pro_bono is_active}:@false
+```
+
+```sql
+SELECT
+  "projects".*
+FROM "projects"
+WHERE
+  "projects"."is_pro_bono" = FALSE AND
+  "projects"."is_active" = FALSE;
+```
+
+### Boolean logic before comparison
+
+Without expansion, boolean logic can be applied to the operands _before_ they are compared by using
+functions instead of a condition set. This produces different results from the expansion above.
+
+```qd
+#projects is_pro_bono|and(is_active):@false
+```
+
+```sql
+SELECT
+  "projects".*
+FROM "projects"
+WHERE
+  ("projects"."is_pro_bono" AND "projects"."is_active") = FALSE;
 ```
 
 ### Regex (DuckDB)
@@ -612,7 +647,7 @@ WHERE
 ### Range vs expansion
 
 ```qd
-#comments [created_at issue.created_at]..:@2000-01-01..<@2000-02-01
+#comments [created_at issue.created_at]:@2000-01-01..<@2000-02-01
 ```
 
 ```sql

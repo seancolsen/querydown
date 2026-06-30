@@ -358,7 +358,7 @@ fn convert_custom_comparison(
             convert_custom_comparison_body(&def.param, value, body, &head_parts, scope)
         }
         // An expansion on the right binds the parameter to each entry in turn, combining the
-        // results with the expansion's conjunction (e.g. `comment:..["a" "b"]`).
+        // results with the expansion's conjunction (e.g. `comment:["a" "b"]`).
         ComparisonSide::Expansion(conditions) => {
             let exprs = conditions
                 .entries

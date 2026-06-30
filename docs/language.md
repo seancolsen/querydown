@@ -38,6 +38,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [OR condition sets](#or-condition-sets)
   - [Nested condition sets](#nested-condition-sets)
   - [Comparison expansion](#comparison-expansion)
+    - [Without comparison expansion](#without-comparison-expansion)
   - [Dual expansion](#dual-expansion)
   - [Ranges](#ranges)
 - [Result columns](#result-columns)
@@ -410,7 +411,7 @@ The query above is equivalent to `#issues title:"performance"`.
 
 This is not limited to a bare word standing alone immediately after the operator. **Every** bare word _anywhere_ within the right-hand-side expression — at any depth of nesting — is a string literal. For example, the bare words inside the following right-hand-sides are all string literals:
 
-- an [expansion](#comparison-expansion): `#issues title:~..[color colour]` searches for "color" or "colour"
+- an [expansion](#comparison-expansion): `#issues title:~[color colour]` searches for "color" or "colour"
 - a [function pipeline](#function-piping): `#issues title:foo|concat(bar)` builds the string from the literals "foo" and "bar"
 - parentheses, [ranges](#ranges), arithmetic, and so on — the same rule reaches into all of them
 
@@ -534,36 +535,52 @@ Conditions can be nested
 
 ### Comparison expansion
 
-The `..` syntax can be use to "expand" comparisons into bracketed condition sets.
+Whenever a condition set (`[ ... ]` for "or", `{ ... }` for "and") appears on either side of a comparison, the comparison is automatically "expanded" across the entries of the set. The comparison is applied to each entry in turn, and the results are combined using the set's conjunction.
 
 Because an expansion on the right-hand-side is part of the right-hand-side, its bare words are [string literals](#bare-text-on-the-right-hand-side-of-a-comparison). An expansion on the left-hand-side holds column references, as everywhere else on the left.
 
 > Issues whose status is either "open" or "reopened":
 
 ```qd
-#issues status:..[open reopened]
+#issues status:[open reopened]
 ```
 
 > Issues that are missing a title and description (the left-hand expansion references columns):
 
 ```qd
-#issues {title description}..:@null
+#issues {title description}:@null
 ```
 
 > Issues where the title or description contains "foo":
 
 ```qd
-#issues [title description]..:~foo
+#issues [title description]:~foo
 ```
+
+> Find projects that are not active and not pro-bono.
+
+```qd
+#projects {is_pro_bono is_active}:@false
+```
+
+#### Without comparison expansion
+
+Because a condition set on either side of a comparison is _always_ expanded, you cannot use a condition set to form a boolean value to be compared. If for some reason you need to perform boolean logic on expressions _before_ they are compared, then you can use functions:
+
+```qd
+#projects is_pro_bono|and(is_active):@false
+```
+
+But beware that this query will produce different results from the one with comparison expansion! For example, if `is_pro_bono` is `TRUE` and `is_active` is `FALSE`, then `is_pro_bono|and(is_active)` will evaluate to `FALSE`, matching the condition and including the row.
 
 ### Dual expansion
 
-If both sides of the comparison are expanded, then the brackets on left side are used for the outer precedence. Note how the same expansion syntax yields column references on the left (`title`, `description`) but string literals on the right (`foo`, `bar`):
+If both sides of the comparison are expanded, then the brackets on the left side are used for the outer precedence. Note how the same expansion syntax yields column references on the left (`title`, `description`) but string literals on the right (`foo`, `bar`):
 
 > Issues where the title and description both contain "foo" or contain "bar":
 
 ```qd
-#issue {title description}..:~..[foo bar]
+#issues {title description}:~[foo bar]
 ```
 
 ### Ranges

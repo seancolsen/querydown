@@ -22,35 +22,33 @@ pub fn comparison<'src>(
         })
 }
 
-/// The left side of a comparison. An expansion here is written `set..` (the `..` trails the set).
-/// Because this is the left side, bare words within `expansion_set`, `range_atom`, and `expr` are
-/// column references; the caller supplies the column-reference ("identifier-mode") parsers.
+/// The left side of a comparison. A condition set here (`{ ... }` or `[ ... ]`) is automatically an
+/// **expansion**: the comparison is distributed across the set's entries, joined by the set's
+/// conjunction. Because this is the left side, bare words within `expansion_set`, `range_atom`, and
+/// `expr` are column references; the caller supplies the column-reference ("identifier-mode") parsers.
 pub fn left_comparison_side<'src>(
     expansion_set_expr: impl Psr<'src, Expr>,
     range_atom: impl Psr<'src, Expr>,
     expr: impl Psr<'src, Expr>,
 ) -> impl Psr<'src, ComparisonSide> {
     choice((
-        expansion_set(expansion_set_expr)
-            .then_ignore(pad().then(just(COMPARISON_EXPAND)))
-            .map(ComparisonSide::Expansion),
+        expansion_set(expansion_set_expr).map(ComparisonSide::Expansion),
         range(range_atom).map(ComparisonSide::Range),
         expr.map(ComparisonSide::Expr),
     ))
 }
 
-/// The right side of a comparison. An expansion here is written `..set` (the `..` leads the set).
-/// Because this is the right side, bare words within `expansion_set`, `range_atom`, and `expr` — at
-/// any depth — are string literals; the caller supplies the string-literal ("string-mode") parsers.
+/// The right side of a comparison. A condition set here (`{ ... }` or `[ ... ]`) is automatically an
+/// **expansion**, just as on the left. Because this is the right side, bare words within
+/// `expansion_set`, `range_atom`, and `expr` — at any depth — are string literals; the caller supplies
+/// the string-literal ("string-mode") parsers.
 pub fn right_comparison_side<'src>(
     expansion_set_expr: impl Psr<'src, Expr>,
     range_atom: impl Psr<'src, Expr>,
     expr: impl Psr<'src, Expr>,
 ) -> impl Psr<'src, ComparisonSide> {
     choice((
-        just(COMPARISON_EXPAND)
-            .then(pad())
-            .ignore_then(expansion_set(expansion_set_expr).map(ComparisonSide::Expansion)),
+        expansion_set(expansion_set_expr).map(ComparisonSide::Expansion),
         range(range_atom).map(ComparisonSide::Range),
         expr.map(ComparisonSide::Expr),
     ))

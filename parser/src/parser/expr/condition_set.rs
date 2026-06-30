@@ -7,9 +7,9 @@ use crate::tokens::*;
 /// Characters that, when one immediately follows a bare word, mean the word is the start of a larger
 /// expression (a path, pipe, aggregate, arithmetic operator, or comparison operator) or part of a
 /// longer identifier — rather than a standalone search term. All comparison operators begin with
-/// `:`, and both the range and expansion operators begin with `.`, so the leading character of each
-/// suffices. The underscore is included because a bare search word is strictly alphanumeric, so an
-/// underscore marks a longer (non-search) identifier.
+/// `:`, and the range operator begins with `.`, so the leading character of each suffices. The
+/// underscore is included because a bare search word is strictly alphanumeric, so an underscore marks
+/// a longer (non-search) identifier.
 const OPERAND_CONTINUATION_CHARS: &str = "._|%*/+-:";
 
 /// Like [`OPERAND_CONTINUATION_CHARS`], but also treats the comma "OR" shorthand as a continuation.
@@ -24,7 +24,7 @@ pub fn condition_set<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Conditi
 }
 
 /// Parses a condition set used as a comparison **expansion** (e.g. the `[ ... ]` in
-/// `title:~..[color colour]`). Unlike a boolean condition set, its entries are plain values fed into
+/// `title:~[color colour]`). Unlike a boolean condition set, its entries are plain values fed into
 /// a comparison rather than default text search terms. How a bare word entry resolves therefore
 /// follows the side it appears on: the caller supplies an identifier-mode `expr` for a left-side
 /// expansion (bare word is a column reference) or a string-mode `expr` for a right-side expansion

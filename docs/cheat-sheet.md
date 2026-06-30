@@ -42,9 +42,8 @@ _See the **[Language Guide](./language.md)** for more detail._
 
 | Code | Usage | Implemented |
 | -- | -- | -- |
-| `{ }` | [set of `AND` conditions](./language.md#and-condition-sets) | ✅ |
-| `[ ]` | [set of `OR` conditions](./language.md#or-condition-sets) | ✅ |
-| `..` | [comparison expansion](./language.md#comparison-expansion) | ✅ |
+| `{ }` | [set of `AND` conditions](./language.md#and-condition-sets); on either side of a comparison it triggers [comparison expansion](./language.md#comparison-expansion) | ✅ |
+| `[ ]` | [set of `OR` conditions](./language.md#or-condition-sets); on either side of a comparison it triggers [comparison expansion](./language.md#comparison-expansion) | ✅ |
 | `++` | [has at least one](./language.md#has-some-and-has-none-conditions) | ✅ |
 | `--` | [has none](./language.md#has-some-and-has-none-conditions) | ✅ |
 
@@ -62,7 +61,7 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `:\c~` | match regex with flags | ❌ |
 | `:~~` | LIKE | ❌ |
 
-A bare (unquoted) word _anywhere_ on the right-hand-side of a comparison — at any depth — is a [string literal](./language.md#bare-text-on-the-right-hand-side-of-a-comparison), e.g. `title:performance` is the same as `title:"performance"`, and `title:~..[color colour]` searches for either literal. Quote it with backticks to reference a column instead. Outside the right-hand-side, a bare word is a column reference.
+A bare (unquoted) word _anywhere_ on the right-hand-side of a comparison — at any depth — is a [string literal](./language.md#bare-text-on-the-right-hand-side-of-a-comparison), e.g. `title:performance` is the same as `title:"performance"`, and `title:~[color colour]` searches for either literal. Quote it with backticks to reference a column instead. Outside the right-hand-side, a bare word is a column reference.
 
 The `!` operator negates any comparison (or expression) e.g. `!foo:2`
 

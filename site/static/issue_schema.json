@@ -94,6 +94,9 @@
         },
         {
           "name": "is_active"
+        },
+        {
+          "name": "is_pro_bono"
         }
       ]
     },

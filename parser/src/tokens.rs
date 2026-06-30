@@ -29,7 +29,6 @@ pub(crate) const COMPARE_LIKE: &str = ":~~";
 pub(crate) const COMPARE_LT: &str = ":<";
 pub(crate) const COMPARE_LTE: &str = ":<=";
 pub(crate) const COMPARE_REGEX: &str = ":~";
-pub(crate) const COMPARISON_EXPAND: &str = "..";
 pub(crate) const COMPARISON_RANGE_BOUND_SEPARATOR: &str = "..";
 pub(crate) const COMPARISON_RANGE_BOUND_EXCLUSIVE: &str = "<";
 pub(crate) const COMPOSITION_ARGUMENT_BRACE_L: char = '(';

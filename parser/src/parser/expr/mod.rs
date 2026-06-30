@@ -63,7 +63,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
     //
     // - The **string-mode** chain (`str_*`), in which a bare word — at any depth — is a string
     //   literal instead. This mode applies to the entire right-hand side of a comparison, so that
-    //   e.g. `title:~..[color colour]` searches for the literal text "color" or "colour" rather than
+    //   e.g. `title:~[color colour]` searches for the literal text "color" or "colour" rather than
     //   referencing columns named `color`/`colour`. See `comparison_rhs_value` for the rationale.
     //
     // The two chains are identical in structure and differ only in how a bare word resolves at the
@@ -293,7 +293,7 @@ fn string<'src>() -> impl Psr<'src, String> {
 /// written as a multi-part path (e.g. `foo.bar`).
 ///
 /// Because the whole right-hand side of a comparison is parsed in string mode, this applies to bare
-/// words at *any* depth there — inside expansions (`title:~..[color colour]`), pipe arguments
+/// words at *any* depth there — inside expansions (`title:~[color colour]`), pipe arguments
 /// (`title:foo|concat(bar)`), parentheses, ranges, and so on — not just to a bare word standing
 /// alone. Everywhere outside the right-hand side of a comparison, bare words continue to be parsed as
 /// column references.
@@ -665,7 +665,7 @@ mod tests {
         );
 
         assert_eq!(
-            p("[a b] ..: 2 + foo * @bar | baz"),
+            p("[a b]: 2 + foo * @bar | baz"),
             Ok(Expr::Comparison(Box::new(Comparison {
                 left: ComparisonSide::Expansion(ConditionSet {
                     entries: vec![
@@ -972,11 +972,11 @@ mod tests {
         // Bare words inside an expansion set on the right-hand side are string literals, so the
         // unquoted form is equivalent to quoting each term.
         assert_eq!(
-            p("title:~..[color colour]"),
-            p("title:~..[\"color\" \"colour\"]")
+            p("title:~[color colour]"),
+            p("title:~[\"color\" \"colour\"]")
         );
         assert_eq!(
-            p("title:~..[color colour]"),
+            p("title:~[color colour]"),
             Ok(Expr::Comparison(Box::new(Comparison {
                 left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("title".to_string())])),
                 operator: Operator::RegexMatch,

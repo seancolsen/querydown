@@ -41,7 +41,7 @@ _(The bullet points above correspond, line for line, with the querydown code bel
 #issues
 created_at:<6m
 --#assignments
-++#labels{name:..["Regression" "Bug"]}
+++#labels{name:["Regression" "Bug"]}
 10..20:#comments{user.team.name!"Backend"}
 $*
 $author.username

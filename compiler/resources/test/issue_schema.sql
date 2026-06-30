@@ -40,7 +40,8 @@ CREATE TABLE "projects" (
   "id" integer,
   "name" text,
   "product" integer,
-  "is_active" boolean
+  "is_active" boolean,
+  "is_pro_bono" boolean
 );
 
 CREATE TABLE "labels" (
