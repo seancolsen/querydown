@@ -145,4 +145,22 @@ pub trait Dialect {
     /// Render an aggregate that multiplies the values of `arg` together. DuckDB has a native
     /// `product` aggregate, but Postgres does not, so the dialects diverge here.
     fn aggregate_product(&self, arg: SqlExpr) -> SqlExpr;
+
+    /// Coerce a zoned timestamp expression to a naive (zone-less) one, for use when a binary
+    /// operation mixes a zoned and a naive temporal operand. The default is the identity: most
+    /// databases (including Postgres) reconcile the two sides natively, so no coercion is needed.
+    /// DuckDB without the ICU extension overrides this, because it cannot mix the two types. See
+    /// [`crate::compiler::temporal`] for when this is invoked.
+    fn coerce_temporal_to_naive(&self, e: SqlExpr) -> SqlExpr {
+        e
+    }
+
+    /// Whether this dialect cannot operate on zoned timestamps (`timestamptz`) at all — not even
+    /// `timestamptz - interval` or a `timestamptz` vs `timestamptz` mix with a naive value. DuckDB
+    /// built without the ICU extension is such a dialect. When true, the compiler works entirely in
+    /// naive timestamp space: `@now` is coerced to naive at its source, and any zoned column that
+    /// meets a naive value is coerced too (see [`crate::compiler::temporal`]).
+    fn coerces_timestamptz(&self) -> bool {
+        false
+    }
 }

@@ -14,6 +14,7 @@ use crate::{
 use super::{
     paths::{clarify_path, ClarifiedPathTail},
     scope::Scope,
+    temporal::{now_operand, reconcile, TemporalZone},
     typing::infer_type,
 };
 
@@ -140,9 +141,18 @@ fn convert_simple_comparison(
     // error just as a direct date-vs-duration comparison does today.
     if is_date_like(left, scope) && matches!(right, Expr::Duration(_)) {
         if let Some(build_cmp) = numeric_comparison(operator) {
+            let date_zone = TemporalZone::of(&infer_type(left, scope));
             let date = convert_expr(left.to_owned(), scope)?;
             let duration = convert_expr(right.to_owned(), scope)?;
-            let elapsed = math::abs(date_time::extract_epoch(math::subtract(func::now(), date)));
+            // Reconcile `@now` and the date so the subtraction is valid on dialects that can't mix a
+            // zoned and a naive temporal value.
+            let (now_sql, now_zone) = now_operand(scope.options.dialect.as_ref());
+            let (now, date) = reconcile(
+                (now_sql, now_zone),
+                (date, date_zone),
+                scope.options.dialect.as_ref(),
+            );
+            let elapsed = math::abs(date_time::extract_epoch(math::subtract(now, date)));
             let limit = date_time::extract_epoch(duration);
             return Ok(build_cmp(elapsed, limit));
         }
@@ -150,6 +160,17 @@ fn convert_simple_comparison(
 
     let left_converted = convert_expr(left.to_owned(), scope)?;
     let right_converted = convert_expr(right.to_owned(), scope)?;
+
+    // Reconcile the operands when a comparison mixes a zoned and a naive temporal value (e.g.
+    // `created_at < @now|minus(6y)`), so the comparison is valid on dialects that can't mix the
+    // two. This is a no-op for non-temporal comparisons and for dialects that reconcile natively.
+    let left_zone = TemporalZone::of(&infer_type(left, scope));
+    let right_zone = TemporalZone::of(&infer_type(right, scope));
+    let (left_converted, right_converted) = reconcile(
+        (left_converted, left_zone),
+        (right_converted, right_zone),
+        scope.options.dialect.as_ref(),
+    );
 
     let match_regex = |a: SqlExpr, b: SqlExpr, scope: &mut Scope| {
         let flags = RegExFlags {
@@ -190,7 +211,7 @@ fn convert_simple_comparison(
 /// through functions, arithmetic, and so on (see [`infer_type`]), so e.g. `created_at%max` (a
 /// datetime run through `max`) is recognized as a datetime.
 fn is_date_like(expr: &Expr, scope: &mut Scope) -> bool {
-    matches!(infer_type(expr, scope), ValueType::Date | ValueType::Time)
+    infer_type(expr, scope).is_temporal()
 }
 
 /// Maps a comparison operator to the SQL builder for comparing two numeric (epoch-second) operands,

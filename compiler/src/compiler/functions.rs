@@ -14,10 +14,12 @@ use crate::{
             ClarifiedPathTail,
         },
         scope::Scope,
+        temporal::{now_operand, reconcile, TemporalZone},
+        typing::infer_type,
     },
     errors::msg::{self, unknown_aggregate_function, unknown_scalar_function},
     schema::ValueType,
-    sql::expr::build::{self, agg::*, cond::*, date_time::*, func::*, math::*, strings::*},
+    sql::expr::build::{self, agg::*, cond::*, date_time::*, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
 };
 
@@ -203,6 +205,57 @@ fn args_2(
     Ok(f(convert_expr(a, scope)?, convert_expr(b, scope)?))
 }
 
+/// The zone classification of an AST argument, for temporal reconciliation (see
+/// [`crate::compiler::temporal`]).
+fn arg_zone(arg: &Expr, scope: &mut Scope) -> TemporalZone {
+    TemporalZone::of(&infer_type(arg, scope))
+}
+
+/// `age(x)` = `@now - x`. `@now` is zoned, so when `x` is naive the subtraction is reconciled for
+/// dialects that can't mix zoned and naive temporal values.
+fn temporal_age(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+    let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
+    let zone = arg_zone(&arg, scope);
+    let a = convert_expr(arg, scope)?;
+    let (now_sql, now_zone) = now_operand(scope.options.dialect.as_ref());
+    let (now, a) = reconcile(
+        (now_sql, now_zone),
+        (a, zone),
+        scope.options.dialect.as_ref(),
+    );
+    Ok(subtract(now, a))
+}
+
+/// `countdown(x)` = `x - @now`, the mirror of [`temporal_age`].
+fn temporal_countdown(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+    let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
+    let zone = arg_zone(&arg, scope);
+    let a = convert_expr(arg, scope)?;
+    let (now_sql, now_zone) = now_operand(scope.options.dialect.as_ref());
+    let (a, now) = reconcile(
+        (a, zone),
+        (now_sql, now_zone),
+        scope.options.dialect.as_ref(),
+    );
+    Ok(subtract(a, now))
+}
+
+/// `minus(a, b)` = `a - b`, reconciling the operands when they mix a zoned and a naive temporal
+/// value.
+fn temporal_minus(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+    let (a, b) = iter_two(args).ok_or_else(msg::expected_two_args)?;
+    let a_zone = arg_zone(&a, scope);
+    let b_zone = arg_zone(&b, scope);
+    let a_sql = convert_expr(a, scope)?;
+    let b_sql = convert_expr(b, scope)?;
+    let (a_sql, b_sql) = reconcile(
+        (a_sql, a_zone),
+        (b_sql, b_zone),
+        scope.options.dialect.as_ref(),
+    );
+    Ok(subtract(a_sql, b_sql))
+}
+
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     use TypeRule::*;
     use ValueType::*;
@@ -213,11 +266,11 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     #[rustfmt::skip]
     let templates: [(&str, ScalarFunc, TypeRule); 30] = [
         ("abs",         |e, s| args_1(e, s, abs),                    SameAsArg(0)),
-        ("age",         |e, s| args_1(e, s, |a| subtract(now(), a)), Fixed(Unknown)),
+        ("age",         |e, s| temporal_age(e, s),                  Fixed(Unknown)),
         ("and",         |e, s| args_v(e, s, build::cmp::and),        Fixed(Boolean)),
         ("ceil",        |e, s| args_1(e, s, ceil),                   Fixed(Number)),
         ("concat",      |e, s| args_v(e, s, concat),                 Fixed(Text)),
-        ("countdown",   |e, s| args_1(e, s, |a| subtract(a, now())), Fixed(Unknown)),
+        ("countdown",   |e, s| temporal_countdown(e, s),            Fixed(Unknown)),
         ("days",        |e, s| args_1(e, s, days),                   Fixed(Unknown)),
         ("divide",      |e, s| args_2(e, s, divide),                 Fixed(Number)),
         ("floor",       |e, s| args_1(e, s, floor),                  Fixed(Number)),
@@ -230,7 +283,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("max",         |e, s| args_v(e, s, greatest),               UnifyArgs),
         ("md5",         |e, s| args_1(e, s, md5),                    Fixed(Text)),
         ("min",         |e, s| args_v(e, s, least),                  UnifyArgs),
-        ("minus",       |e, s| args_2(e, s, subtract),               SameAsArg(0)),
+        ("minus",       |e, s| temporal_minus(e, s),                SameAsArg(0)),
         ("minutes",     |e, s| args_1(e, s, minutes),                Fixed(Unknown)),
         ("mod",         |e, s| args_2(e, s, modulo),                 Fixed(Number)),
         ("not",         |e, s| args_1(e, s, not),                    Fixed(Boolean)),

@@ -7,6 +7,7 @@ mod paths;
 mod rendering;
 mod result_columns;
 mod scope;
+mod temporal;
 mod typing;
 mod window;
 

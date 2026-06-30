@@ -15,6 +15,8 @@ use super::{
     functions::{convert_anonymous_function_call, convert_call},
     paths::{clarify_path, ClarifiedPathTail},
     scope::Scope,
+    temporal::{now_operand, reconcile, TemporalZone},
+    typing::infer_type,
 };
 
 /// Convert a Querydown expression to an SQL expression
@@ -42,10 +44,20 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
             convert_expr(*a, scope)?,
             convert_expr(*b, scope)?,
         )),
-        Expr::Difference(a, b) => Ok(math::subtract(
-            convert_expr(*a, scope)?,
-            convert_expr(*b, scope)?,
-        )),
+        Expr::Difference(a, b) => {
+            // Subtracting two temporal values whose zone-ness differs (e.g. `@now` minus a naive
+            // `timestamp` column) needs reconciling for dialects that can't mix the two.
+            let left_zone = TemporalZone::of(&infer_type(&a, scope));
+            let right_zone = TemporalZone::of(&infer_type(&b, scope));
+            let left = convert_expr(*a, scope)?;
+            let right = convert_expr(*b, scope)?;
+            let (left, right) = reconcile(
+                (left, left_zone),
+                (right, right_zone),
+                scope.options.dialect.as_ref(),
+            );
+            Ok(math::subtract(left, right))
+        }
         Expr::Comparison(c) => convert_comparison(*c, scope),
         Expr::Not(e) => Ok(cond::not(convert_expr(*e, scope)?)),
         Expr::Window(w) => super::window::convert_window(w, scope),
@@ -56,7 +68,7 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
 
 fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, String> {
     let sql = match variable {
-        VAR_NOW => func::now(),
+        VAR_NOW => now_operand(scope.options.dialect.as_ref()).0,
         VAR_INFINITY => value::infinity(),
         VAR_TRUE => value::true_(),
         VAR_FALSE => value::false_(),

@@ -8,7 +8,8 @@ CREATE TABLE "users" (
   "username" text,
   "email" text,
   "team" integer,
-  "birth_date" date
+  "birth_date" date,
+  "last_seen" timestamptz
 );
 
 CREATE TABLE "issues" (

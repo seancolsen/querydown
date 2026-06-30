@@ -106,4 +106,18 @@ impl Dialect for DuckDB {
         // Unlike Postgres, DuckDB provides a native `product` aggregate.
         sql_func("product", [arg])
     }
+
+    fn coerce_temporal_to_naive(&self, e: SqlExpr) -> SqlExpr {
+        // DuckDB built without the ICU extension can't perform arithmetic or comparison involving a
+        // `timestamptz` (e.g. `@now`) unless the timezone data the ICU extension would supply is
+        // present — this applies even to `timestamptz - interval`. Casting the zoned value down to
+        // a naive `timestamp` sidesteps the issue entirely (the zone is simply dropped, yielding
+        // the UTC wall-clock value). We use `CAST(... AS TIMESTAMP)` rather than `...::TIMESTAMP` so
+        // the result is atomic regardless of the inner expression's precedence.
+        SqlExpr::atom(format!("CAST({} AS TIMESTAMP)", e.content))
+    }
+
+    fn coerces_timestamptz(&self) -> bool {
+        true
+    }
 }

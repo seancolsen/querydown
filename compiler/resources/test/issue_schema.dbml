@@ -7,6 +7,7 @@ Table users {
   email text
   team integer
   birth_date date
+  last_seen timestamptz
 }
 
 Table issues {

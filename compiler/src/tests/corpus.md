@@ -259,7 +259,7 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM to_months(6));
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at")) < EXTRACT(epoch FROM to_months(6));
 ```
 
 ### Aggregated date within a duration of now
@@ -288,6 +288,84 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
 WHERE
   ABS(EXTRACT(epoch FROM NOW() - "cte0"."v1")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Comparing a zoned timestamp to now
+
+> Users seen before now. `last_seen` is a `timestamptz`, the same zoned type as `@now`, so no
+> reconciliation is needed and the comparison compiles identically on every dialect.
+
+```qd
+#users last_seen:<@now
+```
+
+```sql
+SELECT
+  "users".*
+FROM "users"
+WHERE
+  "users"."last_seen" < NOW();
+```
+
+### Comparing a zoned timestamp to now (DuckDB)
+
+> The same query under DuckDB, which (without the ICU extension) can't operate on zoned timestamps
+> at all. It works in naive timestamp space: `@now` is coerced to naive at its source, and the
+> zoned `last_seen` column is coerced to match.
+
+```toml options
+dialect = "duckdb"
+```
+
+```qd
+#users last_seen:<@now
+```
+
+```sql
+SELECT
+  "users".*
+FROM "users"
+WHERE
+  CAST("users"."last_seen" AS TIMESTAMP) < CAST(NOW() AS TIMESTAMP);
+```
+
+### Mixing a zoned and a naive timestamp
+
+> Users last seen after a given date. `last_seen` is zoned (`timestamptz`) while the date literal is
+> naive, but Postgres reconciles the two natively, so no cast appears.
+
+```qd
+#users last_seen:>@2023-03-04
+```
+
+```sql
+SELECT
+  "users".*
+FROM "users"
+WHERE
+  "users"."last_seen" > DATE '2023-03-04';
+```
+
+### Mixing a zoned and a naive timestamp (DuckDB)
+
+> The same query under DuckDB, which (without the ICU extension) can't compare a zoned `timestamptz`
+> against a naive value. The zoned operand is cast down to a naive `timestamp` so the comparison is
+> valid.
+
+```toml options
+dialect = "duckdb"
+```
+
+```qd
+#users last_seen:>@2023-03-04
+```
+
+```sql
+SELECT
+  "users".*
+FROM "users"
+WHERE
+  CAST("users"."last_seen" AS TIMESTAMP) > DATE '2023-03-04';
 ```
 
 ### Negated comparison
@@ -421,7 +499,7 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  "issues"."created_at" > NOW() - to_years(6);
+  "issues"."created_at" > CAST(NOW() AS TIMESTAMP) - to_years(6);
 ```
 
 ### Multi-part duration (DuckDB)
@@ -441,7 +519,7 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  "issues"."created_at" > NOW() - (to_years(1) + to_days(2));
+  "issues"."created_at" > CAST(NOW() AS TIMESTAMP) - (to_years(1) + to_days(2));
 ```
 
 ### String escaping (DuckDB)
@@ -1994,7 +2072,8 @@ SELECT
   "users"."username",
   "users"."email",
   "users"."team",
-  "users"."birth_date"
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "issues"
 LEFT JOIN "users" ON
   "issues"."author" = "users"."id"
@@ -2140,6 +2219,7 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
+  "users"."last_seen",
   FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21
 FROM "users";
 ```

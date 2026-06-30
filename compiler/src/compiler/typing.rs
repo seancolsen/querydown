@@ -26,6 +26,7 @@ use crate::{
         functions::TypeRule,
         paths::{clarify_path, ClarifiedPathTail},
         scope::Scope,
+        temporal::now_has_tz,
         window::window_fn_return_type,
     },
     schema::{Table, ValueType},
@@ -68,7 +69,9 @@ pub fn infer_type(expr: &Expr, scope: &mut Scope) -> ValueType {
 
 fn infer_variable(name: &str, scope: &mut Scope) -> ValueType {
     match name {
-        VAR_NOW => ValueType::Time,
+        VAR_NOW => ValueType::Time {
+            has_tz: now_has_tz(scope.options.dialect.as_ref()),
+        },
         VAR_TRUE | VAR_FALSE => ValueType::Boolean,
         VAR_INFINITY => ValueType::Number,
         VAR_NULL => ValueType::Unknown,

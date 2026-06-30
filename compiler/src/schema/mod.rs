@@ -162,7 +162,14 @@ pub enum ValueType {
     Text,
     Number,
     Date,
-    Time,
+    /// A timestamp value. `has_tz` distinguishes a zoned timestamp (`timestamptz`, the type of
+    /// `@now`) from a naive one (`timestamp`/`datetime`). This matters because some databases
+    /// (notably DuckDB built without the ICU extension) can't perform arithmetic or comparison
+    /// between a zoned and a naive timestamp without timezone data. See
+    /// [`crate::compiler::temporal`].
+    Time {
+        has_tz: bool,
+    },
     Boolean,
     Array(Box<ValueType>),
     Unknown,
@@ -186,7 +193,13 @@ impl ValueType {
                 ValueType::Number
             }
             "date" => ValueType::Date,
-            "timestamp" | "timestamptz" | "datetime" => ValueType::Time,
+            // Postgres introspection emits internal `typname`s (`timestamp`, `timestamptz`); DuckDB
+            // introspection emits SQL-standard `data_type`s (`TIMESTAMP`, `TIMESTAMP WITH TIME
+            // ZONE`). We recognize both spellings so a zoned column is classified as zoned.
+            "timestamptz" | "timestamp with time zone" => ValueType::Time { has_tz: true },
+            "timestamp" | "datetime" | "timestamp without time zone" => {
+                ValueType::Time { has_tz: false }
+            }
             "boolean" | "bool" => ValueType::Boolean,
             _ => ValueType::Unknown,
         }
@@ -196,6 +209,18 @@ impl ValueType {
         raw.as_deref()
             .map(ValueType::parse)
             .unwrap_or(ValueType::Unknown)
+    }
+
+    /// Whether this is a temporal type (a date or a timestamp). Durations are not included; they
+    /// have no dedicated value type.
+    pub fn is_temporal(&self) -> bool {
+        matches!(self, ValueType::Date | ValueType::Time { .. })
+    }
+
+    /// Whether this is a temporal type that carries a time zone. Only a zoned timestamp qualifies;
+    /// a `date` or a naive timestamp does not.
+    pub fn is_zoned(&self) -> bool {
+        matches!(self, ValueType::Time { has_tz: true })
     }
 }
 
