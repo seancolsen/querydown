@@ -435,8 +435,11 @@ WHERE
 
 ### Expansion
 
+The expansion set is on the right-hand side of the comparison, so its bare words `color` and
+`colour` are string literals — the same as if each were quoted.
+
 ```qd
-#issues title:~..["color" "colour"]
+#issues title:~..[color colour]
 ```
 
 ```sql
@@ -449,8 +452,11 @@ WHERE
 
 ### Dual expansion
 
+The left-hand expansion `{title description}` references columns (it is on the left), while the
+right-hand expansion `[color colour]` holds string literals (it is on the right).
+
 ```qd
-#issues {title description}..:~..["color" "colour"]
+#issues {title description}..:~..[color colour]
 ```
 
 ```sql

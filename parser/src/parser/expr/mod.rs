@@ -20,8 +20,15 @@ use crate::parser::utils::*;
 use crate::tokens::*;
 
 use self::{
-    case::case, comparison::comparison, condition_set::condition_set, date::date,
-    duration::duration, has_quantity::has_quantity, number::number, path::path, pipe::pipe,
+    case::case,
+    comparison::{comparison, left_comparison_side, right_comparison_side},
+    condition_set::condition_set,
+    date::date,
+    duration::duration,
+    has_quantity::has_quantity,
+    number::number,
+    path::path,
+    pipe::pipe,
     window::window,
 };
 
@@ -47,78 +54,94 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
     // I took this approach from [Chumsky's example code][1].
     //
     // [1]: https://github.com/zesterer/chumsky/blob/0.9/examples/foo.rs#L33
+    //
+    // There are actually *two* such circular systems here, built as a pair of mutually recursive
+    // parsers:
+    //
+    // - The **identifier-mode** chain (`id_*`), in which a bare (unquoted) word is a column
+    //   reference. This is the default mode and the parser returned to callers.
+    //
+    // - The **string-mode** chain (`str_*`), in which a bare word — at any depth — is a string
+    //   literal instead. This mode applies to the entire right-hand side of a comparison, so that
+    //   e.g. `title:~..[color colour]` searches for the literal text "color" or "colour" rather than
+    //   referencing columns named `color`/`colour`. See `comparison_rhs_value` for the rationale.
+    //
+    // The two chains are identical in structure and differ only in how a bare word resolves at the
+    // atom level. They meet at the `comparison` rule, which is shared by both: a comparison's left
+    // side is always parsed in identifier mode and its right side always in string mode, regardless
+    // of which mode the comparison itself appears in. That shared rule is what makes the two chains
+    // mutually recursive, so each is `declare`d up front and `define`d once both are built.
 
     // Each precedence level is `.boxed()` to type-erase it. Chumsky combinator types grow
     // multiplicatively as they nest, and this parser nests deeply; without these boxing
     // "firewalls" the fully monomorphized type — and rustc's memory use compiling it — balloons
     // far enough to OOM the build. Boxing is semantically transparent and also speeds up compiles.
-    recursive(|prec_comma| {
-        let prec_atom = choice((
-            // `duration` is tried before `number` because both begin with a digit. A duration
-            // requires a trailing unit (e.g. `6m`), so a unit-less number like `6` falls through.
-            duration().map(Expr::Duration),
-            number().map(Expr::Number),
-            date().map(Expr::Date),
-            string().map(Expr::String),
-            // `function_call` is tried before `variable` because both begin with `@`; the `@@`
-            // prefix of a call would otherwise be misread as the start of a `@`-prefixed variable.
-            function_call(prec_comma.clone()),
-            variable().map(Expr::Variable),
-            window(prec_comma.clone()),
-            path(prec_comma.clone()).map(Expr::Path),
-            has_quantity(prec_comma.clone()).map(Expr::HasQuantity),
-            case(prec_comma.clone()).map(Expr::Case),
-            condition_set(prec_comma.clone()).map(Expr::ConditionSet),
-            parenthetical(prec_comma.clone()),
-        ))
-        .boxed();
+    let mut id = Recursive::declare();
+    let mut string_mode = Recursive::declare();
 
-        let prec_pipe = pipe(prec_atom.clone(), prec_comma.clone()).boxed();
+    // --- Identifier-mode chain: a bare word is a column reference. ---
+    let id_atom = choice((
+        // `duration` is tried before `number` because both begin with a digit. A duration
+        // requires a trailing unit (e.g. `6m`), so a unit-less number like `6` falls through.
+        duration().map(Expr::Duration),
+        number().map(Expr::Number),
+        date().map(Expr::Date),
+        string().map(Expr::String),
+        // `function_call` is tried before `variable` because both begin with `@`; the `@@`
+        // prefix of a call would otherwise be misread as the start of a `@`-prefixed variable.
+        function_call(id.clone()),
+        variable().map(Expr::Variable),
+        window(id.clone()),
+        path(id.clone()).map(Expr::Path),
+        has_quantity(id.clone()).map(Expr::HasQuantity),
+        case(id.clone()).map(Expr::Case),
+        condition_set(id.clone()).map(Expr::ConditionSet),
+        parenthetical(id.clone()),
+    ))
+    .boxed();
+    let id_pipe = pipe(id_atom.clone(), id.clone()).boxed();
+    let id_multiplication = multiplication(id_pipe).boxed();
+    let id_addition = addition(id_multiplication).boxed();
 
-        let prec_multiplication = multiplication(prec_pipe).boxed();
+    // --- String-mode chain: a bare word — at any depth — is a string literal. ---
+    //
+    // This mirrors the identifier-mode chain above in every respect except its atom: bare words
+    // resolve via `comparison_rhs_value` (string literal) instead of `path` (column reference), and
+    // every sub-parser recurses back into this same string-mode chain so the behavior holds at any
+    // depth. `case` and `window` are omitted because neither is meaningful as a comparison value.
+    let str_atom = choice((
+        // See the ordering note on `id_atom` above: `duration` before `number`.
+        duration().map(Expr::Duration),
+        number().map(Expr::Number),
+        date().map(Expr::Date),
+        string().map(Expr::String),
+        // See the ordering note on `id_atom` above: `function_call` before `variable`.
+        function_call(string_mode.clone()),
+        variable().map(Expr::Variable),
+        comparison_rhs_value(string_mode.clone()),
+        has_quantity(string_mode.clone()).map(Expr::HasQuantity),
+        condition_set(string_mode.clone()).map(Expr::ConditionSet),
+        parenthetical(string_mode.clone()),
+    ))
+    .boxed();
+    let str_pipe = pipe(str_atom.clone(), string_mode.clone()).boxed();
+    let str_multiplication = multiplication(str_pipe).boxed();
+    let str_addition = addition(str_multiplication).boxed();
 
-        let prec_addition = addition(prec_multiplication).boxed();
+    // The shared comparison rule, drawing its left side from the identifier-mode chain and its right
+    // side from the string-mode chain. This is the single point at which the two chains meet.
+    let comparison_expr = comparison(
+        left_comparison_side(id.clone(), id_atom, id_addition.clone()),
+        right_comparison_side(string_mode.clone(), str_atom, str_addition.clone()),
+    )
+    .map(|c| Expr::Comparison(Box::new(c)))
+    .boxed();
 
-        // The right-hand side of a comparison uses a parallel precedence chain that is identical to
-        // the one above in every respect except its atom: a bare (unquoted) word on the right-hand
-        // side is interpreted as a string literal rather than a column reference. See
-        // `comparison_rhs_value` for details.
-        let prec_atom_rhs = choice((
-            // See the ordering note on `prec_atom` above: `duration` before `number`.
-            duration().map(Expr::Duration),
-            number().map(Expr::Number),
-            date().map(Expr::Date),
-            string().map(Expr::String),
-            // See the ordering note on `prec_atom` above: `function_call` before `variable`.
-            function_call(prec_comma.clone()),
-            variable().map(Expr::Variable),
-            comparison_rhs_value(prec_comma.clone()),
-            has_quantity(prec_comma.clone()).map(Expr::HasQuantity),
-            condition_set(prec_comma.clone()).map(Expr::ConditionSet),
-            parenthetical(prec_comma.clone()),
-        ))
-        .boxed();
+    id.define(or_condition_set(negation(comparison_expr.clone().or(id_addition)).boxed()).boxed());
+    string_mode
+        .define(or_string_shorthand(negation(comparison_expr.or(str_addition)).boxed()).boxed());
 
-        let prec_pipe_rhs = pipe(prec_atom_rhs, prec_comma.clone()).boxed();
-
-        let prec_multiplication_rhs = multiplication(prec_pipe_rhs).boxed();
-
-        let prec_addition_rhs = addition(prec_multiplication_rhs).boxed();
-
-        let prec_comparison = comparison(
-            prec_addition.clone(),
-            prec_addition_rhs,
-            prec_comma,
-            prec_atom,
-        )
-        .map(|c| Expr::Comparison(Box::new(c)))
-        .or(prec_addition)
-        .boxed();
-
-        let prec_negation = negation(prec_comparison).boxed();
-
-        or_condition_set(prec_negation).boxed()
-    })
+    id
 }
 
 /// Negates an expression with a `!` prefix, producing [`Expr::Not`]. This binds more loosely than
@@ -197,6 +220,30 @@ fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
         })
 }
 
+/// The string-mode counterpart to [`or_condition_set`], used on the right-hand side of a comparison.
+/// It joins comma-separated expressions into an "OR" condition set in the same way, but needs none of
+/// the bare-word special-casing: in string mode a bare word is already a string literal at the atom
+/// level (see `comparison_rhs_value`), so a lone operand and a multi-operand entry resolve
+/// identically. A single expression with no trailing comma passes through unchanged.
+fn or_string_shorthand<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+    e.clone()
+        .then(
+            just(CONDITION_SET_OR_SHORTHAND)
+                .padded_by(pad())
+                .ignore_then(e)
+                .repeated()
+                .collect::<Vec<Expr>>(),
+        )
+        .map(|(first, rest)| {
+            if rest.is_empty() {
+                first
+            } else {
+                let entries = std::iter::once(first).chain(rest).collect();
+                Expr::ConditionSet(ConditionSet::via_or(entries))
+            }
+        })
+}
+
 fn operator<'src>(
     c: char,
     expr_enum_constructor: fn(Box<Expr>, Box<Expr>) -> Expr,
@@ -239,15 +286,20 @@ fn string<'src>() -> impl Psr<'src, String> {
     quoted(STRING_QUOTE_SINGLE).or(quoted(STRING_QUOTE_DOUBLE))
 }
 
-/// Parses the value on the right-hand side of a comparison, where a bare (unquoted) word is
-/// interpreted as a string literal rather than a column reference. This matches the behavior users
-/// expect from tools like GitHub, where e.g. `description:title` searches for the literal text
-/// "title". To refer to a column on the right-hand side, the identifier can either be quoted with
-/// backticks (e.g. `` `title` ``) or written as a multi-part path (e.g. `foo.bar`).
+/// The bare-word atom of the string-mode chain: an unquoted word here is interpreted as a string
+/// literal rather than a column reference. This matches the behavior users expect from tools like
+/// GitHub, where e.g. `description:title` searches for the literal text "title". To refer to a column
+/// on the right-hand side, the identifier can either be quoted with backticks (e.g. `` `title` ``) or
+/// written as a multi-part path (e.g. `foo.bar`).
 ///
-/// A bare word is only treated as a string when it stands alone. If it is the head of a longer path
-/// (e.g. `foo.bar`), the whole path is parsed as a column reference instead. Everywhere other than
-/// the right-hand side of a comparison, bare words continue to be parsed as column references.
+/// Because the whole right-hand side of a comparison is parsed in string mode, this applies to bare
+/// words at *any* depth there — inside expansions (`title:~..[color colour]`), pipe arguments
+/// (`title:foo|concat(bar)`), parentheses, ranges, and so on — not just to a bare word standing
+/// alone. Everywhere outside the right-hand side of a comparison, bare words continue to be parsed as
+/// column references.
+///
+/// A bare word is treated as a string only when it stands alone. If it is the head of a longer path
+/// (e.g. `foo.bar`), the whole path is parsed as a column reference instead.
 fn comparison_rhs_value<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     let bare_string = ident()
         .then_ignore(pad().then(just(PATH_SEPARATOR)).not())
@@ -903,6 +955,97 @@ mod tests {
                 )])),
                 operator: Operator::Eq,
                 right: ComparisonSide::Expr(Expr::String("open".to_string())),
+            })))
+        );
+    }
+
+    #[test]
+    fn test_bare_text_on_comparison_rhs_is_a_string_at_any_depth() {
+        let p = |s: &str| {
+            expr()
+                .then_ignore(end())
+                .parse(s)
+                .into_result()
+                .map_err(|_| ())
+        };
+
+        // Bare words inside an expansion set on the right-hand side are string literals, so the
+        // unquoted form is equivalent to quoting each term.
+        assert_eq!(
+            p("title:~..[color colour]"),
+            p("title:~..[\"color\" \"colour\"]")
+        );
+        assert_eq!(
+            p("title:~..[color colour]"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("title".to_string())])),
+                operator: Operator::RegexMatch,
+                right: ComparisonSide::Expansion(ConditionSet {
+                    conjunction: Conjunction::Or,
+                    entries: vec![
+                        Expr::String("color".to_string()),
+                        Expr::String("colour".to_string()),
+                    ],
+                }),
+            })))
+        );
+
+        // Bare words within a pipe on the right-hand side — both the piped-in value and the extra
+        // arguments — are string literals.
+        assert_eq!(
+            p("title:foo|concat(bar)"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("title".to_string())])),
+                operator: Operator::Match,
+                right: ComparisonSide::Expr(Expr::Call(Call {
+                    name: "concat".to_string(),
+                    dimension: FunctionDimension::Scalar,
+                    syntax: CallSyntax::Piped,
+                    args: vec![
+                        Expr::String("foo".to_string()),
+                        Expr::String("bar".to_string()),
+                    ],
+                    order_by: vec![],
+                })),
+            })))
+        );
+
+        // The same pipe *outside* a comparison treats bare words as column references, illustrating
+        // that the string-mode behavior is confined to the right-hand side.
+        assert_eq!(
+            p("status|concat(title)"),
+            Ok(Expr::Call(Call {
+                name: "concat".to_string(),
+                dimension: FunctionDimension::Scalar,
+                syntax: CallSyntax::Piped,
+                args: vec![
+                    Expr::Path(vec![PathPart::Column("status".to_string())]),
+                    Expr::Path(vec![PathPart::Column("title".to_string())]),
+                ],
+                order_by: vec![],
+            }))
+        );
+
+        // Bare words inside parentheses on the right-hand side are string literals too.
+        assert_eq!(p("title:(foo)"), p("title:foo"),);
+
+        // A nested comparison on the right-hand side resets to identifier mode for *its* left side:
+        // the left side of a comparison is always a column reference, even within another
+        // comparison's right side, while its own right side remains a string literal.
+        assert_eq!(
+            p("description:(title:foo)"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                    "description".to_string()
+                )])),
+                operator: Operator::Match,
+                right: ComparisonSide::Expr(Expr::Comparison(Box::new(Comparison {
+                    left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                        "title".to_string()
+                    )])),
+                    operator: Operator::Match,
+                    right: ComparisonSide::Expr(Expr::String("foo".to_string())),
+                }))),
             })))
         );
     }

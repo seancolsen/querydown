@@ -29,6 +29,9 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Regular expression matching](#regular-expression-matching)
   - [All comparison operators](#all-comparison-operators)
   - [Bare text on the right-hand-side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison)
+    - [The rule applies at any depth](#the-rule-applies-at-any-depth)
+    - [Everything _outside_ the right-hand-side is a column reference](#everything-outside-the-right-hand-side-is-a-column-reference)
+    - [Referencing a column on the right-hand-side](#referencing-a-column-on-the-right-hand-side)
   - [Default text search](#default-text-search)
     - [Configuring the default text search](#configuring-the-default-text-search)
   - [AND condition sets](#and-condition-sets)
@@ -403,7 +406,37 @@ A bare (unquoted) word on the **right-hand-side** of a comparison is interpreted
 
 The query above is equivalent to `#issues title:"performance"`.
 
-This only applies to the right-hand-side. Bare text elsewhere (e.g. on the left-hand-side) continues to be parsed as a column reference. If you need to reference a column on the right-hand-side, you can either:
+#### The rule applies at any depth
+
+This is not limited to a bare word standing alone immediately after the operator. **Every** bare word _anywhere_ within the right-hand-side expression — at any depth of nesting — is a string literal. For example, the bare words inside the following right-hand-sides are all string literals:
+
+- an [expansion](#comparison-expansion): `#issues title:~..[color colour]` searches for "color" or "colour"
+- a [function pipeline](#function-piping): `#issues title:foo|concat(bar)` builds the string from the literals "foo" and "bar"
+- parentheses, [ranges](#ranges), arithmetic, and so on — the same rule reaches into all of them
+
+The motivation is to make the most common case — searching for literal text — both the shortest to type and the most intuitive to read.
+
+#### Everything _outside_ the right-hand-side is a column reference
+
+The string-literal rule is confined to the right-hand-side. Anywhere else, a bare word is still a column reference. Contrast the two pipelines below, which are written identically except for their position:
+
+```qd
+#issues title:foo|concat(bar)
+```
+
+Here `foo` and `bar` are **string literals**, because they sit on the right-hand-side of `title:`.
+
+```qd
+#issues $status|concat(title)
+```
+
+Here `status` and `title` are **column references**, because this is a [result column](#result-columns), not the right-hand-side of a comparison.
+
+This boundary even resets within a nested comparison. In `#issues description:(title:foo)`, the inner `title` is on the _left_ of its own comparison, so it is a column reference, while `foo` (on the inner right-hand-side) remains a string literal.
+
+#### Referencing a column on the right-hand-side
+
+If you need to reference a column on the right-hand-side, you can either:
 
 - quote the identifier with backticks, e.g. ``#issues description:`title` ``, or
 - write it as a multi-part path, e.g. `#issues description:foo.bar`.
@@ -503,13 +536,15 @@ Conditions can be nested
 
 The `..` syntax can be use to "expand" comparisons into bracketed condition sets.
 
+Because an expansion on the right-hand-side is part of the right-hand-side, its bare words are [string literals](#bare-text-on-the-right-hand-side-of-a-comparison). An expansion on the left-hand-side holds column references, as everywhere else on the left.
+
 > Issues whose status is either "open" or "reopened":
 
 ```qd
-#issues status:..["open" "reopened"]
+#issues status:..[open reopened]
 ```
 
-> Issues that are missing a title and description:
+> Issues that are missing a title and description (the left-hand expansion references columns):
 
 ```qd
 #issues {title description}..:@null
@@ -518,17 +553,17 @@ The `..` syntax can be use to "expand" comparisons into bracketed condition sets
 > Issues where the title or description contains "foo":
 
 ```qd
-#issues [title description]..:~"foo"
+#issues [title description]..:~foo
 ```
 
 ### Dual expansion
 
-If both sides of the comparison are expanded, then the brackets on left side are used for the outer precedence
+If both sides of the comparison are expanded, then the brackets on left side are used for the outer precedence. Note how the same expansion syntax yields column references on the left (`title`, `description`) but string literals on the right (`foo`, `bar`):
 
 > Issues where the title and description both contain "foo" or contain "bar":
 
 ```qd
-#issue {title description}..:~..["foo" "bar"]
+#issue {title description}..:~..[foo bar]
 ```
 
 ### Ranges

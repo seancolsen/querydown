@@ -24,8 +24,11 @@ pub fn condition_set<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Conditi
 }
 
 /// Parses a condition set used as a comparison **expansion** (e.g. the `[ ... ]` in
-/// `title:~..["color" "colour"]`). Unlike a boolean condition set, its entries are plain values fed
-/// into a comparison, so a bare word is a column reference rather than a default text search term.
+/// `title:~..[color colour]`). Unlike a boolean condition set, its entries are plain values fed into
+/// a comparison rather than default text search terms. How a bare word entry resolves therefore
+/// follows the side it appears on: the caller supplies an identifier-mode `expr` for a left-side
+/// expansion (bare word is a column reference) or a string-mode `expr` for a right-side expansion
+/// (bare word is a string literal). See `comparison_rhs_value` for the rationale.
 pub fn expansion_set<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, ConditionSet> {
     set_of_entries(expr)
 }

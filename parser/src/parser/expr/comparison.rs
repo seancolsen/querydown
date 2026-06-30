@@ -5,27 +5,14 @@ use crate::parser::expr::condition_set::expansion_set;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
+/// Combines a left side, an operator, and a right side into a [`Comparison`]. The two sides are
+/// passed in pre-built (see [`left_comparison_side`] and [`right_comparison_side`]) because they draw
+/// from different parsing modes: a bare word on the left is a column reference, while a bare word on
+/// the right — at any depth — is a string literal. See `comparison_rhs_value` for the rationale.
 pub fn comparison<'src>(
-    left_side_expr: impl Psr<'src, Expr>,
-    right_side_expr: impl Psr<'src, Expr>,
-    condition_set_expr: impl Psr<'src, Expr>,
-    range_expr: impl Psr<'src, Expr>,
+    left: impl Psr<'src, ComparisonSide>,
+    right: impl Psr<'src, ComparisonSide>,
 ) -> impl Psr<'src, Comparison> {
-    let left = choice((
-        expansion_set(condition_set_expr.clone())
-            .then_ignore(pad().then(just(COMPARISON_EXPAND)))
-            .map(ComparisonSide::Expansion),
-        range(range_expr.clone()).map(ComparisonSide::Range),
-        left_side_expr.map(ComparisonSide::Expr),
-    ));
-    let right = choice((
-        just(COMPARISON_EXPAND)
-            .then(pad())
-            .ignore_then(expansion_set(condition_set_expr).map(ComparisonSide::Expansion)),
-        range(range_expr).map(ComparisonSide::Range),
-        right_side_expr.map(ComparisonSide::Expr),
-    ));
-
     left.then(operator().padded_by(pad()))
         .then(right)
         .map(|((left, operator), right)| Comparison {
@@ -33,6 +20,40 @@ pub fn comparison<'src>(
             operator,
             right,
         })
+}
+
+/// The left side of a comparison. An expansion here is written `set..` (the `..` trails the set).
+/// Because this is the left side, bare words within `expansion_set`, `range_atom`, and `expr` are
+/// column references; the caller supplies the column-reference ("identifier-mode") parsers.
+pub fn left_comparison_side<'src>(
+    expansion_set_expr: impl Psr<'src, Expr>,
+    range_atom: impl Psr<'src, Expr>,
+    expr: impl Psr<'src, Expr>,
+) -> impl Psr<'src, ComparisonSide> {
+    choice((
+        expansion_set(expansion_set_expr)
+            .then_ignore(pad().then(just(COMPARISON_EXPAND)))
+            .map(ComparisonSide::Expansion),
+        range(range_atom).map(ComparisonSide::Range),
+        expr.map(ComparisonSide::Expr),
+    ))
+}
+
+/// The right side of a comparison. An expansion here is written `..set` (the `..` leads the set).
+/// Because this is the right side, bare words within `expansion_set`, `range_atom`, and `expr` — at
+/// any depth — are string literals; the caller supplies the string-literal ("string-mode") parsers.
+pub fn right_comparison_side<'src>(
+    expansion_set_expr: impl Psr<'src, Expr>,
+    range_atom: impl Psr<'src, Expr>,
+    expr: impl Psr<'src, Expr>,
+) -> impl Psr<'src, ComparisonSide> {
+    choice((
+        just(COMPARISON_EXPAND)
+            .then(pad())
+            .ignore_then(expansion_set(expansion_set_expr).map(ComparisonSide::Expansion)),
+        range(range_atom).map(ComparisonSide::Range),
+        expr.map(ComparisonSide::Expr),
+    ))
 }
 
 fn range<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Range> {
