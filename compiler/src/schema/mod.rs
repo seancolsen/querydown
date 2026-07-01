@@ -197,9 +197,12 @@ impl ValueType {
             // introspection emits SQL-standard `data_type`s (`TIMESTAMP`, `TIMESTAMP WITH TIME
             // ZONE`). We recognize both spellings so a zoned column is classified as zoned.
             "timestamptz" | "timestamp with time zone" => ValueType::Time { has_tz: true },
-            "timestamp" | "datetime" | "timestamp without time zone" => {
-                ValueType::Time { has_tz: false }
-            }
+            "timestamp"
+            | "timestamp_ns"
+            | "timestamp_ms"
+            | "timestamp_s"
+            | "datetime"
+            | "timestamp without time zone" => ValueType::Time { has_tz: false },
             "boolean" | "bool" => ValueType::Boolean,
             _ => ValueType::Unknown,
         }
