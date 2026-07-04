@@ -82,6 +82,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [User-defined functions](#user-defined-functions)
   - [Function containing an assignment](#function-containing-an-assignment)
   - [Custom Comparisons](#custom-comparisons)
+  - [Linked record comparisons](#linked-record-comparisons)
   - [User-defined tables](#user-defined-tables)
 - [Annotations](#annotations)
   - [Column-level annotations](#column-level-annotations)
@@ -1254,6 +1255,43 @@ If the custom comparison is defined with any comparisons that are not just `:`, 
 ```
 
 With this definition, attempting to call `participant:~"david"` will fail.
+
+### Linked record comparisons
+
+Normally, comparing against a linked record requires naming a column on that record. For example, to
+find issues authored by "alice" you'd reach through the `author` link to the `username` column:
+
+```
+#issues author.username:alice
+```
+
+You can make this more succinct and intuitive by defining a `__querydown_linked_record_comparison`
+custom comparison on the linked table. This special [custom comparison](#custom-comparisons) supplies
+the meaning of comparing directly against one of that table's records.
+
+```
+#users.__querydown_linked_record_comparison:@x = username:@x
+
+#issues author:alice
+```
+
+With this definition in place, `author:alice` means exactly the same thing as
+`author.username:alice`. It works for any to-one link that lands on the `users` table, including
+multi-hop chains such as `duplicate_of.author:alice`.
+
+Because it is an ordinary custom comparison, everything that applies to custom comparisons applies
+here too. If the body uses only the match operator (`:`), the comparison can be [called with a
+switched operator](#custom-comparisons), so `author:=alice` and `author:~"^al"` both work. The body
+can also be any expression — for instance, matching on either of two columns:
+
+```
+#users.__querydown_linked_record_comparison:@x = [username:@x email:@x]
+
+#issues author:alice
+```
+
+An application incorporating Querydown might prepend these definitions for its users as a convenience,
+so that comparing against a linked record "just works" without needing to know which column to match.
 
 ### User-defined tables
 

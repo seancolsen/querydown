@@ -14,6 +14,12 @@ pub const INDENT_SPACER: &str = "  ";
 /// comparison, the default text search falls back to searching all of the table's text-like columns.
 pub const DEFAULT_TEXT_SEARCH_COMPARISON_NAME: &str = "__querydown_default_text_search";
 
+/// The name of the custom comparison that, when defined on a table, supplies the meaning of comparing
+/// directly against a linked record of that table (see [`super::comparisons::convert_comparison`]).
+/// For example, defining `#users.__querydown_linked_record_comparison:@x = username:@x` lets
+/// `#issues author:alice` mean `#issues author.username:alice`.
+pub const LINKED_RECORD_COMPARISON_NAME: &str = "__querydown_linked_record_comparison";
+
 pub const VAR_INFINITY: &str = "infinity";
 pub const VAR_NOW: &str = "now";
 pub const VAR_TRUE: &str = "true";

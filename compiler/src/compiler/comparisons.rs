@@ -12,6 +12,7 @@ use crate::{
 };
 
 use super::{
+    constants::LINKED_RECORD_COMPARISON_NAME,
     paths::{clarify_path, ClarifiedPathTail},
     scope::Scope,
     temporal::{now_operand, reconcile, TemporalZone},
@@ -32,6 +33,12 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, S
                 .chain(parts.iter().cloned())
                 .collect();
             if let Some((head_parts, def)) = resolve_custom_comparison(&prefixed, scope)? {
+                return convert_custom_comparison(def, head_parts, c.operator, c.right, scope);
+            }
+            // Failing an explicitly-named custom comparison, a comparison whose left-hand side is a
+            // path to a single linked record can defer to that record's table-wide linked-record
+            // comparison, e.g. `author:alice` becoming `author.username:alice`.
+            if let Some((head_parts, def)) = resolve_linked_record_comparison(&prefixed, scope)? {
                 return convert_custom_comparison(def, head_parts, c.operator, c.right, scope);
             }
         }
@@ -341,6 +348,34 @@ fn resolve_custom_comparison(
     Ok(scope
         .get_custom_comparison(&table.name, name)
         .map(|def| (head_parts.to_vec(), def.clone())))
+}
+
+/// If `parts` names a single linked record — a chain of to-one links ending at a table, with no
+/// trailing column — whose target table defines a [`LINKED_RECORD_COMPARISON_NAME`] custom
+/// comparison, returns the full path together with the matched definition. The path becomes the
+/// prefix under which the comparison's body is evaluated, so `author:alice` expands the `users`
+/// table's linked-record comparison as though written `author.<body>`.
+fn resolve_linked_record_comparison(
+    parts: &[PathPart],
+    scope: &Scope,
+) -> Result<Option<(Vec<PathPart>, CustomComparisonDef)>, String> {
+    // Only a path that resolves to a single linked record qualifies. A path ending in a column (or a
+    // to-many chain, or an empty path) is handled by the ordinary comparison logic. A path that
+    // fails to clarify is likewise left to the ordinary logic to surface the error.
+    let Ok(clarified) = clarify_path(parts.to_vec(), scope) else {
+        return Ok(None);
+    };
+    let table = match (clarified.head, clarified.tail) {
+        (Some(chain_to_one), None) => scope
+            .schema
+            .tables
+            .get(&chain_to_one.get_ending_table_id())
+            .unwrap(),
+        _ => return Ok(None),
+    };
+    Ok(scope
+        .get_custom_comparison(&table.name, LINKED_RECORD_COMPARISON_NAME)
+        .map(|def| (parts.to_vec(), def.clone())))
 }
 
 /// Expands a custom comparison: the right-hand side value is bound to the definition's parameter and

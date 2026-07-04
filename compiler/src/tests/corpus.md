@@ -2724,6 +2724,50 @@ WHERE
   );
 ```
 
+### Linked record comparison
+
+> A table can define a `__querydown_linked_record_comparison` custom comparison to give meaning to
+> comparing directly against one of its records. Here `author:alice` means `author.username:alice`
+> because the `users` table's linked-record comparison matches on `username`.
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues author:alice $id->id
+```
+
+```sql
+SELECT
+  "issues"."id" AS "id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE);
+```
+
+### Linked record comparison reached through another link
+
+> The left-hand side may be a multi-hop chain of to-one links. Here the comparison is defined on
+> `products`, and `project.product` reaches a single `products` record via `issues` → `projects` →
+> `products`, so `project.product:widget` means `project.product.name:widget`.
+
+```qd
+#products.__querydown_linked_record_comparison:@x = name:@x
+#issues project.product:widget $id->id
+```
+
+```sql
+SELECT
+  "issues"."id" AS "id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "products" ON
+  "projects"."product" = "products"."id"
+WHERE
+  COALESCE(strpos(lower("products"."name" COLLATE "C"), lower('widget' COLLATE "C")) > 0, FALSE);
+```
+
 ## Query pipelines
 
 A query may be split into multiple stages separated by `~~~`. Each stage operates on the result of the previous stage, which is materialized as a CTE. The columns of a stage's output become the columns available to the next stage.

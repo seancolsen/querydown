@@ -8,6 +8,7 @@ mod default_text_search;
 mod definitions;
 mod grouping;
 mod introspection;
+mod linked_record_comparison;
 mod test_utils;
 
 pub use test_utils::get_test_resource;
