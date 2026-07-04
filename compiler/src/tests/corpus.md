@@ -1156,6 +1156,46 @@ WHERE
   "issues"."project" = 1;
 ```
 
+### Self-referential foreign key
+
+> `issues.duplicate_of` links `issues` to itself. The joined instance must get an alias distinct from
+> the base table, or the generated SQL references `issues` twice with nothing to disambiguate them.
+
+```qd
+#issues duplicate_of.title:="foo" $id->id
+```
+
+```sql
+SELECT
+  "issues"."id" AS "id"
+FROM "issues"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues"."duplicate_of" = "issues_1"."id"
+WHERE
+  "issues_1"."title" = 'foo';
+```
+
+### Self-referential foreign key, chained through another link
+
+> A path may continue past the self-join. Here `duplicate_of.author` reaches `users` through the
+> aliased `issues_1`.
+
+```qd
+#issues duplicate_of.author.username:="alice" $id->id
+```
+
+```sql
+SELECT
+  "issues"."id" AS "id"
+FROM "issues"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues"."duplicate_of" = "issues_1"."id"
+LEFT JOIN "users" ON
+  "issues_1"."author" = "users"."id"
+WHERE
+  "users"."username" = 'alice';
+```
+
 ## Paths to many
 
 ### Count of related records is coalesced to zero

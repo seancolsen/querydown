@@ -68,7 +68,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             base_table,
             join_tree: JoinTree::new(base_table.name.to_owned()),
             path_prefix: vec![],
-            aliases: HashSet::new(),
+            aliases: HashSet::from([base_table.name.to_owned()]),
             cte_naming_index: 0,
             scalar_functions: get_standard_scalar_functions(),
             aggregate_functions: get_standard_aggregate_functions(),
@@ -234,6 +234,8 @@ impl<'a, 'b> Scope<'a, 'b> {
     /// aggregate's `ORDER BY`), so that any joins it introduces avoid colliding with aliases the
     /// parent has already assigned.
     pub fn spawn_with_aliases(&'b self, base_table: &'a Table, aliases: HashSet<String>) -> Self {
+        let mut aliases = aliases;
+        aliases.insert(base_table.name.to_owned());
         Scope {
             parent: Some(self),
             options: self.options,
@@ -295,12 +297,13 @@ impl<'a, 'b> Scope<'a, 'b> {
             if try_alias(ideal_alias) {
                 return ideal_alias.to_string();
             }
-            let suffix_index: usize = 1;
+            let mut suffix_index: usize = 1;
             loop {
                 let new_alias = format!("{}_{}", ideal_alias, suffix_index);
                 if try_alias(&new_alias) {
                     return new_alias;
                 }
+                suffix_index += 1;
             }
         };
         let alias = self.join_tree.integrate_chain(chain, get_alias, cte);
