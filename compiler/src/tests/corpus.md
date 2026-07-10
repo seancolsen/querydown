@@ -2164,6 +2164,86 @@ ORDER BY
   "issues"."title" DESC NULLS LAST;
 ```
 
+## Result column spec nesting
+
+### Basic nesting
+
+> Comments, showing details of each comment's issue. The `$issue.( ... )` group applies `issue.`
+> to the start of every result column inside it, so this is the same as writing `$issue.id`,
+> `$issue.title`, `$issue.#labels.name%list(\\name)`, and `$issue.project.name`.
+
+```qd
+#comments
+$id @{hide:yes} // the comment id
+$created_at
+$issue.(
+  $id @{hide:yes} // the issue id
+  $title @{width:400}
+  $#labels.name%list(\\name)
+  $project.name
+)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg("labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "comments"."id",
+  "comments"."created_at",
+  "issues"."id",
+  "issues"."title",
+  "cte0"."v1",
+  "projects"."name"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id";
+```
+
+```json
+{
+  "columnAnnotations": [
+    { "hide": "yes" },
+    null,
+    { "hide": "yes" },
+    { "width": 400 },
+    null,
+    null
+  ]
+}
+```
+
+### Nesting within nesting
+
+> Groups may be nested within groups; the paths compose.
+
+```qd
+#comments $id $issue.( $title $project.( $name->project_name ) )
+```
+
+```sql
+SELECT
+  "comments"."id",
+  "issues"."title",
+  "projects"."name" AS "project_name"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id";
+```
+
 ## Column annotations
 
 A test case may include an optional ` ```json ` block after the SQL block. When

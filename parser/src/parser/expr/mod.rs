@@ -11,7 +11,7 @@ mod window;
 
 pub use comparison::operator as comparison_operator;
 pub use condition_set::condition_entry;
-pub use path::path_to_one;
+pub use path::{path, path_to_one};
 
 use chumsky::{prelude::*, text::*};
 
@@ -27,7 +27,6 @@ use self::{
     duration::duration,
     has_quantity::has_quantity,
     number::number,
-    path::path,
     pipe::pipe,
     window::window,
 };

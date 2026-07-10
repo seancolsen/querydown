@@ -52,6 +52,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Column glob on related table](#column-glob-on-related-table)
   - [Hiding columns within a glob](#hiding-columns-within-a-glob)
   - [Sorting columns within a glob](#sorting-columns-within-a-glob)
+  - [Nesting result columns](#nesting-result-columns)
 - [Sorting outside of result columns](#sorting-outside-of-result-columns)
 - [Referencing _single_ related records](#referencing-single-related-records)
   - [Single related records via column name chains](#single-related-records-via-column-name-chains)
@@ -698,6 +699,43 @@ Use `\s` (and similar flags) to sort by columns, leaving their position in the t
 ```
 #issues $*(created_at \sd)
 ```
+
+### Nesting result columns
+
+When several result columns share the same leading path, you can factor the path out: write it once, followed by `.(`, then the columns, then `)`.
+
+> Comments, showing details of each comment's issue
+
+```qd
+#comments
+$id @{hide:yes} // the comment id
+$created_at
+$issue.(
+  $id @{hide:yes} // the issue id
+  $title @{width:400}
+  $#labels.name%list(\\name)
+  $project.name
+)
+```
+
+The path before `.( )` is applied to the start of every result column inside the parentheses, so the query above is the same as:
+
+```qd
+#comments
+$id @{hide:yes} // the comment id
+$created_at
+$issue.id @{hide:yes} // the issue id
+$issue.title @{width:400}
+$issue.#labels.name%list(\\name)
+$issue.project.name
+```
+
+Everything else about the nested columns — aliases, control flags like `\s` and `\h`, and annotations — works exactly as it does outside of nesting.
+
+- Each nested column must begin with a column reference, so that the outer path has somewhere to attach. The reference may sit behind a pipe (`$title|upper` becomes `issue.title|upper`), arithmetic (`$id * 2`), a comparison (`$status:closed`), a `!` prefix, or a `++`/`--` prefix (`$++#labels` becomes `++issue.#labels`). A column that starts with none of these — e.g. a literal like `$8`, or a standalone `$%count` — cannot be nested.
+- Groups can be nested within groups, and the paths compose: `$issue.( $project.( $name ) )` is the same as `$issue.project.name`.
+- [Column globs](#column-globs) work inside a group: `$issue.( $project.* )` is the same as `$issue.project.*`.
+- The path before `.( )` may traverse to-many relationships: `$#comments.( $created_at%max )` is the same as `$#comments.created_at%max`.
 
 
 ## Sorting outside of result columns

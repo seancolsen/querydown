@@ -69,6 +69,10 @@ pub(crate) const ANNOTATION_KEY_VALUE_SEPARATOR: char = ':';
 pub(crate) const NEGATE: char = '!';
 pub(crate) const PATH_SEPARATOR: char = '.';
 pub(crate) const PATH_TO_TABLE_WITH_ONE_PREFIX: &str = ">>";
+/// Open a group of nested result column specs, written after a path head as `$issue.( ... )`.
+pub(crate) const RESULT_COLUMNS_NESTING_BRACE_L: char = '(';
+/// Closes a group of nested result column specs.
+pub(crate) const RESULT_COLUMNS_NESTING_BRACE_R: char = ')';
 /// Prefix denoting a standalone sorting expression, written as the literal `\\`.
 pub(crate) const SORT_EXPR_PREFIX: &str = "\\\\";
 pub(crate) const STRING_ESCAPE_PREFIX: char = '\\';

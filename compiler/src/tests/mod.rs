@@ -9,6 +9,7 @@ mod definitions;
 mod grouping;
 mod introspection;
 mod linked_record_comparison;
+mod result_column_nesting;
 mod test_utils;
 
 pub use test_utils::get_test_resource;
