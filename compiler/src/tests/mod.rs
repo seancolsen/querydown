@@ -11,6 +11,7 @@ mod introspection;
 mod linked_record_comparison;
 mod result_column_nesting;
 mod scoped_comparison;
+mod scoped_sorting;
 mod test_utils;
 
 pub use test_utils::get_test_resource;

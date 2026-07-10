@@ -54,6 +54,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Sorting columns within a glob](#sorting-columns-within-a-glob)
   - [Nesting result columns](#nesting-result-columns)
 - [Sorting outside of result columns](#sorting-outside-of-result-columns)
+  - [Scoped sorting expressions](#scoped-sorting-expressions)
 - [Referencing _single_ related records](#referencing-single-related-records)
   - [Single related records via column name chains](#single-related-records-via-column-name-chains)
   - [Single related records via table name](#single-related-records-via-table-name)
@@ -763,6 +764,36 @@ $title
 ```
 
 A standalone sorting expression produces the same `ORDER BY` as the column-flag form, but without emitting a column. When a query mixes standalone `\\` sorts with column `\s` sorts, the standalone sorts take precedence and come first in the `ORDER BY`.
+
+### Scoped sorting expressions
+
+When several sorting expressions share the same leading path, you can factor the path out: write it once, followed by `.(`, then the sorting expressions, then `)`.
+
+> Show issues sorted by project status, project name, and issue due date
+
+```qd
+#issues
+\\project.(
+  \\is_active
+  \\product.name
+)
+\\due_date
+```
+
+The path before `.( )` is applied to the start of every sorting expression inside the parentheses, so the query above is the same as:
+
+```qd
+#issues
+\\project.is_active
+\\project.product.name
+\\due_date
+```
+
+Everything else about the nested expressions — the `\d` and `\n` flags — works exactly as it does outside of scoping.
+
+- Each nested sorting expression must begin with a column reference, so that the outer path has somewhere to attach. The reference may sit behind a pipe (`\\name|upper` becomes `\\project.name|upper`), arithmetic (`\\id * 2`), a comparison (`\\status:closed`), a `!` prefix, or a `++`/`--` prefix (`\\++#labels` becomes `\\++project.#labels`). An expression that starts with none of these — e.g. a literal like `\\8`, or a standalone `\\%count` — cannot be scoped.
+- Groups can be nested within groups, and the paths compose: `\\project.( \\product.( \\name ) )` is the same as `\\project.product.name`.
+- The path before `.( )` may traverse to-many relationships: `\\#comments.( \\created_at%max )` is the same as `\\#comments.created_at%max`.
 
 
 ## Referencing _single_ related records

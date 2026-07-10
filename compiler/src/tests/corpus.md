@@ -1981,6 +1981,56 @@ ORDER BY
   "issues"."title" ASC NULLS LAST;
 ```
 
+## Scoped sorting expressions
+
+### Basic scoping
+
+> Issues sorted by project status, project name, and issue due date. The `\\project.( ... )` group
+> applies `project.` to the start of every sorting expression inside it, so this is the same as
+> writing `\\project.is_active`, `\\project.name`, then `\\due_date`.
+
+```qd
+#issues
+\\project.(
+  \\is_active
+  \\name
+)
+\\due_date
+$title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+ORDER BY
+  "projects"."is_active" ASC NULLS LAST,
+  "projects"."name" ASC NULLS LAST,
+  "issues"."due_date" ASC NULLS LAST;
+```
+
+### Scoping within scoping
+
+> Groups may be nested within groups; the paths compose.
+
+```qd
+#issues \\project.( \\product.( \\name ) ) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "products" ON
+  "projects"."product" = "products"."id"
+ORDER BY
+  "products"."name" ASC NULLS LAST;
+```
+
 ## Grouping and aggregation
 
 ### Basic grouping

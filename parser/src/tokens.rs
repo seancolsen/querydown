@@ -75,6 +75,10 @@ pub(crate) const RESULT_COLUMNS_NESTING_BRACE_L: char = '(';
 pub(crate) const RESULT_COLUMNS_NESTING_BRACE_R: char = ')';
 /// Prefix denoting a standalone sorting expression, written as the literal `\\`.
 pub(crate) const SORT_EXPR_PREFIX: &str = "\\\\";
+/// Open a group of nested sorting expressions, written after a path head as `\\issue.( ... )`.
+pub(crate) const SORTING_NESTING_BRACE_L: char = '(';
+/// Closes a group of nested sorting expressions.
+pub(crate) const SORTING_NESTING_BRACE_R: char = ')';
 pub(crate) const STRING_ESCAPE_PREFIX: char = '\\';
 pub(crate) const STRING_QUOTE_DOUBLE: char = '"';
 pub(crate) const STRING_QUOTE_SINGLE: char = '\'';
