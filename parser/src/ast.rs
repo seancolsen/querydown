@@ -208,6 +208,9 @@ pub enum Expr {
     Variable(String),
     Path(Vec<PathPart>),
     ConditionSet(ConditionSet),
+    /// A condition set scoped to a single related record, written as a path immediately followed —
+    /// with no space — by a condition set, e.g. `issue{title:dashboard}`. See [`ScopedConditionSet`].
+    ScopedConditionSet(ScopedConditionSet),
     HasQuantity(HasQuantity),
     Case(Case),
     Call(Call),
@@ -442,6 +445,24 @@ pub enum Conjunction {
     #[default]
     And,
     Or,
+}
+
+/// A condition set scoped to a single related record, written as a path immediately followed by a
+/// condition set with no space between them, e.g. `issue{title:dashboard}` or
+/// `issue[title:dashboard description:dashboard]`.
+///
+/// Every entry of the `condition_set` is evaluated as though `path` had been written in front of it,
+/// so `issue{title:dashboard}` scopes `title:dashboard` to the base record's issue (the same as
+/// `issue.title:dashboard`). Unlike prefixing the path syntactically, this scopes the _whole_
+/// condition set — including entries that have no leading column reference to prefix, most notably a
+/// bare [default text search](Expr::String) term. That is why the scoping is resolved in the
+/// compiler (against the related table) rather than desugared away in the parser: `issue{dashboard}`
+/// searches the issue's text columns, which has no flat-syntax equivalent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScopedConditionSet {
+    /// The path to the single related record the condition set is scoped to.
+    pub path: Vec<PathPart>,
+    pub condition_set: ConditionSet,
 }
 
 #[derive(Debug, Clone, PartialEq)]

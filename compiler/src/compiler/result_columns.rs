@@ -72,6 +72,7 @@ fn contains_aggregate(expr: &Expr) -> bool {
                 || contains_aggregate(&case.fallback)
         }
         Expr::ConditionSet(cs) => cs.entries.iter().any(contains_aggregate),
+        Expr::ScopedConditionSet(s) => s.condition_set.entries.iter().any(contains_aggregate),
         Expr::Comparison(c) => {
             comparison_side_contains_aggregate(&c.left)
                 || comparison_side_contains_aggregate(&c.right)

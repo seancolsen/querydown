@@ -136,6 +136,7 @@ pub fn expr_contains_window(expr: &Expr) -> bool {
                 || expr_contains_window(&case.fallback)
         }
         Expr::ConditionSet(cs) => cs.entries.iter().any(expr_contains_window),
+        Expr::ScopedConditionSet(s) => s.condition_set.entries.iter().any(expr_contains_window),
         Expr::Comparison(c) => side_contains_window(&c.left) || side_contains_window(&c.right),
         Expr::AnonymousFunctionCall(c) => {
             c.args.iter().any(expr_contains_window)

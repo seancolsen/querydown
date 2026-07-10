@@ -66,7 +66,13 @@ fn bare_word<'src>(continuation_chars: &'static str) -> impl Psr<'src, String> {
         .to_slice()
         .map(|s: &str| s.to_string());
     let continuation = any().filter(move |c: &char| continuation_chars.contains(*c));
+    // A condition-set brace *immediately* following the word (no space) marks a scoped comparison
+    // (`issue{...}` / `issue[...]`, see `scoped_comparison`), so the word is not a lone search term
+    // but the head of a larger expression. Unlike the `continuation` check, this deliberately does
+    // not allow padding before the brace: a *spaced* brace (`issue {...}`) keeps the word standalone.
+    let scoped_comparison_brace = one_of([CONDITION_SET_AND_BRACE_L, CONDITION_SET_OR_BRACE_L]);
     word.then_ignore(pad().then(continuation).not())
+        .then_ignore(scoped_comparison_brace.not())
 }
 
 fn set_of_entries<'src>(entry: impl Psr<'src, Expr>) -> impl Psr<'src, ConditionSet> {

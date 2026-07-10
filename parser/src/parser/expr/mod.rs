@@ -7,6 +7,7 @@ mod has_quantity;
 mod number;
 mod path;
 mod pipe;
+mod scoped_comparison;
 mod window;
 
 pub use comparison::operator as comparison_operator;
@@ -28,6 +29,7 @@ use self::{
     has_quantity::has_quantity,
     number::number,
     pipe::pipe,
+    scoped_comparison::scoped_comparison,
     window::window,
 };
 
@@ -91,6 +93,10 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
         function_call(id.clone()),
         variable().map(Expr::Variable),
         window(id.clone()),
+        // `scoped_comparison` is tried before `path` because both begin with a path; they diverge
+        // only at the condition set that must immediately follow a scoped comparison's head. When
+        // no such condition set follows, this falls through to a plain `path`.
+        scoped_comparison(id.clone()),
         path(id.clone()).map(Expr::Path),
         has_quantity(id.clone()).map(Expr::HasQuantity),
         case(id.clone()).map(Expr::Case),

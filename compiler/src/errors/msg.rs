@@ -137,3 +137,9 @@ pub fn no_default_text_search_columns(table_name: &str) -> String {
          configure its default text search."
     )
 }
+
+pub fn scope_is_not_a_single_related_record() -> String {
+    "The path before a scoped condition set (e.g. the `issue` in `issue{ ... }`) must lead to a \
+     single related record."
+        .to_string()
+}

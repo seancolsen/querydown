@@ -2,7 +2,7 @@ use querydown_parser::ast::*;
 
 use crate::{
     errors::msg,
-    schema::{links::Link, ValueType},
+    schema::{links::Link, Table, ValueType},
     sql::expr::build::*,
     sql::tree::{CtePurpose, SqlExpr},
 };
@@ -29,6 +29,7 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
         Expr::Variable(v) => convert_variable(&v, scope),
         Expr::Path(p) => convert_path(p, scope),
         Expr::ConditionSet(cs) => convert_condition_set(cs, scope),
+        Expr::ScopedConditionSet(s) => convert_scoped_condition_set(s, scope),
         Expr::HasQuantity(h) => convert_has_quantity(h, scope),
         Expr::Case(c) => convert_case(c, scope),
         Expr::Call(c) => convert_call(c, scope),
@@ -173,6 +174,31 @@ pub(super) fn convert_expr_with_path_prefix(
     result
 }
 
+/// Compiles a scoped condition set (`issue{title:dashboard}`) by evaluating its condition set with
+/// the scope's path prefix extended by the scoped path. Every entry — a comparison, a bare default
+/// text search, a nested scope, and so on — is then compiled exactly as it would be at the top level
+/// of the related table, because path resolution ([`convert_path`]) and default text search
+/// ([`convert_default_text_search`]) both consult that prefix.
+///
+/// The prefix is *extended* rather than replaced so that nested scopes compose:
+/// `issue{project{name:x}}` scopes `name:x` to `issue.project`.
+fn convert_scoped_condition_set(
+    scoped: ScopedConditionSet,
+    scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    let extended_prefix: Vec<PathPart> = scope
+        .path_prefix
+        .iter()
+        .cloned()
+        .chain(scoped.path)
+        .collect();
+    convert_expr_with_path_prefix(
+        Expr::ConditionSet(scoped.condition_set),
+        extended_prefix,
+        scope,
+    )
+}
+
 pub fn convert_condition_set(
     condition_set: ConditionSet,
     scope: &mut Scope,
@@ -192,16 +218,23 @@ pub fn convert_condition_set(
     Ok(cmp::condition_set(conditions, &condition_set.conjunction))
 }
 
-/// Compiles a default text search for `term` against the scope's base table. If the base table has a
-/// `__querydown_default_text_search` custom comparison defined, that comparison configures the
-/// search. Otherwise the search is an `OR` across all of the base table's text-like columns, each
-/// matched against `term` with the type-aware match operator (case-insensitive "contains").
+/// Compiles a default text search for `term` against the scope's current table — the base table, or,
+/// when a [scoped condition set](convert_scoped_condition_set) is being compiled, the related table
+/// the scope points at. If that table has a `__querydown_default_text_search` custom comparison
+/// defined, that comparison configures the search. Otherwise the search is an `OR` across all of the
+/// table's text-like columns, each matched against `term` with the type-aware match operator
+/// (case-insensitive "contains").
+///
+/// Every column reference and custom-comparison lookup produced here flows back through the ordinary
+/// comparison machinery, which applies the scope's `path_prefix`, so the search lands on the scoped
+/// table's columns (e.g. `issue{dashboard}` searches `issue.title`, `issue.description`, …).
 fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExpr, String> {
-    let base_table_name = scope.get_base_table().name.clone();
+    let table = get_prefix_table(scope)?;
+    let table_name = table.name.clone();
 
     // A custom comparison with the reserved name lets the schema author configure the search.
     if scope
-        .get_custom_comparison(&base_table_name, DEFAULT_TEXT_SEARCH_COMPARISON_NAME)
+        .get_custom_comparison(&table_name, DEFAULT_TEXT_SEARCH_COMPARISON_NAME)
         .is_some()
     {
         let comparison = Comparison {
@@ -214,9 +247,8 @@ fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExp
         return convert_comparison(comparison, scope);
     }
 
-    // Otherwise, search every text-like column of the base table, in column order.
-    let base_table = scope.get_base_table();
-    let mut text_columns: Vec<(usize, String)> = base_table
+    // Otherwise, search every text-like column of the table, in column order.
+    let mut text_columns: Vec<(usize, String)> = table
         .columns
         .values()
         .filter(|column| column.r#type == ValueType::Text)
@@ -224,7 +256,7 @@ fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExp
         .collect();
     text_columns.sort_by_key(|(id, _)| *id);
     if text_columns.is_empty() {
-        return Err(msg::no_default_text_search_columns(&base_table_name));
+        return Err(msg::no_default_text_search_columns(&table_name));
     }
     let entries = text_columns
         .into_iter()
@@ -237,6 +269,25 @@ fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExp
         })
         .collect();
     convert_condition_set(ConditionSet::via_or(entries), scope)
+}
+
+/// The table that the scope's current `path_prefix` resolves to: the base table when there is no
+/// prefix, or the single related record the prefix leads to. Used to scope a default text search to
+/// the right table. Errors if the prefix does not lead to exactly one related record (e.g. it ends
+/// at a column, or traverses a to-many relationship).
+fn get_prefix_table<'a>(scope: &'a Scope) -> Result<&'a Table, String> {
+    if scope.path_prefix.is_empty() {
+        return Ok(scope.get_base_table());
+    }
+    let clarified = clarify_path(scope.path_prefix.clone(), scope)?;
+    match (clarified.head, clarified.tail) {
+        (Some(chain_to_one), None) => Ok(scope
+            .schema
+            .tables
+            .get(&chain_to_one.get_ending_table_id())
+            .unwrap()),
+        _ => Err(msg::scope_is_not_a_single_related_record()),
+    }
 }
 
 fn convert_case(case: Case, scope: &mut Scope) -> Result<SqlExpr, String> {

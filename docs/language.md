@@ -57,6 +57,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
 - [Referencing _single_ related records](#referencing-single-related-records)
   - [Single related records via column name chains](#single-related-records-via-column-name-chains)
   - [Single related records via table name](#single-related-records-via-table-name)
+  - [Scoped comparisons](#scoped-comparisons)
   - [One-to-one relationships](#one-to-one-relationships)
   - [Single records related through multi-column foreign keys](#single-records-related-through-multi-column-foreign-keys)
 - [Referencing _multiple_ related records](#referencing-multiple-related-records)
@@ -793,6 +794,46 @@ This expands to:
 ```
 
 The `>>` syntax is shorthand only works if there is one unambiguous path from the base table to the linked table. The longer form is required if there is more than one way to join the two tables.
+
+### Scoped comparisons
+
+When several conditions all reference the same related record, you can factor the path out: write it once, immediately followed by a condition set. This is the condition-side counterpart to [nesting result columns](#nesting-result-columns).
+
+> Comments whose issue's title contains "dashboard"
+
+```qd
+#comments issue{title:dashboard}
+```
+
+The path before the condition set is applied to the start of every entry inside it, so the query above is the same as:
+
+```qd
+#comments issue.title:dashboard
+```
+
+The condition set's conjunction carries through: `{ }` combines its entries with `AND`, and `[ ]` combines them with `OR`.
+
+> Comments whose issue's title **or** description contains "dashboard" — the same as `#comments [issue.title:dashboard issue.description:dashboard]`
+
+```qd
+#comments issue[title:dashboard description:dashboard]
+```
+
+Because the scope is evaluated against the related table, **anything you could write as a top-level condition on that table works inside the braces** — you can copy a condition written against `#issues` straight into `issue{ ... }`. In particular, a bare [default text search](#default-text-search) term searches the _related_ table's text columns:
+
+> Comments whose issue matches "dashboard" in any of its text columns
+
+```qd
+#comments issue{dashboard}
+```
+
+This has no equivalent written with a path prefix (a bare search term has no column to prefix onto), which is why the scoping is resolved by the compiler rather than rewritten away.
+
+A few details:
+
+- There must be **no space** between the path and the condition set. With a space, `#comments issue {id:7}` is instead a [default text search](#default-text-search) for "issue" (on `#comments`) alongside a separate condition set, exactly as before.
+- Scopes may be nested, and the paths compose: `issue{project{name:foo}}` is the same as `issue.project.name:foo`.
+- The path steps through _single_ related records (a column-name chain, or the `>>` form above). A path whose last step is a to-many table like `#comments{ ... }` is instead a [filter on those related records](#conditions-to-filter-aggregate-data), which is an existing, separate feature.
 
 ### One-to-one relationships
 

@@ -99,6 +99,7 @@ Column control flags:
 | `.` | [path separator](./language.md#single-related-records-via-column-name-chains) | ✅ |
 | _alphanumeric identifier_ | column | ✅ |
 | `>>` | path to [table with a single record](./language.md#single-related-records-via-table-name) | ❌ |
+| `path{ }` `path[ ]` | [scoped comparison](./language.md#scoped-comparisons) (path immediately before a condition set, no space) | ✅ |
 
 ## Case expressions
 

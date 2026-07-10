@@ -1102,6 +1102,95 @@ WHERE
   ("issues"."status" = 'open' OR "issues"."created_at" > DATE '2023-03-04');
 ```
 
+## Scoped comparisons
+
+A path written immediately before a condition set — with **no space** between them — scopes every
+entry of the set to the related record the path points at. So `issue{title:dashboard}` is the same as
+`issue.title:dashboard`. Because the scope is resolved against the related table, anything you could
+write as a top-level condition on that table works inside the braces — including a bare
+[default text search](#default-text-search), which searches the related table's text columns (see
+["Scoped default text search"](#scoped-default-text-search) below).
+
+### Basic scoped comparison
+
+> Comments whose issue's title contains "dashboard". Equivalent to `#comments issue.title:dashboard`.
+
+```qd
+#comments issue{title:dashboard}
+```
+
+```sql
+SELECT
+  "comments".*
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE);
+```
+
+### Scoped comparison with several entries
+
+> The `{ }` scope composes its entries with `AND`, applying `issue.` to each. Equivalent to
+> `#comments issue.title:dashboard issue.status:=open`.
+
+```qd
+#comments issue{title:dashboard status:=open}
+```
+
+```sql
+SELECT
+  "comments".*
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE) AND
+  "issues"."status" = 'open';
+```
+
+### Scoped comparison with "OR"
+
+> An `[ ]` scope composes its entries with `OR`. Equivalent to
+> `#comments [issue.title:dashboard issue.description:dashboard]`.
+
+```qd
+#comments issue[title:dashboard description:dashboard]
+```
+
+```sql
+SELECT
+  "comments".*
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE));
+```
+
+### Scoped default text search
+
+A bare word inside the scope is a [default text search](#default-text-search) — but against the
+_related_ table. There is no way to write this by prefixing a path (a bare search term has no column
+to prefix), which is why scoping is resolved in the compiler rather than desugared. Here the search
+runs across every text column of `issues`.
+
+> Comments whose issue matches "dashboard" in any of its text columns
+
+```qd
+#comments issue{dashboard}
+```
+
+```sql
+SELECT
+  "comments".*
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE));
+```
+
 ## Paths to one
 
 ### Joined column in related table

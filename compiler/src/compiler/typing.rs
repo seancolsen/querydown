@@ -48,9 +48,11 @@ pub fn infer_type(expr: &Expr, scope: &mut Scope) -> ValueType {
         Expr::Duration(_) => ValueType::Unknown,
         Expr::Variable(name) => infer_variable(name, scope),
         Expr::Path(parts) => infer_path(parts, scope),
-        Expr::ConditionSet(_) | Expr::HasQuantity(_) | Expr::Comparison(_) | Expr::Not(_) => {
-            ValueType::Boolean
-        }
+        Expr::ConditionSet(_)
+        | Expr::ScopedConditionSet(_)
+        | Expr::HasQuantity(_)
+        | Expr::Comparison(_)
+        | Expr::Not(_) => ValueType::Boolean,
         Expr::Case(case) => infer_case(case, scope),
         Expr::Call(call) => infer_call(call, scope),
         // Multiplication and division always yield numbers. Addition and subtraction preserve the

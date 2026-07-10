@@ -456,6 +456,10 @@ fn expr_all_match(expr: &Expr) -> bool {
             expr_all_match(a) && expr_all_match(b)
         }
         Expr::ConditionSet(cs) => cs.entries.iter().all(expr_all_match),
+        Expr::ScopedConditionSet(s) => {
+            s.path.iter().all(pathpart_all_match)
+                && s.condition_set.entries.iter().all(expr_all_match)
+        }
         Expr::HasQuantity(h) => h.path_parts.iter().all(pathpart_all_match),
         Expr::Case(c) => {
             c.variants
@@ -520,6 +524,15 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
             .entries
             .iter_mut()
             .for_each(|e| rewrite_match_operator(e, new_operator)),
+        Expr::ScopedConditionSet(s) => {
+            s.path
+                .iter_mut()
+                .for_each(|p| rewrite_pathpart(p, new_operator));
+            s.condition_set
+                .entries
+                .iter_mut()
+                .for_each(|e| rewrite_match_operator(e, new_operator));
+        }
         Expr::HasQuantity(h) => h
             .path_parts
             .iter_mut()
