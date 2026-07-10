@@ -322,10 +322,20 @@ Returns the smallest value of a column, compiling to SQL `min`. This is the aggr
 
 ### `list`
 
-Collects the values of a column into an array, compiling to SQL `array_agg`.
+Collects the distinct values of a column into an array, compiling to SQL `array_agg(DISTINCT ...)`. For the non-distinct version, see [`list_all`](#list_all).
 
 ```qd
 #projects $name $#issues.title%list
+```
+
+If `list` is sorted (see [Sorting within an aggregate function](./language.md#sorting-within-an-aggregate-function)) by something other than the collected column itself, it compiles to a non-distinct `array_agg` instead — SQL only allows a `DISTINCT` aggregate's `ORDER BY` to sort by the value being aggregated.
+
+### `list_all`
+
+Collects the values of a column into an array without removing duplicates, compiling to SQL `array_agg`.
+
+```qd
+#projects $name $#issues.title%list_all
 ```
 
 ### `all_true`

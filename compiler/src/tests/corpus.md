@@ -1333,7 +1333,7 @@ LEFT JOIN "cte0" ON
 
 ### List aggregate (array_agg)
 
-> Issues with an array of their label names.
+> Issues with an array of their distinct label names.
 
 ```qd
 #issues $id $#issue_labels.label.name%list
@@ -1344,7 +1344,7 @@ WITH
   "cte0" AS (
     SELECT
       "issue_labels"."issue" AS "pk",
-      array_agg("labels"."name") AS "v1"
+      array_agg(DISTINCT "labels"."name") AS "v1"
     FROM "issue_labels"
     JOIN "labels" ON
       "issue_labels"."label" = "labels"."id"
@@ -1360,9 +1360,9 @@ LEFT JOIN "cte0" ON
 
 ### List aggregate with ORDER BY
 
-> Issues with an array of their label names sorted alphabetically. A sorting expression attached to
-> an aggregate function is evaluated from the context of the first `#` table in the aggregated path,
-> which here is `labels` (reached via the elided join through `issue_labels`).
+> Issues with an array of their distinct label names sorted alphabetically. A sorting expression
+> attached to an aggregate function is evaluated from the context of the first `#` table in the
+> aggregated path, which here is `labels` (reached via the elided join through `issue_labels`).
 
 ```qd
 #issues $id $#labels.name%list(\\name)
@@ -1373,7 +1373,7 @@ WITH
   "cte0" AS (
     SELECT
       "issue_labels"."issue" AS "pk",
-      array_agg("labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
     FROM "issue_labels"
     JOIN "labels" ON
       "issue_labels"."label" = "labels"."id"
@@ -1389,7 +1389,7 @@ LEFT JOIN "cte0" ON
 
 ### List aggregate with descending ORDER BY
 
-> Issues with an array of their label names sorted reverse-alphabetically.
+> Issues with an array of their distinct label names sorted reverse-alphabetically.
 
 ```qd
 #issues $id $#labels.name%list(\\name \d)
@@ -1400,7 +1400,7 @@ WITH
   "cte0" AS (
     SELECT
       "issue_labels"."issue" AS "pk",
-      array_agg("labels"."name" ORDER BY "labels"."name" DESC NULLS LAST) AS "v1"
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" DESC NULLS LAST) AS "v1"
     FROM "issue_labels"
     JOIN "labels" ON
       "issue_labels"."label" = "labels"."id"
@@ -1419,7 +1419,9 @@ LEFT JOIN "cte0" ON
 > Issues with an array of their label names, sorted by a column of the join table rather than a
 > column of the labels themselves. Because the aggregated path begins with `#issue_labels`, the
 > sorting expression `\\id` is evaluated from the context of the `issue_labels` join table, so the
-> array is ordered by `issue_labels.id`.
+> array is ordered by `issue_labels.id`. SQL requires a `DISTINCT` aggregate's `ORDER BY` to sort by
+> the aggregated value itself, so sorting by an unrelated column like this falls back to a
+> non-distinct `array_agg` rather than producing SQL the database would reject.
 
 ```qd
 #issues $id $#issue_labels.label.name%list(\\id)
@@ -1448,7 +1450,9 @@ LEFT JOIN "cte0" ON
 
 > The sorting expression may itself follow a path out of the first `#` table. Here `\\label.name`
 > walks from `issue_labels` to its `label`, sorting the array by the label name — the same result as
-> sorting from `#labels` directly, but reached explicitly through the join table.
+> sorting from `#labels` directly, but reached explicitly through the join table. As above, this
+> sorts by a different SQL expression (`labels_1.name`) than the one being aggregated
+> (`labels.name`), so it also falls back to a non-distinct `array_agg`.
 
 ```qd
 #issues $id $#issue_labels.label.name%list(\\label.name)
@@ -1465,6 +1469,60 @@ WITH
       "issue_labels"."label" = "labels"."id"
     LEFT JOIN "labels" AS "labels_1" ON
       "issue_labels"."label" = "labels_1"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List all aggregate (non-distinct array_agg)
+
+> Issues with an array of all their label names, including duplicates.
+
+```qd
+#issues $id $#issue_labels.label.name%list_all
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg("labels"."name") AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List all aggregate with ORDER BY
+
+> Issues with an array of all their label names, including duplicates, sorted alphabetically.
+
+```qd
+#issues $id $#labels.name%list_all(\\name)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg("labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
     GROUP BY "issue_labels"."issue"
   )
 SELECT
@@ -2189,7 +2247,7 @@ WITH
   "cte0" AS (
     SELECT
       "issue_labels"."issue" AS "pk",
-      array_agg("labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
     FROM "issue_labels"
     JOIN "labels" ON
       "issue_labels"."label" = "labels"."id"

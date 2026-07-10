@@ -30,8 +30,38 @@ pub mod agg {
         }
     }
 
+    fn with_order_distinct(name: &str, a: SqlExpr, order_by: String) -> SqlExpr {
+        if order_by.is_empty() {
+            SqlExpr::atom(format!("{}(DISTINCT {})", name, a.content))
+        } else {
+            SqlExpr::atom(format!(
+                "{}(DISTINCT {} ORDER BY {})",
+                name, a.content, order_by
+            ))
+        }
+    }
+
     pub fn array_agg(a: SqlExpr, order_by: String) -> SqlExpr {
         with_order("array_agg", a, order_by)
+    }
+
+    /// Both Postgres and DuckDB require that an `ORDER BY` attached to a `DISTINCT` aggregate sort
+    /// only by the value(s) being aggregated (e.g. `array_agg(DISTINCT x ORDER BY x)`); sorting by
+    /// some other expression (e.g. a join table's own column) is a SQL error. Since `list` allows
+    /// sorting by an arbitrary path, we fall back to a non-distinct `array_agg` whenever the ORDER BY
+    /// doesn't sort by exactly the aggregated expression, rather than emitting SQL the database would
+    /// reject.
+    pub fn array_agg_distinct(a: SqlExpr, order_by: String) -> SqlExpr {
+        let sorts_by_arg_only = order_by.is_empty()
+            || (!order_by.contains(',')
+                && order_by
+                    .strip_prefix(a.content.as_str())
+                    .is_some_and(|rest| rest.starts_with(' ')));
+        if sorts_by_arg_only {
+            with_order_distinct("array_agg", a, order_by)
+        } else {
+            with_order("array_agg", a, order_by)
+        }
     }
 
     pub fn bool_and(a: SqlExpr, order_by: String) -> SqlExpr {
@@ -58,14 +88,7 @@ pub mod agg {
         // TODO: We should alter the query at a higher level to use an approach like this for
         // better performance:
         // https://stackoverflow.com/questions/11250253/postgresql-countdistinct-very-slow
-        if order_by.is_empty() {
-            SqlExpr::atom(format!("count(DISTINCT {})", a.content))
-        } else {
-            SqlExpr::atom(format!(
-                "count(DISTINCT {} ORDER BY {})",
-                a.content, order_by
-            ))
-        }
+        with_order_distinct("count", a, order_by)
     }
 
     pub fn max(a: SqlExpr, order_by: String) -> SqlExpr {

@@ -838,10 +838,10 @@ _(See a list of [all aggregate functions](./functions.md#aggregate-functions).)_
 
 ### Sorting within an aggregate function
 
-Some aggregate functions (notably [`list`](./functions.md#list)) produce a result whose order is
-meaningful. You can control that order by attaching one or more [standalone sorting
-expressions](#sorting-outside-of-result-columns) (written with the `\\` prefix) inside the
-function's parentheses.
+Some aggregate functions (notably [`list`](./functions.md#list) and
+[`list_all`](./functions.md#list_all)) produce a result whose order is meaningful. You can control
+that order by attaching one or more [standalone sorting expressions](#sorting-outside-of-result-columns)
+(written with the `\\` prefix) inside the function's parentheses.
 
 > For each issue, list its label names in alphabetical order
 
@@ -862,6 +862,12 @@ intermediate join table that the path passes through.
 Here the path begins with `#issue_labels`, so `\\id` refers to `issue_labels.id`. To sort by a column
 that is reached by following a path out of that first `#` table, write the full path in the sorting
 expression — for example `\\label.name` sorts by the related label's name.
+
+Because [`list`](./functions.md#list) removes duplicates via SQL `DISTINCT`, and SQL only allows a
+`DISTINCT` aggregate's `ORDER BY` to sort by the value being aggregated, sorting `list` by a
+different column (as in the `\\id` example above) falls back to a non-distinct `array_agg`. Use
+[`list_all`](./functions.md#list_all) if you want non-distinct results with an arbitrary sort order
+regardless.
 
 ### "Has some" and "has none" conditions
 
