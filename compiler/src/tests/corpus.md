@@ -38,25 +38,6 @@ schema = "library"
 SELECT "Patrons".* FROM "Patrons";
 ```
 
-## Large examples
-
-### ⛔ Main README
-
-```qd
-#issues
-created_at:<6m
---#assignments
-++#labels{name:["Regression" "Bug"]}
-10..20:#comments{!user.team.name:"Backend"}
-$*
-$author.username
-$#comments.created_at%min \sd
-```
-
-```
-TODO
-```
-
 ## Flexible identifiers
 
 ```toml options
@@ -1326,26 +1307,6 @@ WHERE
   "issues"."author" IS NULL;
 ```
 
-### ⛔ Referenced column in related table should not be joined
-
-This test case ensures that we don't have an unnecessary join on `projects` when the `projects.id` value can already be found within `issues.project`.
-
-**TODO** This is not yet implemented. We need to make some changes within `build_linked_path` to optimize for this case. The SQL we're producing still works even though this test case is not satisfied. We're just producing SQL that has a superfluous join.
-
-> Issues under project with id 1.
-
-```qd
-#issues project.id:1 $id->id
-```
-
-```sql
-SELECT
-  "issues"."id" AS "id"
-FROM "issues"
-WHERE
-  "issues"."project" = 1;
-```
-
 ### Self-referential foreign key
 
 > `issues.duplicate_of` links `issues` to itself. The joined instance must get an alias distinct from
@@ -1863,19 +1824,6 @@ WHERE
   "cte0"."pk" IS NOT NULL;
 ```
 
-### ⛔ Has through inferred intermediate
-
-FIXME there is a bug here
-
-
-```qd
-#issues ++#labels
-```
-
-```sql
-TODO
-```
-
 
 ## Filtered paths
 
@@ -1961,7 +1909,7 @@ WHERE
   "cte0"."pk" IS NULL;
 ```
 
-### ⛔A filter that aligns with the join
+### A filter that aligns with the join
 
 > Issues, showing the total number of comments made on the issue by the issue's author
 
@@ -1970,7 +1918,23 @@ WHERE
 ```
 
 ```sql
-TODO
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      "comments"."user" = "issues"."author"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
 ```
 
 ### ⛔Nested filter
