@@ -107,6 +107,15 @@ impl Dialect for DuckDB {
         sql_func("product", [arg])
     }
 
+    fn unit_hash(&self, arg: SqlExpr) -> SqlExpr {
+        // `hash` returns an unsigned 64-bit integer (UBIGINT); dividing by its maximum value maps
+        // it onto a uniform double in [0, 1].
+        SqlExpr::atom(format!(
+            "CAST(hash({a}) AS DOUBLE) / 18446744073709551615.0",
+            a = arg.content
+        ))
+    }
+
     fn coerce_temporal_to_naive(&self, e: SqlExpr) -> SqlExpr {
         // DuckDB built without the ICU extension can't perform arithmetic or comparison involving a
         // `timestamptz` (e.g. `@now`) unless the timezone data the ICU extension would supply is

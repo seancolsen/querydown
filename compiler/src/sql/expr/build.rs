@@ -292,6 +292,10 @@ pub mod math {
         binary_op(a, "/", b, SqlExprPrecedence::Multiplication)
     }
 
+    pub fn exp(a: SqlExpr) -> SqlExpr {
+        sql_func("EXP", [a])
+    }
+
     pub fn floor(a: SqlExpr) -> SqlExpr {
         sql_func("FLOOR", [a])
     }
@@ -310,6 +314,14 @@ pub mod math {
 
     pub fn multiply(a: SqlExpr, b: SqlExpr) -> SqlExpr {
         binary_op(a, "*", b, SqlExprPrecedence::Multiplication)
+    }
+
+    pub fn power(a: SqlExpr, b: SqlExpr) -> SqlExpr {
+        sql_func("POWER", [a, b])
+    }
+
+    pub fn sqrt(a: SqlExpr) -> SqlExpr {
+        sql_func("SQRT", [a])
     }
 
     pub fn subtract(a: SqlExpr, b: SqlExpr) -> SqlExpr {

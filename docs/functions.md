@@ -209,6 +209,38 @@ Returns the least of all its arguments (the piped value plus any in parentheses)
 #issues $title $due_date|countdown|days|min(0)
 ```
 
+### `pow`
+
+Raises the piped value to the power of the argument, compiling to SQL `POWER`.
+
+```qd
+#issues $id|pow(2)
+```
+
+### `exp`
+
+Raises `e` to the power of the piped value, compiling to SQL `EXP`.
+
+```qd
+#issues $id|exp
+```
+
+### `sqrt`
+
+Returns the square root of a number, compiling to SQL `SQRT`.
+
+```qd
+#issues $id|sqrt
+```
+
+### `unit_hash`
+
+Hashes a value deterministically to a floating-point number between 0 and 1. Useful for sampling or bucketing rows in a stable, repeatable way. Compiles to a dialect-specific normalization of `hash` (DuckDB) or `hashtext` (Postgres).
+
+```qd
+#users $email|unit_hash
+```
+
 ## Date & time functions
 
 ### `age`

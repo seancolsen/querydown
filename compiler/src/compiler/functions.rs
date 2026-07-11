@@ -256,6 +256,14 @@ fn temporal_minus(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String>
     Ok(subtract(a_sql, b_sql))
 }
 
+/// `unit_hash(x)` hashes `x` to a double uniformly distributed over `[0, 1]`. The hash function
+/// and normalization differ per dialect (see [`crate::sql::Dialect::unit_hash`]).
+fn unit_hash(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+    let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
+    let a = convert_expr(arg0, scope)?;
+    Ok(scope.options.dialect.unit_hash(a))
+}
+
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     use TypeRule::*;
     use ValueType::*;
@@ -264,7 +272,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     // dedicated duration value type. Addition and subtraction preserve their left operand's type so
     // that `date|plus(1w)` stays a date.
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc, TypeRule); 30] = [
+    let templates: [(&str, ScalarFunc, TypeRule); 34] = [
         ("abs",         |e, s| args_1(e, s, abs),                    SameAsArg(0)),
         ("age",         |e, s| temporal_age(e, s),                  Fixed(Unknown)),
         ("and",         |e, s| args_v(e, s, build::cmp::and),        Fixed(Boolean)),
@@ -273,6 +281,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("countdown",   |e, s| temporal_countdown(e, s),            Fixed(Unknown)),
         ("days",        |e, s| args_1(e, s, days),                   Fixed(Unknown)),
         ("divide",      |e, s| args_2(e, s, divide),                 Fixed(Number)),
+        ("exp",         |e, s| args_1(e, s, exp),                    Fixed(Number)),
         ("floor",       |e, s| args_1(e, s, floor),                  Fixed(Number)),
         ("hours",       |e, s| args_1(e, s, hours),                  Fixed(Unknown)),
         ("if_null",     |e, s| args_v(e, s, coalesce),               UnifyArgs),
@@ -289,9 +298,12 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("not",         |e, s| args_1(e, s, not),                    Fixed(Boolean)),
         ("or",          |e, s| args_v(e, s, build::cmp::or),         Fixed(Boolean)),
         ("plus",        |e, s| args_2(e, s, add),                    SameAsArg(0)),
+        ("pow",         |e, s| args_2(e, s, power),                  Fixed(Number)),
         ("seconds",     |e, s| args_1(e, s, seconds),                Fixed(Unknown)),
+        ("sqrt",        |e, s| args_1(e, s, sqrt),                   Fixed(Number)),
         ("times",       |e, s| args_2(e, s, multiply),               Fixed(Number)),
         ("trim",        |e, s| args_1(e, s, trim),                   Fixed(Text)),
+        ("unit_hash",   |e, s| unit_hash(e, s),                      Fixed(Number)),
         ("uppercase",   |e, s| args_1(e, s, upper),                  Fixed(Text)),
         ("xor",         |e, s| args_v(e, s, build::cmp::xor),        Fixed(Boolean)),
         ("years",       |e, s| args_1(e, s, years),                  Fixed(Unknown)),

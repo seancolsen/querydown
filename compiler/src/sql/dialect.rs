@@ -146,6 +146,12 @@ pub trait Dialect {
     /// `product` aggregate, but Postgres does not, so the dialects diverge here.
     fn aggregate_product(&self, arg: SqlExpr) -> SqlExpr;
 
+    /// Render a deterministic hash of `arg`, normalized to a `double` uniformly distributed over
+    /// `[0, 1]`. Both dialects hash to a fixed-width integer and divide by that integer type's
+    /// maximum value, but the hash function and integer width differ: DuckDB's `hash` produces an
+    /// unsigned 64-bit value, while Postgres's `hashtext` produces a signed 32-bit value.
+    fn unit_hash(&self, arg: SqlExpr) -> SqlExpr;
+
     /// Coerce a zoned timestamp expression to a naive (zone-less) one, for use when a binary
     /// operation mixes a zoned and a naive temporal operand. The default is the identity: most
     /// databases (including Postgres) reconcile the two sides natively, so no coercion is needed.

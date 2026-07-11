@@ -98,4 +98,14 @@ impl Dialect for Postgres {
              END"
         ))
     }
+
+    fn unit_hash(&self, arg: SqlExpr) -> SqlExpr {
+        // `hashtext` returns a signed 32-bit integer over the full `int4` range. Shifting it up by
+        // 2^31 and dividing by the range's width (2^32 - 1) maps it onto a uniform double in
+        // [0, 1], mirroring DuckDB's normalization of its unsigned 64-bit hash.
+        SqlExpr::atom(format!(
+            "(CAST(hashtext({a}) AS DOUBLE PRECISION) + 2147483648) / 4294967295.0",
+            a = arg.content
+        ))
+    }
 }

@@ -2242,6 +2242,80 @@ SELECT
 FROM "users";
 ```
 
+### Math `pow`
+
+> Each issue id, squared
+
+```qd
+#issues $id|pow(2)
+```
+
+```sql
+SELECT
+  POWER("issues"."id", 2)
+FROM "issues";
+```
+
+### Math `exp`
+
+> e raised to the power of each issue id
+
+```qd
+#issues $id|exp
+```
+
+```sql
+SELECT
+  EXP("issues"."id")
+FROM "issues";
+```
+
+### Math `sqrt`
+
+> The square root of each issue id
+
+```qd
+#issues $id|sqrt
+```
+
+```sql
+SELECT
+  SQRT("issues"."id")
+FROM "issues";
+```
+
+### Math `unit_hash`
+
+> A deterministic pseudo-random number between 0 and 1, derived from each user's email
+
+```qd
+#users $email|unit_hash -> email_bucket
+```
+
+```sql
+SELECT
+  (CAST(hashtext("users"."email") AS DOUBLE PRECISION) + 2147483648) / 4294967295.0 AS "email_bucket"
+FROM "users";
+```
+
+### Math `unit_hash` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> A deterministic pseudo-random number between 0 and 1, derived from each user's email, targeting DuckDB
+
+```qd
+#users $email|unit_hash -> email_bucket
+```
+
+```sql
+SELECT
+  CAST(hash("users"."email") AS DOUBLE) / 18446744073709551615.0 AS "email_bucket"
+FROM "users";
+```
+
 ### Aggregate `product`
 
 > The product of the issue ids in each project
