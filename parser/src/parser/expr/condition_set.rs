@@ -51,6 +51,26 @@ pub fn bare_search_operand<'src>() -> impl Psr<'src, String> {
     bare_word(OPERAND_CONTINUATION_CHARS)
 }
 
+/// Parses a `!`-prefixed bare word as a *negated* default text search term, e.g. `!backend` finds
+/// records that do _not_ contain "backend". The `!` prefix may be repeated (`!!backend`), each layer
+/// wrapping the term in another [`Expr::Not`].
+///
+/// Unlike [`bare_search_operand`], the negation makes the intent unambiguous — a `!`-prefixed word is
+/// always a search term, never a column reference — so this yields a fully resolved [`Expr`] rather
+/// than deferring that decision to the caller. (To negate a *column* reference instead, backtick-quote
+/// it: `` !`is_blocked` ``.) A word immediately followed by a continuation character (e.g. `!foo:2`)
+/// is not matched here; it is left for the general negation rule, which negates the larger expression.
+pub fn negated_search_operand<'src>() -> impl Psr<'src, Expr> {
+    just(NEGATE)
+        .then_ignore(pad())
+        .repeated()
+        .at_least(1)
+        .foldr(
+            bare_word(OPERAND_CONTINUATION_CHARS).map(Expr::String),
+            |_, e| Expr::Not(Box::new(e)),
+        )
+}
+
 /// A bare word — an unquoted, letter-initial, strictly-alphanumeric identifier — that stands alone,
 /// i.e. is not immediately followed by any of `continuation_chars`. This mirrors the way a bare word
 /// on the right-hand side of a comparison is read as a string literal (see `comparison_rhs_value`);

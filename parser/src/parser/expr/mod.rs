@@ -201,6 +201,11 @@ impl OrOperand {
 fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     let operand = choice((
         condition_set::bare_search_operand().map(OrOperand::Bare),
+        // A `!`-prefixed bare word is an unambiguous negated search term, so it resolves the same
+        // way whether it stands alone (`!backend`) or is one of several comma operands
+        // (`foo,!bar`). It is tried before the general `e` rule, which would otherwise read the bare
+        // word as a (negated) column reference rather than a search term.
+        condition_set::negated_search_operand().map(OrOperand::Expr),
         e.map(OrOperand::Expr),
     ));
     operand
@@ -722,9 +727,17 @@ mod tests {
             }))
         );
 
-        // A `!` prefix negates a bare expression.
+        // A `!` prefix on a bare word negates a default text search term (a `String`), mirroring the
+        // way a lone bare word is itself a search term. To negate a column reference, backtick-quote
+        // it (`` !`foo` ``).
         assert_eq!(
             p("!foo"),
+            Ok(Expr::Not(Box::new(Expr::String("foo".to_string()))))
+        );
+
+        // Backtick-quoting makes the negated operand a column reference rather than a search term.
+        assert_eq!(
+            p("!`foo`"),
             Ok(Expr::Not(Box::new(Expr::Path(vec![PathPart::Column(
                 "foo".to_string()
             )]))))
@@ -747,9 +760,9 @@ mod tests {
         // The `!` prefix can be repeated.
         assert_eq!(
             p("!!foo"),
-            Ok(Expr::Not(Box::new(Expr::Not(Box::new(Expr::Path(vec![
-                PathPart::Column("foo".to_string())
-            ]))))))
+            Ok(Expr::Not(Box::new(Expr::Not(Box::new(Expr::String(
+                "foo".to_string()
+            ))))))
         );
 
         // Negation binds more tightly than the comma shorthand, so only the first entry is negated.

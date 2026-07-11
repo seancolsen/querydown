@@ -942,6 +942,44 @@ WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE));
 ```
 
+### Negated default text search
+
+Prefixing a search term with `!` negates it: the whole per-column `OR` is wrapped in `NOT`, so this
+finds issues that do _not_ contain the term in any of their text columns.
+
+> Issues not mentioning "backend"
+
+```qd
+#issues !backend
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('backend' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('backend' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('backend' COLLATE "C")) > 0, FALSE));
+```
+
+### Negated default text search in the comma "OR" shorthand
+
+A `!`-prefixed operand of the comma `,` shorthand is a negated search, while a bare sibling operand
+remains an ordinary (positive) search.
+
+> Issues mentioning "foo" or not mentioning "bar"
+
+```qd
+#issues foo,!bar
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)));
+```
+
 ### Default text search alongside other conditions
 
 A default text search term can be freely mixed with ordinary comparisons.

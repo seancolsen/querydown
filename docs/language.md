@@ -486,6 +486,24 @@ Because the comma is shorthand for an [OR condition set](#or-condition-sets), ba
 #issues foo,bar
 ```
 
+You can _negate_ a search term by prefixing it with `!`, to find records that do **not** contain the term in any of their text columns:
+
+```qd
+#issues !backend
+```
+
+Negation works on individual comma operands too, so you can mix positive and negative terms. This finds issues that mention "foo" or do not mention "bar":
+
+```qd
+#issues foo,!bar
+```
+
+Just as a bare word is always a search term (never a column reference), a `!`-prefixed bare word is always a _negated_ search term. To negate a bare _column_ condition (e.g. a boolean column) instead, quote it with backticks:
+
+```qd
+#projects !`is_active`
+```
+
 #### Configuring the default text search
 
 You can use [custom comparisons](#custom-comparisons) to customize the default text search columns to your liking.

@@ -88,3 +88,40 @@ fn search_with_no_text_columns_is_rejected() {
     let err = compile("#assignments hello").unwrap_err();
     assert!(err.contains("text-like"), "got: {err}");
 }
+
+#[test]
+fn negated_bare_word_is_a_negated_search() {
+    // `!term` negates a default text search: it matches rows that do *not* contain the term in any
+    // text column, so the whole per-column OR is wrapped in `NOT`.
+    let sql = compile("#issues !backend $id").unwrap();
+    assert!(sql.contains("NOT ("), "got: {sql}");
+    assert!(sql.contains("'backend'"), "got: {sql}");
+    // The bare word searches, so it is not read as a column reference.
+    assert!(!sql.contains(r#""issues"."backend""#), "got: {sql}");
+}
+
+#[test]
+fn repeated_negation_of_a_search_term_double_negates() {
+    // Each `!` adds a `NOT` layer, so `!!term` negates the search twice.
+    let sql = compile("#issues !!backend $id").unwrap();
+    assert!(sql.contains("NOT NOT ("), "got: {sql}");
+}
+
+#[test]
+fn negated_search_operand_in_comma_shorthand() {
+    // A `!`-prefixed operand of the comma "OR" shorthand is a negated search, while its bare
+    // sibling remains an ordinary (positive) search.
+    let sql = compile("#issues foo,!bar $id").unwrap();
+    assert!(sql.contains("'foo'"), "got: {sql}");
+    assert!(sql.contains("NOT ("), "got: {sql}");
+    assert!(sql.contains("'bar'"), "got: {sql}");
+}
+
+#[test]
+fn backtick_quoting_negates_a_column_reference_rather_than_a_search() {
+    // Just as a bare word searches, a *negated* bare word negates a search. Backtick-quoting instead
+    // negates the column of that name — here the boolean `is_active` column of `projects`.
+    let sql = compile("#projects !`is_active` $id").unwrap();
+    assert!(sql.contains(r#"NOT "projects"."is_active""#), "got: {sql}");
+    assert!(!sql.contains("strpos"), "got: {sql}");
+}

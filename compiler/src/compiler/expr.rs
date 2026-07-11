@@ -206,16 +206,28 @@ pub fn convert_condition_set(
     let conditions = condition_set
         .entries
         .into_iter()
-        .map(|entry| match entry {
-            // A bare string standing alone as a boolean condition is a default text search term.
-            // The parser produces this for an unquoted bare word as well as a quoted string (see
-            // the `condition_entry` parser); a backtick-quoted identifier remains an `Expr::Path`
-            // and so is treated as an ordinary column reference here.
-            Expr::String(term) => convert_default_text_search(term, scope),
-            entry => convert_expr(entry, scope),
-        })
+        .map(|entry| convert_condition_set_entry(entry, scope))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(cmp::condition_set(conditions, &condition_set.conjunction))
+}
+
+/// Compiles a single boolean condition-set entry.
+///
+/// A bare string standing alone as a boolean condition is a default text search term. The parser
+/// produces this for an unquoted bare word as well as a quoted string (see the `condition_entry`
+/// parser); a backtick-quoted identifier remains an `Expr::Path` and so is treated as an ordinary
+/// column reference here.
+///
+/// A `!`-prefixed search term (`!backend`) arrives as an `Expr::Not` wrapping the string. The `Not`
+/// layers are peeled recursively so the search interpretation still reaches the inner term (and
+/// repeated negation like `!!backend` works). Every other entry — including `Not` of a non-search
+/// expression such as a negated column or condition set — falls through to `convert_expr` unchanged.
+fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
+    match entry {
+        Expr::String(term) => convert_default_text_search(term, scope),
+        Expr::Not(inner) => Ok(cond::not(convert_condition_set_entry(*inner, scope)?)),
+        entry => convert_expr(entry, scope),
+    }
 }
 
 /// Compiles a default text search for `term` against the scope's current table — the base table, or,
