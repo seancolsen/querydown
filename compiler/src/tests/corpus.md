@@ -1937,7 +1937,7 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk";
 ```
 
-### ⛔Nested filter
+### Nested filtered path
 
 > Clients that don't have any issues without comments
 
@@ -1946,7 +1946,35 @@ LEFT JOIN "cte0" ON
 ```
 
 ```sql
-TODO
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "products"."client" AS "pk"
+    FROM "products"
+    JOIN "projects" ON
+      "products"."id" = "projects"."product"
+    JOIN "issues" ON
+      "projects"."id" = "issues"."project"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    WHERE
+      "cte0"."pk" IS NULL
+    GROUP BY "products"."client"
+  )
+SELECT
+  "clients".*
+FROM "clients"
+LEFT JOIN "cte0" ON
+  "clients"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
 ```
 
 ## Column control flags

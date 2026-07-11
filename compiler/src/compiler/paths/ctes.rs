@@ -124,12 +124,6 @@ pub fn build_cte_select(
         let join_type = JoinType::Inner;
         let link_start = link.get_start();
         let link_end = link.get_end();
-        if !link.condition_set.is_empty() {
-            let link_table = schema.tables.get(&link.get_end().table_id).unwrap();
-            let mut link_scope = cte_scope.spawn(link_table);
-            let converted = convert_condition_set(link.condition_set, &mut link_scope)?;
-            select.conditions = cmp::and([select.conditions, converted]);
-        }
         let join = make_join_from_link(
             link_start,
             &starting_alias,
@@ -139,6 +133,23 @@ pub fn build_cte_select(
             &cte_scope,
         );
         select.joins.push(join);
+        if !link.condition_set.is_empty() {
+            let link_table = schema.tables.get(&link.get_end().table_id).unwrap();
+            // Seed the filter's scope with the aliases already reserved by the CTE so that any
+            // tables or nested CTEs it introduces (e.g. a `{--#comments}` filter that itself
+            // aggregates a related table) get distinct aliases.
+            let mut link_scope =
+                cte_scope.spawn_with_aliases(link_table, cte_scope.cloned_aliases());
+            let converted = convert_condition_set(link.condition_set, &mut link_scope)?;
+            select.conditions = cmp::and([select.conditions, converted]);
+            // Fold any joins and nested CTEs the filter produced into this CTE's SELECT. Without
+            // this, a filter that reaches through another table (a to-one join) or aggregates a
+            // related table (a nested CTE) would be silently dropped, leaving the CTE's WHERE
+            // clause referencing tables absent from its FROM clause.
+            let (link_joins, link_ctes) = link_scope.decompose_join_tree();
+            select.joins.extend(link_joins);
+            select.ctes.extend(link_ctes);
+        }
         starting_alias = ending_alias;
     }
 
