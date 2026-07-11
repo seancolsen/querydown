@@ -1977,6 +1977,47 @@ WHERE
   "cte0"."pk" IS NULL;
 ```
 
+### Filtered path with circular join traversal
+
+> Issues with labels having fewer than 5 issues
+
+```qd
+#issues ++#labels{#issues:<5}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "issue_labels"."label" AS "pk",
+          count(*) AS "v1"
+        FROM "issue_labels"
+        JOIN "issues" ON
+          "issue_labels"."issue" = "issues"."id"
+        GROUP BY "issue_labels"."label"
+      )
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    LEFT JOIN "cte0" ON
+      "labels"."id" = "cte0"."pk"
+    WHERE
+      COALESCE("cte0"."v1", 0) < 5
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues".*
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
 ## Column control flags
 
 ### Basic sort
