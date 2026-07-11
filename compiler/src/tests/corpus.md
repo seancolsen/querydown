@@ -129,7 +129,7 @@ WITH
       "Checkouts"."Patron" = "Patrons"."id"
     WHERE
       "Checkouts"."Check In Time" IS NULL AND
-      "Patrons"."First Name" = 'Foo'
+      lower("Patrons"."First Name" COLLATE "C") = lower('Foo' COLLATE "C")
     GROUP BY "Checkouts"."Item"
   )
 SELECT
@@ -381,7 +381,7 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  NOT "issues"."status" = 'open';
+  NOT lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C");
 ```
 
 ### Negated expression as a result column
@@ -412,8 +412,8 @@ SELECT
 FROM "issues"
 WHERE
   NOT (
-    "issues"."status" = 'open' AND
-    "issues"."status" = 'high'
+    lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") AND
+    lower("issues"."status" COLLATE "C") = lower('high' COLLATE "C")
   );
 ```
 
@@ -580,7 +580,7 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  "issues"."title" = 'can''t';
+  lower(strip_accents("issues"."title")) = lower(strip_accents('can''t'));
 ```
 
 ### Infinity
@@ -729,7 +729,7 @@ WHERE
 
 An empty string literal on the right-hand side of `:` is matched via strict equality rather than
 "contains" (which would match every row). This makes `description:""` find rows with an empty
-description, the same as the explicit `description:=""`.
+description, the same as the explicit `description:==""`.
 
 > Issues with an empty description
 
@@ -745,11 +745,13 @@ WHERE
   "issues"."description" = '';
 ```
 
-### Explicit equality on text
+### Case-insensitive equality on text
 
-The `:=` operator forces exact equality, even for text columns.
+The `:=` operator performs a case-insensitive equality comparison on text columns (unlike `:`, which
+matches a substring). It applies the same normalization as `:`, so `title:="performance"` matches a
+title of "Performance" but not "performance issues".
 
-> Issues whose title is exactly "performance"
+> Issues whose title equals "performance", ignoring case
 
 ```qd
 #issues title:="performance"
@@ -760,7 +762,48 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
+  lower("issues"."title" COLLATE "C") = lower('performance' COLLATE "C");
+```
+
+### Case-sensitive equality on text
+
+The `:==` operator forces exact, case-sensitive equality, even for text columns.
+
+> Issues whose title is exactly "performance"
+
+```qd
+#issues title:=="performance"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
   "issues"."title" = 'performance';
+```
+
+### Case-insensitive equality on text (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+On DuckDB, `:=` also ignores accents, mirroring the `:` operator's `lower(strip_accents(...))`
+normalization.
+
+> Issues whose title equals "performance", ignoring case and accents
+
+```qd
+#issues title:="performance"
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  lower(strip_accents("issues"."title")) = lower(strip_accents('performance'));
 ```
 
 ### Match falls back to equality for non-text values
@@ -771,6 +814,25 @@ When the left-hand side is not text, `:` behaves as exact equality.
 
 ```qd
 #issues id:50
+```
+
+```sql
+SELECT
+  "issues".*
+FROM "issues"
+WHERE
+  "issues"."id" = 50;
+```
+
+### Case-insensitive equality falls back to plain equality for non-text values
+
+The `:=` and `:==` operators both reduce to a plain `=` comparison when the left-hand side is not
+text, since case sensitivity is meaningless there.
+
+> Issues with id 50
+
+```qd
+#issues id:=50
 ```
 
 ```sql
@@ -896,7 +958,7 @@ SELECT
 FROM "issues"
 WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE)) AND
-  "issues"."status" = 'open';
+  lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C");
 ```
 
 ### Default text search (DuckDB)
@@ -974,8 +1036,8 @@ $ ? status:="open"   ~ "Open"
 SELECT
   "issues"."title",
   CASE
-    WHEN "issues"."status" = 'open' THEN 'Open'
-    WHEN "issues"."status" = 'closed' THEN 'Closed'
+    WHEN lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") THEN 'Open'
+    WHEN lower("issues"."status" COLLATE "C") = lower('closed' COLLATE "C") THEN 'Closed'
     ELSE 'Other'
   END AS "category"
 FROM "issues";
@@ -1023,7 +1085,8 @@ FROM "issues";
 dialect = "duckdb"
 ```
 
-> The `CASE` syntax is identical for Postgres and DuckDB.
+> The `CASE` syntax is identical for Postgres and DuckDB, though the `:=` conditions normalize text
+> per dialect.
 
 ```qd
 #issues
@@ -1038,8 +1101,8 @@ $ ? status:="open"   ~ "Open"
 SELECT
   "issues"."title",
   CASE
-    WHEN "issues"."status" = 'open' THEN 'Open'
-    WHEN "issues"."status" = 'closed' THEN 'Closed'
+    WHEN lower(strip_accents("issues"."status")) = lower(strip_accents('open')) THEN 'Open'
+    WHEN lower(strip_accents("issues"."status")) = lower(strip_accents('closed')) THEN 'Closed'
     ELSE 'Other'
   END AS "category"
 FROM "issues";
@@ -1099,7 +1162,7 @@ SELECT
   "issues".*
 FROM "issues"
 WHERE
-  ("issues"."status" = 'open' OR "issues"."created_at" > DATE '2023-03-04');
+  (lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") OR "issues"."created_at" > DATE '2023-03-04');
 ```
 
 ## Scoped comparisons
@@ -1146,7 +1209,7 @@ LEFT JOIN "issues" ON
   "comments"."issue" = "issues"."id"
 WHERE
   COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE) AND
-  "issues"."status" = 'open';
+  lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C");
 ```
 
 ### Scoped comparison with "OR"
@@ -1208,7 +1271,7 @@ FROM "issues"
 LEFT JOIN "projects" ON
   "issues"."project" = "projects"."id"
 WHERE
-  "projects"."name" = 'foo';
+  lower("projects"."name" COLLATE "C") = lower('foo' COLLATE "C");
 ```
 
 ### Comparing an FK column to NULL
@@ -1261,7 +1324,7 @@ FROM "issues"
 LEFT JOIN "issues" AS "issues_1" ON
   "issues"."duplicate_of" = "issues_1"."id"
 WHERE
-  "issues_1"."title" = 'foo';
+  lower("issues_1"."title" COLLATE "C") = lower('foo' COLLATE "C");
 ```
 
 ### Self-referential foreign key, chained through another link
@@ -1282,7 +1345,7 @@ LEFT JOIN "issues" AS "issues_1" ON
 LEFT JOIN "users" ON
   "issues_1"."author" = "users"."id"
 WHERE
-  "users"."username" = 'alice';
+  lower("users"."username" COLLATE "C") = lower('alice' COLLATE "C");
 ```
 
 ## Paths to many
@@ -1848,7 +1911,7 @@ WITH
     JOIN "labels" ON
       "issue_labels"."label" = "labels"."id"
     WHERE
-      "labels"."name" = 'bug'
+      lower("labels"."name" COLLATE "C") = lower('bug' COLLATE "C")
     GROUP BY "issue_labels"."issue"
   )
 SELECT
@@ -2156,7 +2219,7 @@ GROUP BY "issues"."status";
 ```sql
 SELECT
   "issues"."title",
-  "issues"."status" = 'open' AND
+  lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") AND
   "issues"."due_date" < NOW() AS "open_and_overdue"
 FROM "issues";
 ```
@@ -2172,7 +2235,7 @@ FROM "issues";
 ```sql
 SELECT
   "issues"."title",
-  "issues"."status" = 'open' OR "issues"."status" = 'reopened' AS "needs_attention"
+  lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") OR lower("issues"."status" COLLATE "C") = lower('reopened' COLLATE "C") AS "needs_attention"
 FROM "issues";
 ```
 
@@ -3049,7 +3112,7 @@ WITH
       "comments"."issue" AS "pk"
     FROM "comments"
     WHERE
-      "comments"."body" = '+1'
+      lower("comments"."body" COLLATE "C") = lower('+1' COLLATE "C")
     GROUP BY "comments"."issue"
   )
 SELECT
@@ -3085,7 +3148,7 @@ WITH
     LEFT JOIN "users" ON
       "comments"."user" = "users"."id"
     WHERE
-      "users"."username" = 'david'
+      lower("users"."username" COLLATE "C") = lower('david' COLLATE "C")
     GROUP BY "comments"."issue"
   ),
   "cte1" AS (
@@ -3095,7 +3158,7 @@ WITH
     LEFT JOIN "users" ON
       "assignments"."user" = "users"."id"
     WHERE
-      "users"."username" = 'david'
+      lower("users"."username" COLLATE "C") = lower('david' COLLATE "C")
     GROUP BY "assignments"."issue"
   )
 SELECT
@@ -3111,7 +3174,7 @@ WHERE
   (
     "cte0"."pk" IS NOT NULL
     OR "cte1"."pk" IS NOT NULL
-    OR "users"."username" = 'david'
+    OR lower("users"."username" COLLATE "C") = lower('david' COLLATE "C")
   );
 ```
 
@@ -3522,7 +3585,7 @@ WITH
       row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
     FROM "issues"
     WHERE
-      "issues"."status" = 'open'
+      lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C")
   )
 SELECT
   "qdwin_src"."id" AS "id",

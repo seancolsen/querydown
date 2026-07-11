@@ -22,7 +22,10 @@ pub(crate) const COMMENT_BLOCK_L: &str = "/*";
 /// Closes a block comment.
 pub(crate) const COMMENT_BLOCK_R: &str = "*/";
 pub(crate) const COMPARE_MATCH: &str = ":";
+/// Case-insensitive equality for text (`:=`). Falls back to strict equality for non-text values.
 pub(crate) const COMPARE_EQ: &str = ":=";
+/// Case-sensitive equality for text (`:==`). Falls back to strict equality for non-text values.
+pub(crate) const COMPARE_EQ_CASE_SENSITIVE: &str = ":==";
 pub(crate) const COMPARE_GT: &str = ":>";
 pub(crate) const COMPARE_GTE: &str = ":>=";
 pub(crate) const COMPARE_LIKE: &str = ":~~";

@@ -958,6 +958,18 @@ mod tests {
                 left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
                     "status".to_string()
                 )])),
+                operator: Operator::EqCi,
+                right: ComparisonSide::Expr(Expr::String("open".to_string())),
+            })))
+        );
+
+        // The case-sensitive equality operator `:==` parses to `Eq`.
+        assert_eq!(
+            p("status:==open"),
+            Ok(Expr::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
+                    "status".to_string()
+                )])),
                 operator: Operator::Eq,
                 right: ComparisonSide::Expr(Expr::String("open".to_string())),
             })))

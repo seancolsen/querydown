@@ -327,17 +327,27 @@ This does a case-insensitive search for "performance" anywhere in the issue titl
 
 The match comparison operator (`:`) behaves differently according to the type of expression on the left-hand-side. Text values will match via contains logic, while other values (e.g. numbers, dates, etc) are compared using strict equality.
 
-As a special case, matching a text value against an **empty string** uses strict equality rather than contains logic (which would otherwise match every row). This means `#issues description:""` finds issues with an empty description, the same as `#issues description:=""`.
+As a special case, matching a text value against an **empty string** uses strict equality rather than contains logic (which would otherwise match every row). This means `#issues description:""` finds issues with an empty description, the same as `#issues description:==""`.
 
 ### Equality comparisons
 
-> Find issues where the status exactly equals "do"
+> Find issues where the status equals "do", ignoring case
 
 ```qd
 #issues status:="do"
 ```
 
-This will _not_ find issues where the status is "done".
+The `:=` operator performs a **case-insensitive** equality comparison on text. It will find issues whose status is "do" or "Do", but _not_ "done".
+
+To compare text **case-sensitively**, use `:==` instead:
+
+> Find issues where the status is exactly "do"
+
+```qd
+#issues status:=="do"
+```
+
+For non-text values (numbers, dates, etc.), case sensitivity is meaningless, so both `:=` and `:==` behave identically, falling back to strict equality.
 
 ### Numeric comparisons
 

@@ -3,7 +3,7 @@ use querydown_parser::ast::{Date, Duration};
 use super::{
     dialect::{duration_part, Dialect, NormalizedDuration, RegExFlags},
     expr::{
-        build::{cond, sql_func},
+        build::{cmp::comparison, cond, sql_func},
         SqlExpr,
     },
     Postgres,
@@ -100,6 +100,14 @@ impl Dialect for DuckDB {
             haystack = haystack.content,
             needle = needle.content,
         ))
+    }
+
+    fn text_eq(&self, a: SqlExpr, b: SqlExpr) -> SqlExpr {
+        // The case- and accent-insensitive counterpart to `=`, mirroring the
+        // `lower(strip_accents(...))` normalization used by `text_contains`. Standard NULL
+        // semantics are preserved.
+        let normalize = |e: SqlExpr| sql_func("lower", [sql_func("strip_accents", [e])]);
+        comparison(normalize(a), "=", normalize(b))
     }
 
     fn aggregate_product(&self, arg: SqlExpr) -> SqlExpr {

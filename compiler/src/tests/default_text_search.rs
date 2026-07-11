@@ -62,9 +62,13 @@ fn comma_shorthand_searches_each_bare_operand() {
 
 #[test]
 fn comma_shorthand_mixes_searches_and_comparisons() {
-    // A comparison operand keeps its meaning while a bare operand becomes a search.
+    // A comparison operand keeps its meaning while a bare operand becomes a search. Here `:=` is a
+    // case-insensitive text equality (`lower(...) = lower(...)`), distinct from the bare "bar" search.
     let sql = compile("#issues status:=open,bar $id").unwrap();
-    assert!(sql.contains(r#""issues"."status" = 'open'"#), "got: {sql}");
+    assert!(
+        sql.contains(r#"lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C")"#),
+        "got: {sql}"
+    );
     assert!(sql.contains("'bar'"), "got: {sql}");
 }
 

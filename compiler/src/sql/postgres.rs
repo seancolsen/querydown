@@ -84,6 +84,13 @@ impl Dialect for Postgres {
         ))
     }
 
+    fn text_eq(&self, a: SqlExpr, b: SqlExpr) -> SqlExpr {
+        // The case-insensitive counterpart to `=`, mirroring the `lower(... COLLATE "C")`
+        // normalization used by `text_contains`. Standard NULL semantics are preserved.
+        let normalize = |e: SqlExpr| SqlExpr::atom(format!(r#"lower({} COLLATE "C")"#, e.content));
+        comparison(normalize(a), "=", normalize(b))
+    }
+
     fn aggregate_product(&self, arg: SqlExpr) -> SqlExpr {
         // Postgres has no native product aggregate, so we reconstruct it from sums of logarithms:
         // the product of the magnitudes is `exp(sum(ln(abs(x))))`, and the sign is negative only

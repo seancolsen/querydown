@@ -6,6 +6,7 @@ mod db_corpus;
 mod db_introspection;
 mod default_text_search;
 mod definitions;
+mod equality_operators;
 mod grouping;
 mod introspection;
 mod linked_record_comparison;

@@ -400,8 +400,13 @@ pub enum Exclusivity {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Operator {
-    /// Exact equality (`:=`).
+    /// Case-sensitive exact equality (`:==`). Also used internally wherever a strict equality
+    /// comparison is synthesized (e.g. null checks, zero comparisons, case-variant conditions).
     Eq,
+    /// Case-insensitive equality (`:=`). Behaves like [`Operator::Eq`] except that, when the
+    /// left-hand side is known to be text, it compares case-insensitively (mirroring the
+    /// normalization the match operator `:` applies). Falls back to strict equality otherwise.
+    EqCi,
     Gt,
     Gte,
     Lt,

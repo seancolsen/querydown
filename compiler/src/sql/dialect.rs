@@ -142,6 +142,12 @@ pub trait Dialect {
     /// * `needle` - The text being searched for (the right-hand side of the `:` comparison)
     fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr;
 
+    /// Render a case-insensitive text equality comparison (the `:=` operator applied to text). This
+    /// is the full-string counterpart to [`Dialect::text_contains`], applying the same per-dialect
+    /// normalization. Standard SQL NULL semantics apply (a NULL operand yields NULL, not FALSE),
+    /// matching a plain `=` comparison.
+    fn text_eq(&self, a: SqlExpr, b: SqlExpr) -> SqlExpr;
+
     /// Render an aggregate that multiplies the values of `arg` together. DuckDB has a native
     /// `product` aggregate, but Postgres does not, so the dialects diverge here.
     fn aggregate_product(&self, arg: SqlExpr) -> SqlExpr;

@@ -85,7 +85,7 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, S
 
         // Range vs Expr
         (CmpRange(range), CmpExpr(expr)) | (CmpExpr(expr), CmpRange(range)) => {
-            if !matches!(c.operator, Operator::Eq | Operator::Match) {
+            if !matches!(c.operator, Operator::Eq | Operator::EqCi | Operator::Match) {
                 return Err(msg::compare_range_without_eq());
             }
             convert_range_comparison(&expr, &range, scope)
@@ -93,7 +93,7 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, S
 
         // Range vs Expansion
         (CmpExpansion(conditions), CmpRange(r)) | (CmpRange(r), CmpExpansion(conditions)) => {
-            if !matches!(c.operator, Operator::Eq | Operator::Match) {
+            if !matches!(c.operator, Operator::Eq | Operator::EqCi | Operator::Match) {
                 return Err(msg::compare_range_without_eq());
             }
             conditions
@@ -117,9 +117,10 @@ fn convert_simple_comparison(
 ) -> Result<SqlExpr, String> {
     use Operator::*;
 
-    // The match operator (`:`) behaves like `Eq` for all the special cases below; it only diverges
-    // from equality for plain text value comparisons (handled in the final dispatch).
-    let eq_like = matches!(operator, Eq | Match);
+    // The match operator (`:`) and the case-insensitive equality operator (`:=`, `EqCi`) both behave
+    // like `Eq` for all the special cases below; they only diverge from strict equality for plain
+    // text value comparisons (handled in the final dispatch).
+    let eq_like = matches!(operator, Eq | EqCi | Match);
 
     if left.is_zero() && eq_like {
         return convert_expression_vs_zero(right, ComparisonVsZero::Eq, scope);
@@ -188,6 +189,19 @@ fn convert_simple_comparison(
 
     match &operator {
         Eq => Ok(cmp::eq(left_converted, right_converted)),
+        // Case-insensitive equality (`:=`): when the left-hand side is known to be text, compare
+        // case-insensitively (mirroring the normalization the match operator applies); otherwise
+        // fall back to strict equality.
+        EqCi => {
+            if infer_type(left, scope) == ValueType::Text {
+                Ok(scope
+                    .options
+                    .dialect
+                    .text_eq(left_converted, right_converted))
+            } else {
+                Ok(cmp::eq(left_converted, right_converted))
+            }
+        }
         Gt => Ok(cmp::gt(left_converted, right_converted)),
         Gte => Ok(cmp::gte(left_converted, right_converted)),
         Lt => Ok(cmp::lt(left_converted, right_converted)),
@@ -227,7 +241,7 @@ fn is_date_like(expr: &Expr, scope: &mut Scope) -> bool {
 fn numeric_comparison(operator: Operator) -> Option<fn(SqlExpr, SqlExpr) -> SqlExpr> {
     use Operator::*;
     match operator {
-        Eq | Match => Some(cmp::eq),
+        Eq | EqCi | Match => Some(cmp::eq),
         Gt => Some(cmp::gt),
         Gte => Some(cmp::gte),
         Lt => Some(cmp::lt),

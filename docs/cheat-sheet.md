@@ -52,7 +52,8 @@ _See the **[Language Guide](./language.md)** for more detail._
 | Code | Usage | Implemented |
 | -- | -- | -- |
 | `:` | [match operator](./language.md#the-match-comparison-operator) | ✅ |
-| `:=` | explicit equals | ✅ |
+| `:=` | [case-insensitive equals](./language.md#equality-comparisons) | ✅ |
+| `:==` | [case-sensitive equals](./language.md#equality-comparisons) | ✅ |
 | `:<` | less than | ✅ |
 | `:<=` | less or equal | ✅ |
 | `:>` | greater than | ✅ |

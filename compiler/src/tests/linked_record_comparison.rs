@@ -34,7 +34,7 @@ fn operator_can_be_switched() {
     let expanded = compile("#issues author.username:=alice $id").unwrap();
     assert_eq!(shorthand, expanded);
     assert!(
-        shorthand.contains(r#""users"."username" = 'alice'"#),
+        shorthand.contains(r#"lower("users"."username" COLLATE "C") = lower('alice' COLLATE "C")"#),
         "got: {shorthand}"
     );
 }

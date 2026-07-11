@@ -67,10 +67,11 @@ mod tests {
         Expr::String(s.to_string())
     }
 
+    // Builds the comparison produced by a `:=` operand (case-insensitive equality).
     fn match_eq(left: &str, right: Expr) -> Expr {
         Expr::Comparison(Box::new(Comparison {
             left: ComparisonSide::Expr(col(left)),
-            operator: Operator::Eq,
+            operator: Operator::EqCi,
             right: ComparisonSide::Expr(right),
         }))
     }

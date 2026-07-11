@@ -82,12 +82,13 @@ fn range<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Range> {
 pub fn operator<'src>() -> impl Psr<'src, Operator> {
     choice((
         // Three character
+        exactly(COMPARE_EQ_CASE_SENSITIVE).to(Operator::Eq),
         exactly(COMPARE_GTE).to(Operator::Gte),
         exactly(COMPARE_LTE).to(Operator::Lte),
         exactly(COMPARE_LIKE).to(Operator::Like),
         // Two character
         exactly(COMPARE_REGEX).to(Operator::RegexMatch),
-        exactly(COMPARE_EQ).to(Operator::Eq),
+        exactly(COMPARE_EQ).to(Operator::EqCi),
         exactly(COMPARE_GT).to(Operator::Gt),
         exactly(COMPARE_LT).to(Operator::Lt),
         // One character
