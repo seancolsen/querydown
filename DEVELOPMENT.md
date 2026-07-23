@@ -61,6 +61,19 @@ wasm-pack build bindings/js
 cd site && npm install && npm run dev
 ```
 
+For how a downstream app builds and consumes the binding (target choice, initialization, and the
+exported function signatures), see [bindings/js/README.md](bindings/js/README.md).
+
+Run the binding's own tests against a real JS runtime with:
+
+```sh
+wasm-pack test --node bindings/js
+```
+
+These are `wasm-bindgen-test`s, so `wasm-bindgen` and `wasm-bindgen-test` in
+[bindings/js/Cargo.toml](bindings/js/Cargo.toml) must stay a matched pair — a version mismatch
+compiles fine but the runner silently reports "no tests to run".
+
 The dev server binds inside the container; add a port mapping to `docker-compose.yml` (e.g. `ports: ["5173:5173"]`) and run Vite with `--host` if you want to reach it from the host browser.
 
 ## Database tests (`db-tests` feature)
