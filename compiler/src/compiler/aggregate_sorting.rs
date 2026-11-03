@@ -1,7 +1,7 @@
 //! Sorting within aggregate functions, e.g. the `(\\name)` in `#labels.name%list(\\name)`.
 //!
 //! Each sorting entry is classified as one of three kinds of [`SortKey`], because they compile
-//! differently — most notably for `list`, which removes duplicate values:
+//! differently — most notably for `list` and `top`, which remove duplicate values:
 //!
 //! - **The aggregated value itself**, written as `\s` or as a path that resolves to the same column
 //!   via the same route as the aggregated value (e.g. `#comments.user.username%list(\\user.username)`).
@@ -153,14 +153,26 @@ pub enum AggregateKind {
     Wrapped(super::paths::AggWrapper),
     /// `list`, which collects distinct values.
     DistinctList,
+    /// `top`, which collects the distinct values that tie for first place under its sorting
+    /// entries.
+    DistinctTop,
+}
+
+/// Which distinct values a two-level list aggregation collects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListMode {
+    /// Every distinct value, ordered by the sorting entries (`list`).
+    All,
+    /// Only the distinct values ranked first by the sorting entries, including ties (`top`).
+    Top,
 }
 
 /// The result of compiling an aggregate expression within a single `SELECT`.
 pub enum CompiledAggregate {
     Expr(SqlExpr),
-    /// A `list` sorted by an aggregated sort key, which can't be expressed as a single aggregate
-    /// call. The caller must build a two-level aggregation instead.
-    NeedsTwoLevelList,
+    /// A `list` sorted by an aggregated sort key, or any `top`, which can't be expressed as a
+    /// single aggregate call. The caller must build a two-level aggregation instead.
+    NeedsTwoLevelList(ListMode),
 }
 
 /// Compiles an aggregate of `value`, ordered by `sorts`, within a single `SELECT`.
@@ -186,12 +198,23 @@ pub fn compile_aggregate(
                 return Err(msg::list_sorted_by_row_expr());
             }
             if has_aggregated {
-                return Ok(CompiledAggregate::NeedsTwoLevelList);
+                return Ok(CompiledAggregate::NeedsTwoLevelList(ListMode::All));
             }
             let order_by = render_sorts(sorts, &value);
             Ok(CompiledAggregate::Expr(
                 crate::sql::expr::build::agg::array_agg_distinct(value, order_by),
             ))
+        }
+        AggregateKind::DistinctTop => {
+            if sorts.is_empty() {
+                return Err(msg::top_without_sorting());
+            }
+            if has_row {
+                return Err(msg::top_sorted_by_row_expr());
+            }
+            // Ranking the distinct values requires them as rows, even when they're only sorted by
+            // the value itself.
+            Ok(CompiledAggregate::NeedsTwoLevelList(ListMode::Top))
         }
     }
 }

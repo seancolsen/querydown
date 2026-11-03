@@ -10,6 +10,7 @@ use crate::{
     compiler::{
         aggregate_sorting::{
             compile_aggregate, resolve_aggregate_sorting, AggregateKind, CompiledAggregate,
+            ListMode,
         },
         expr::{convert_expr, convert_expr_with_path_prefix, resolve_computed_column},
         paths::{clarify_path, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail},
@@ -422,7 +423,12 @@ fn agg_1(
                 CompiledAggregate::Expr(expr) => Ok(expr),
                 // A two-level aggregation would need to restructure the whole grouped query, which
                 // isn't supported.
-                CompiledAggregate::NeedsTwoLevelList => Err(msg::aggregated_sort_in_grouped_list()),
+                CompiledAggregate::NeedsTwoLevelList(ListMode::All) => {
+                    Err(msg::aggregated_sort_in_grouped_list())
+                }
+                CompiledAggregate::NeedsTwoLevelList(ListMode::Top) => {
+                    Err(msg::top_in_grouped_query())
+                }
             }
         }
         None => Err(msg::aggregate_fn_applied_to_a_path_without_a_column()),
@@ -435,9 +441,10 @@ pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
     use ValueType::*;
     // Each wrapper ignores the trailing `&dyn Dialect` argument except `product`, whose SQL differs
     // between dialects. The trailing `TypeRule` describes the type each aggregate returns: `max`/`min`
-    // preserve their argument's type, `list`/`list_all` wrap it in an array, and the rest are fixed.
+    // preserve their argument's type, `list`/`list_all`/`top` wrap it in an array, and the rest are
+    // fixed.
     #[rustfmt::skip]
-    let templates: [(&str, AggregateFunc, TypeRule); 11] = [
+    let templates: [(&str, AggregateFunc, TypeRule); 12] = [
         ("all_true", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| bool_and(a, ob)), false),         Fixed(Boolean)),
         ("any_true", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| bool_or(a, ob)), false),          Fixed(Boolean)),
         ("avg",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| avg(a, ob)), false),              Fixed(Number)),
@@ -449,6 +456,7 @@ pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
         ("min",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| min(a, ob)), false),              SameAsArg(0)),
         ("product",  |e, ob, s| agg_1(e, ob, s, Wrapped(|a, _ob, d| d.aggregate_product(a)), false), Fixed(Number)),
         ("sum",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| sum(a, ob)), false),              Fixed(Number)),
+        ("top",      |e, ob, s| agg_1(e, ob, s, DistinctTop, false),                                 ArrayOfArg(0)),
     ];
     templates
         .into_iter()

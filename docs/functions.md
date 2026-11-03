@@ -418,6 +418,18 @@ Unlike `list`, `list_all` may be sorted by any expression, including per-record 
 #issues $title $#comments.user.username%list_all(\\created_at) // one entry per comment, oldest first
 ```
 
+### `top`
+
+Collects the distinct values of a column that tie for first place under its sorting entries, as an array. Sorting entries work just as they do for [`list`](#list), but at least one is required, since they decide what comes first. Ties are values that tie on _every_ sorting entry, so adding a tiebreaker (such as `\s`) leaves a single value. The tied values are collected in ascending order.
+
+```qd
+#issues $title $#comments.user.username%top(\\%count \d) // the users who made the most comments
+#users $username $#comments.issue.title%top(\\created_at%max \d) // the issue(s) each user commented on most recently
+#projects $name $#issues.title%top(\sd) // the alphabetically last issue title
+```
+
+See [Keeping only the top values](./language.md#keeping-only-the-top-values) for more. `top` is only supported for values from related records via a `#` path, not for a column of [grouped](./language.md#grouping-and-aggregation) records.
+
 ### `all_true`
 
 Returns true when _every_ value of a boolean column is true, compiling to SQL `bool_and`.

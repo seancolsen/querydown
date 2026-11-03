@@ -2264,6 +2264,166 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk";
 ```
 
+### Top aggregate by an aggregated sort key
+
+> Issues with the usernames of the users who tie for making the most comments on each issue. Like
+> `list` sorted by an aggregated sort key, `top` compiles to a two-level aggregation: an inner CTE
+> groups the comments by issue and username, ranking each group within its issue by the sort keys,
+> and the outer query collects the usernames ranked first, ordered by value since they all tie.
+
+```qd
+#issues $id $#comments.user.username%top(\\%count \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          "users"."username" AS "value",
+          rank() OVER (PARTITION BY "comments"."issue" ORDER BY count(*) DESC NULLS LAST) AS "rank"
+        FROM "comments"
+        JOIN "users" ON
+          "comments"."user" = "users"."id"
+        GROUP BY "comments"."issue", "users"."username"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."value" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    WHERE
+      "distinct_values"."rank" = 1
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Top aggregate by several sort keys
+
+> Issues with the usernames of the most frequent commenters, keeping only those among them who
+> commented most recently. Values tie only if they tie on every sort key.
+
+```qd
+#issues $id $#comments.user.username%top(\\%count \d \\created_at%max \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          "users"."username" AS "value",
+          rank() OVER (PARTITION BY "comments"."issue" ORDER BY count(*) DESC NULLS LAST, max("comments"."created_at") DESC NULLS LAST) AS "rank"
+        FROM "comments"
+        JOIN "users" ON
+          "comments"."user" = "users"."id"
+        GROUP BY "comments"."issue", "users"."username"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."value" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    WHERE
+      "distinct_values"."rank" = 1
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Top aggregate by the value itself
+
+> Projects with the alphabetically last issue title. Sorting by the value itself (`\s`) works too,
+> though the value is still collected into an array.
+
+```qd
+#projects $name $#issues.title%top(\sd)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "issues"."project" AS "pk",
+          "issues"."title" AS "value",
+          rank() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."title" DESC NULLS LAST) AS "rank"
+        FROM "issues"
+        GROUP BY "issues"."project", "issues"."title"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."value" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    WHERE
+      "distinct_values"."rank" = 1
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Top aggregate over a filtered path
+
+> Conditions on the aggregated path apply within the inner CTE, so only the matching records
+> contribute to the ranking.
+
+```qd
+#issues $id $#comments{!user:issue.author}.user.username%top(\\%count \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          "users"."username" AS "value",
+          rank() OVER (PARTITION BY "comments"."issue" ORDER BY count(*) DESC NULLS LAST) AS "rank"
+        FROM "comments"
+        JOIN "users" ON
+          "comments"."user" = "users"."id"
+        LEFT JOIN "issues" ON
+          "comments"."issue" = "issues"."id"
+        WHERE
+          NOT "comments"."user" = "issues"."author"
+        GROUP BY "comments"."issue", "users"."username"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."value" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    WHERE
+      "distinct_values"."rank" = 1
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
 ### List all aggregate sorted by a join-table column
 
 > Issues with an array of their label names, sorted by a column of the join table rather than a

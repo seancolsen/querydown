@@ -272,6 +272,49 @@ fn aggregated_sort_key_in_grouped_list_is_an_error() {
 }
 
 #[test]
+fn top_without_sorting_is_an_error() {
+    let err = compile_error(r"#issues $#comments.user.username%top");
+    assert!(
+        err.message
+            .starts_with("The `top` function collects the values that tie for first place"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn top_sorted_by_a_per_record_expression_is_an_error() {
+    for input in [
+        r"#issues $#comments.user.username%top(\\created_at)",
+        r"#issues $#comments.user.username%top(\\%count \d \\created_at)",
+    ] {
+        let err = compile_error(input);
+        assert!(
+            err.message
+                .starts_with("The `top` function removes duplicate values"),
+            "for {input}: {}",
+            err.message
+        );
+    }
+}
+
+#[test]
+fn top_in_grouped_query_is_an_error() {
+    for input in [
+        r"#issues $status \g $title%top(\sd)",
+        r"#issues $status \g $title%top(\\id%min)",
+    ] {
+        let err = compile_error(input);
+        assert!(
+            err.message
+                .contains("not when collecting a column of grouped records"),
+            "for {input}: {}",
+            err.message
+        );
+    }
+}
+
+#[test]
 fn value_sort_on_a_standalone_aggregate_is_an_error() {
     let err = compile_error(r"#issues $%count(\s)");
     assert_eq!(

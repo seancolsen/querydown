@@ -69,6 +69,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
     - [Sorting by the aggregated value](#sorting-by-the-aggregated-value)
     - [The context of a sorting expression](#the-context-of-a-sorting-expression)
     - [Sorting distinct values](#sorting-distinct-values)
+    - [Keeping only the top values](#keeping-only-the-top-values)
   - ["Has some" and "has none" conditions](#has-some-and-has-none-conditions)
   - [Conditions to filter aggregate data](#conditions-to-filter-aggregate-data)
   - [Transitive relationships](#transitive-relationships)
@@ -1040,12 +1041,44 @@ which accepts any sorting expression.
 
 Aggregated sorting expressions have a couple of limitations:
 
-- They can only be used within `list`. Other aggregate functions don't remove duplicates, so they
-  have no use for them.
+- They can only be used within `list` and [`top`](#keeping-only-the-top-values). Other aggregate
+  functions don't remove duplicates, so they have no use for them.
 - They're only supported when listing values from related records via a `#` path, as above, and not
   when listing a column of [grouped](#grouping-and-aggregation) records (e.g.
   `#issues $status \g $title%list(\\id%min)`). Sorting grouped records by the listed value
   (`$title%list(\s)`) works fine.
+
+#### Keeping only the top values
+
+The [`top`](./functions.md#top) function is like `list`, except that it keeps only the values that
+tie for first place under its sorting entries.
+
+> For each issue, show the users who made the most comments on it
+
+```
+#issues $title $#comments.user.username%top(\\%count \d)
+```
+
+If Alice made 5 comments on an issue, Bob made 5, and Charlie made 4, then this shows `[Alice,Bob]`
+for that issue. Compare this with `%list(\\%count \d)`, which would show all three users, most
+frequent first.
+
+`top` accepts the same sorting entries as `list`: sorts by the value itself (`\s`) and aggregated
+sorting expressions, in any combination. At least one is required. Values tie only if they tie on
+_every_ sorting entry, so each extra entry acts as a tiebreaker:
+
+> For each issue, show the users who made the most comments on it, keeping only those among them
+> who commented most recently
+
+```
+#issues $title $#comments.user.username%top(\\%count \d \\created_at%max \d)
+```
+
+Because they all tie, the values are collected in ascending order. An issue with no comments shows
+`null`, just as it would with `list`.
+
+`top` has the same limitation as aggregated sorting expressions: it's only supported for values from
+related records via a `#` path, and not for a column of [grouped](#grouping-and-aggregation) records.
 
 ### "Has some" and "has none" conditions
 

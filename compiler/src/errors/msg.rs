@@ -133,7 +133,28 @@ pub fn list_sorted_by_row_expr() -> String {
 
 pub fn aggregated_sort_outside_list() -> String {
     "Aggregated sorting expressions (e.g. `\\\\created_at%min` or `\\\\%count`) are only \
-     supported within the `list` function, where they order its distinct values."
+     supported within the `list` and `top` functions, where they order their distinct values."
+        .to_string()
+}
+
+pub fn top_without_sorting() -> String {
+    "The `top` function collects the values that tie for first place, so it needs at least one \
+     sorting entry to decide what comes first (e.g. `%top(\\\\%count \\d)` for the most frequent \
+     values, or `%top(\\sd)` for the greatest value)."
+        .to_string()
+}
+
+pub fn top_sorted_by_row_expr() -> String {
+    "The `top` function removes duplicate values, so it can only be sorted by the value itself \
+     (e.g. `%top(\\sd)`) or by an aggregated sorting expression that summarizes the records \
+     sharing each value (e.g. `%top(\\\\%count \\d)` or `%top(\\\\created_at%max \\d)`)."
+        .to_string()
+}
+
+pub fn top_in_grouped_query() -> String {
+    "The `top` function is only supported when collecting values from a related table (e.g. \
+     `#comments.user.username%top(\\\\%count \\d)`), not when collecting a column of grouped \
+     records."
         .to_string()
 }
 

@@ -1,14 +1,15 @@
-use querydown_parser::ast::{AggregateSortExpr, PathPart, SortExpr};
+use querydown_parser::ast::{AggregateSortExpr, NullsSort, PathPart, SortDirection, SortExpr};
 
 use crate::{
     compiler::{
         aggregate_sorting::{
             compile_aggregate, render_sort_entry, resolve_aggregate_sorting, AggregateKind,
-            CompiledAggregate, ResolvedSort, SortKey,
+            CompiledAggregate, ListMode, ResolvedSort, SortKey,
         },
         constants::{
             CTE_PK_COLUMN_ALIAS, CTE_VALUE_COLUMN_PREFIX, DISTINCT_VALUES_CTE_ALIAS,
-            DISTINCT_VALUES_SORT_COLUMN_PREFIX, DISTINCT_VALUE_COLUMN_ALIAS,
+            DISTINCT_VALUES_RANK_COLUMN_ALIAS, DISTINCT_VALUES_SORT_COLUMN_PREFIX,
+            DISTINCT_VALUE_COLUMN_ALIAS,
         },
         expr::{convert_condition_set, convert_expr},
         join_tree::make_join_from_link,
@@ -114,7 +115,7 @@ pub fn build_cte_select(
     let mut select = Select::from(cte_scope.get_base_table().name.clone());
     let pk_expr = cte_scope.table_column_expr(&base_table.name, &base_column.name);
     select.grouping.push(pk_expr.clone());
-    let pr_expr_col = Column::new(pk_expr, Some(CTE_PK_COLUMN_ALIAS.to_owned()));
+    let pr_expr_col = Column::new(pk_expr.clone(), Some(CTE_PK_COLUMN_ALIAS.to_owned()));
     select.columns.push(pr_expr_col);
     select.conditions = convert_condition_set(first_link.condition_set.clone(), &mut cte_scope)?;
     let mut starting_alias = base_table.name.clone();
@@ -217,11 +218,13 @@ pub fn build_cte_select(
                 let dialect = cte_scope.options.dialect.as_ref();
                 match compile_aggregate(template.kind, reference.clone(), &sorts, dialect)? {
                     CompiledAggregate::Expr(expr) => expr,
-                    CompiledAggregate::NeedsTwoLevelList => {
+                    CompiledAggregate::NeedsTwoLevelList(mode) => {
                         return build_distinct_list_select(
                             select,
+                            pk_expr,
                             reference,
                             sorts,
+                            mode,
                             &mut cte_scope,
                         );
                     }
@@ -286,17 +289,25 @@ fn aggregated_value(
 }
 
 /// Builds the two-level aggregation for a `list` sorted by one or more aggregated sort keys (e.g.
-/// `#comments.user.username%list(\\created_at%min)`). SQL can't sort a `DISTINCT` aggregate by
-/// anything other than the aggregated value, so instead:
+/// `#comments.user.username%list(\\created_at%min)`), or for a `top`. SQL can't sort a `DISTINCT`
+/// aggregate by anything other than the aggregated value, so instead:
 ///
 /// 1. `inner` — the CTE's usual `SELECT`, grouped by the linking column (`pk`) — is additionally
 ///    grouped by the value. Each aggregated sort key is computed per `(pk, value)` group.
 /// 2. An outer `SELECT` reads those groups (now one row per distinct value) and collects the values
-///    with `array_agg`, ordered by the precomputed sort keys.
+///    with `array_agg`.
+///
+/// For [`ListMode::All`], the outer `array_agg` is ordered by the precomputed sort keys. For
+/// [`ListMode::Top`], the inner `SELECT` instead ranks each group within its `pk` by the sort keys
+/// (a window over the grouped rows, so it can use the aggregates directly), and the outer `SELECT`
+/// keeps only the groups ranked first. Those all tie on every sort key, so they're collected in the
+/// order of the values themselves, which keeps the result deterministic.
 fn build_distinct_list_select(
     mut inner: Select,
+    pk_expr: SqlExpr,
     value: SqlExpr,
     sorts: Vec<ResolvedSort>,
+    mode: ListMode,
     scope: &mut Scope,
 ) -> Result<ValueViaCte, String> {
     let inner_alias = scope.get_alias(DISTINCT_VALUES_CTE_ALIAS);
@@ -304,25 +315,59 @@ fn build_distinct_list_select(
         value.clone(),
         Some(DISTINCT_VALUE_COLUMN_ALIAS.to_owned()),
     ));
-    inner.grouping.push(value);
+    inner.grouping.push(value.clone());
     let column = |name: &str| scope.table_column_expr(&inner_alias, name);
-    let mut order_by = Vec::with_capacity(sorts.len());
-    for (index, sort) in sorts.into_iter().enumerate() {
-        let expr = match sort.key {
-            SortKey::Value => column(DISTINCT_VALUE_COLUMN_ALIAS),
-            SortKey::Aggregated(sql) => {
-                let alias = format!("{}{}", DISTINCT_VALUES_SORT_COLUMN_PREFIX, index + 1);
-                inner.columns.push(Column::new(sql, Some(alias.clone())));
-                column(&alias)
-            }
-            // `compile_aggregate` rejects row-level sort keys before requesting a two-level list.
-            SortKey::Row(_) => return Err(msg::list_sorted_by_row_expr()),
-        };
-        order_by.push(render_sort_entry(&expr, &sort.direction, &sort.nulls_sort));
-    }
-    let pk = column(CTE_PK_COLUMN_ALIAS);
-    let list = build::agg::array_agg(column(DISTINCT_VALUE_COLUMN_ALIAS), order_by.join(", "));
     let mut outer = Select::from(inner_alias.clone());
+    let value_column = column(DISTINCT_VALUE_COLUMN_ALIAS);
+    let list = match mode {
+        ListMode::All => {
+            let mut order_by = Vec::with_capacity(sorts.len());
+            for (index, sort) in sorts.into_iter().enumerate() {
+                let expr = match sort.key {
+                    SortKey::Value => value_column.clone(),
+                    SortKey::Aggregated(sql) => {
+                        let alias = format!("{}{}", DISTINCT_VALUES_SORT_COLUMN_PREFIX, index + 1);
+                        inner.columns.push(Column::new(sql, Some(alias.clone())));
+                        column(&alias)
+                    }
+                    // `compile_aggregate` rejects row-level sort keys before requesting a two-level
+                    // list.
+                    SortKey::Row(_) => return Err(msg::list_sorted_by_row_expr()),
+                };
+                order_by.push(render_sort_entry(&expr, &sort.direction, &sort.nulls_sort));
+            }
+            build::agg::array_agg(value_column, order_by.join(", "))
+        }
+        ListMode::Top => {
+            let mut order_by = Vec::with_capacity(sorts.len());
+            for sort in sorts {
+                let expr = match sort.key {
+                    SortKey::Value => value.clone(),
+                    SortKey::Aggregated(sql) => sql,
+                    // `compile_aggregate` rejects row-level sort keys before requesting a two-level
+                    // list.
+                    SortKey::Row(_) => return Err(msg::top_sorted_by_row_expr()),
+                };
+                order_by.push(render_sort_entry(&expr, &sort.direction, &sort.nulls_sort));
+            }
+            let rank = SqlExpr::atom(format!(
+                "rank() OVER (PARTITION BY {} ORDER BY {})",
+                pk_expr,
+                order_by.join(", ")
+            ));
+            inner.columns.push(Column::new(
+                rank,
+                Some(DISTINCT_VALUES_RANK_COLUMN_ALIAS.to_owned()),
+            ));
+            outer.conditions = cmp::eq(
+                column(DISTINCT_VALUES_RANK_COLUMN_ALIAS),
+                SqlExpr::atom("1".to_owned()),
+            );
+            let order_by = render_sort_entry(&value_column, &SortDirection::Asc, &NullsSort::Last);
+            build::agg::array_agg(value_column, order_by)
+        }
+    };
+    let pk = column(CTE_PK_COLUMN_ALIAS);
     outer.ctes.push(Cte {
         alias: inner_alias,
         select: inner,
