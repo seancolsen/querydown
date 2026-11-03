@@ -12,13 +12,13 @@ use crate::{
         },
         expr::{convert_condition_set, convert_expr},
         join_tree::make_join_from_link,
-        scope::Scope,
+        scope::{Expansion, Scope},
     },
     errors::msg,
     schema::{
         chain::Chain,
         links::{FilteredLink, Link},
-        TableId,
+        Table, TableId,
     },
     sql::expr::build,
     sql::{
@@ -176,14 +176,14 @@ pub fn build_cte_select(
         let value_expr = match aggregate_expr_template_opt {
             Some(template) => {
                 coalesce_to_zero = template.coalesce_to_zero;
-                let column_name = template.column_name;
-                let column_id = cte_scope
-                    .options
-                    .resolve_identifier(&ending_table.column_lookup, &column_name)
-                    .ok_or_else(|| msg::col_not_in_table(&column_name, &ending_table.name))?;
-                let column = ending_table.columns.get(column_id).unwrap();
                 // `starting_alias` now holds the alias of the chain's final table.
-                let reference = cte_scope.table_column_expr(&starting_alias, &column.name);
+                let reference = aggregated_value(
+                    &template.column_name,
+                    ending_table,
+                    &starting_alias,
+                    &mut select,
+                    &mut cte_scope,
+                )?;
                 // Sorting conditions are evaluated from the context of the table named by the first
                 // `#` part of the path (the anchor), not the path's final table. The anchor is
                 // already joined into this CTE (it lies along the chain), so we share the CTE's
@@ -244,6 +244,45 @@ pub fn build_cte_select(
         value_alias: CTE_PK_COLUMN_ALIAS.to_owned(),
         coalesce_to_zero: false,
     })
+}
+
+/// Resolves the value an aggregated `#` path's CTE aggregates: the column `column_name` of the path's
+/// final table, which the CTE's `select` addresses as `alias`.
+///
+/// When `column_name` names a computed column, its definition is compiled in the context of that
+/// table, as though it were written in a filter on it. Any joins and nested CTEs the definition
+/// needs (e.g. for a `#assignments:>0` within it) are folded into `select`.
+fn aggregated_value(
+    column_name: &str,
+    table: &Table,
+    alias: &str,
+    select: &mut Select,
+    cte_scope: &mut Scope,
+) -> Result<SqlExpr, String> {
+    if let Some(column_id) = cte_scope
+        .options
+        .resolve_identifier(&table.column_lookup, column_name)
+    {
+        let column = table.columns.get(column_id).unwrap();
+        return Ok(cte_scope.table_column_expr(alias, &column.name));
+    }
+    let expr = cte_scope
+        .get_computed_column(&table.name, column_name)
+        .cloned()
+        .ok_or_else(|| msg::col_not_in_table(column_name, &table.name))?;
+    let _guard = cte_scope.enter_expansion(Expansion::ComputedColumn {
+        table: table.name.clone(),
+        column: column_name.to_owned(),
+    })?;
+    let mut value_scope = cte_scope.spawn_with_aliases(table, alias, cte_scope.cloned_aliases());
+    let value = convert_expr(expr, &mut value_scope)?;
+    let (joins, ctes) = value_scope.decompose_join_tree();
+    select.joins.extend(joins);
+    select.ctes.extend(ctes);
+    let aliases = value_scope.cloned_aliases();
+    drop(value_scope);
+    cte_scope.reserve_aliases(aliases);
+    Ok(value)
 }
 
 /// Builds the two-level aggregation for a `list` sorted by one or more aggregated sort keys (e.g.

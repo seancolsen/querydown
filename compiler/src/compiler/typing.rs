@@ -129,7 +129,31 @@ fn infer_path(parts: &[PathPart], scope: &mut Scope) -> ValueType {
         // it preserves this type, which is what lets `#comments.created_at%max` be recognized as a
         // datetime.
         (_, Some(ClarifiedPathTail::ChainToMany((chain, Some(column_name), _)))) => {
-            ending_table_column_type(scope, chain.get_ending_table_id(), &column_name)
+            let Some(table) = scope.schema.tables.get(&chain.get_ending_table_id()) else {
+                return ValueType::Unknown;
+            };
+            let is_real_column = scope
+                .options
+                .resolve_identifier(&table.column_lookup, &column_name)
+                .is_some();
+            match scope
+                .get_computed_column(&table.name, &column_name)
+                .cloned()
+            {
+                // A computed column at the end of a to-many chain (e.g. `#issues.stage`) has the type
+                // of its definition, evaluated in the context of the table hosting it.
+                Some(expr) if !is_real_column => {
+                    let expansion = Expansion::ComputedColumn {
+                        table: table.name.clone(),
+                        column: column_name,
+                    };
+                    let Ok(_guard) = scope.enter_expansion(expansion) else {
+                        return ValueType::Unknown;
+                    };
+                    infer_type(&expr, &mut scope.spawn(table))
+                }
+                _ => column_type(scope, table, &column_name),
+            }
         }
         _ => ValueType::Unknown,
     }

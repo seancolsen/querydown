@@ -133,11 +133,24 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
         let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
         match part {
             PathPart::Column(column_name) => {
-                let column_id = scope
+                let column_id_opt = scope
                     .options
                     .resolve_identifier(&current_table.column_lookup, &column_name)
-                    .copied()
-                    .ok_or_else(|| msg::col_not_in_table(&column_name, &current_table.name))?;
+                    .copied();
+                let Some(column_id) = column_id_opt else {
+                    // A computed column ends the path just like a real (non-FK) column does. Its
+                    // name is kept as written, and whatever consumes the path expands the definition
+                    // (e.g. `convert_path`, or `build_cte_select` for an aggregated `#` path).
+                    if scope
+                        .get_computed_column(&current_table.name, &column_name)
+                        .is_none()
+                    {
+                        return Err(msg::col_not_in_table(&column_name, &current_table.name));
+                    }
+                    current_table_opt = None;
+                    final_column_name = Some(column_name);
+                    continue;
+                };
                 if let Some(link) = current_table.forward_links_to_one.get(&column_id).copied() {
                     current_table_opt = scope.schema.tables.get(&link.get_end().table_id);
                     let link = FilteredLink {

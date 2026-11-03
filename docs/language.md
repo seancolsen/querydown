@@ -1431,6 +1431,20 @@ Here `can_purchase_alcohol` references the earlier `age` computed column, which 
 the real `birth_date` column. A computed column hosted on a related table can be reached across a
 to-one relationship, e.g. `#issues $author.can_purchase_alcohol`.
 
+A computed column can also be [aggregated](#specifying-an-aggregate-function) like a real column,
+including across a to-many relationship. Its definition is evaluated once for each related record,
+and the results are aggregated:
+
+> Show each project alongside the furthest stage reached by any of its issues
+
+```qd
+#issues.stage = ? #assignments:>0~2 !description:@null~1 ~~0
+#projects $name $#issues.stage%max
+```
+
+The definition may itself reach other tables, as `stage` does to count each issue's assignments.
+Without an aggregate function, `$#issues.stage` is an error, just as `$#issues.title` would be.
+
 ### User-defined functions
 
 > Given a fiscal year which begins on February 1st, find issues that were opened in fiscal-year 2020 and marked due in 2021

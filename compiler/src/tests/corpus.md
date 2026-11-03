@@ -3847,6 +3847,136 @@ LEFT JOIN "users" ON
   "issues"."author" = "users"."id";
 ```
 
+### Aggregating a computed column across a to-many path
+
+> Show each project alongside the furthest stage reached by any of its issues. The `stage` computed
+> column is evaluated per issue within the CTE that aggregates the issues, including the nested CTE
+> it needs for its own `#assignments` count.
+
+```qd
+#issues.stage = ? #assignments:>0~2 !description:@null~1 ~~0
+#projects $name $#issues.stage%max
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "assignments"."issue" AS "pk"
+        FROM "assignments"
+        GROUP BY "assignments"."issue"
+      )
+    SELECT
+      "issues"."project" AS "pk",
+      max(CASE
+        WHEN "cte0"."pk" IS NOT NULL THEN 2
+        WHEN NOT "issues"."description" IS NULL THEN 1
+        ELSE 0
+      END) AS "v1"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Aggregating a computed column that reaches through a to-one link
+
+> The average age of the authors of each project's issues. `author_age` follows the `author` link
+> from each issue, so the CTE joins `users`.
+
+```qd
+#users.age = birth_date|age|years|floor
+#issues.author_age = author.age
+#projects $name $#issues.author_age%avg
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      avg(FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600)) AS "v1"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Comparing an aggregated computed column according to its type
+
+> Projects with an issue opened within the past week. Because `opened` is defined as a datetime
+> column, its aggregate compares against `1w` just as `#issues.created_at%max` would.
+
+```qd
+#issues.opened = created_at
+#projects #issues.opened%max:<1w $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      max("issues"."created_at") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "cte0"."v1")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Aggregating a computed column in a grouped query
+
+> The furthest stage reached by any issue in each project, computed by grouping the issues
+> themselves rather than through a `#` path.
+
+```qd
+#issues.stage = ? #assignments:>0~2 !description:@null~1 ~~0
+#issues $project \g $stage%max
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "assignments"."issue" AS "pk"
+    FROM "assignments"
+    GROUP BY "assignments"."issue"
+  )
+SELECT
+  "issues"."project",
+  max(CASE
+    WHEN "cte0"."pk" IS NOT NULL THEN 2
+    WHEN NOT "issues"."description" IS NULL THEN 1
+    ELSE 0
+  END)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+GROUP BY "issues"."project";
+```
+
 ## User-defined constants
 
 ### Constant inlined into a condition

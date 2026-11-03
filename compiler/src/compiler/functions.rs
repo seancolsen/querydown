@@ -11,7 +11,7 @@ use crate::{
         aggregate_sorting::{
             compile_aggregate, resolve_aggregate_sorting, AggregateKind, CompiledAggregate,
         },
-        expr::convert_expr,
+        expr::{convert_expr, convert_expr_with_path_prefix, resolve_computed_column},
         paths::{clarify_path, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail},
         scope::{Expansion, Scope},
         temporal::{now_operand, reconcile, TemporalZone},
@@ -371,6 +371,10 @@ fn agg_1(
         Some(index) => path_parts[index + 1..].to_vec(),
         None => path_parts.clone(),
     };
+    // A computed column is resolved here, before `clarify_path` consumes the path, but expanded only
+    // when the path doesn't traverse a to-many relationship. (Within an aggregated `#` path, the CTE
+    // that performs the aggregation expands it instead; see `build_cte_select`.)
+    let computed_column = resolve_computed_column(&path_parts, scope)?;
     let ClarifiedPath { head, tail } = clarify_path(path_parts, scope)?;
     match tail {
         // Aggregating data that joins many records (e.g. `#issues.created_at%max`). This is handled
@@ -397,11 +401,21 @@ fn agg_1(
         // Aggregating a column on the base table or a to-one related table (e.g. `created_at%max`).
         // This produces a direct SQL aggregate expression used in conjunction with `GROUP BY`.
         Some(ClarifiedPathTail::Column(column_name)) => {
-            let table_name = match head {
-                Some(chain_to_one) => scope.join_chain_to_one(&chain_to_one),
-                None => scope.get_base_alias().to_owned(),
+            let reference = match computed_column {
+                // A computed column's definition is aggregated in its place, evaluated relative to
+                // the table hosting it (as `convert_path` does for an unaggregated reference).
+                Some((head_parts, expr, expansion)) => {
+                    let _guard = scope.enter_expansion(expansion)?;
+                    convert_expr_with_path_prefix(expr, head_parts, scope)?
+                }
+                None => {
+                    let table_name = match head {
+                        Some(chain_to_one) => scope.join_chain_to_one(&chain_to_one),
+                        None => scope.get_base_alias().to_owned(),
+                    };
+                    scope.table_column_expr(&table_name, &column_name)
+                }
             };
-            let reference = scope.table_column_expr(&table_name, &column_name);
             let sorts = resolve_aggregate_sorting(order_by, &value_path, scope)?;
             let dialect = scope.options.dialect.as_ref();
             match compile_aggregate(kind, reference, &sorts, dialect)? {

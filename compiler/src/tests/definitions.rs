@@ -182,6 +182,30 @@ fn computed_column_defined_in_terms_of_itself_is_rejected() {
 }
 
 #[test]
+fn computed_column_defined_in_terms_of_itself_via_an_aggregate_is_rejected() {
+    let input = "#projects.a = #issues.b%max\n#issues.b = project.a\n#projects $a";
+    let err = compile(input).unwrap_err();
+    assert!(
+        err.ends_with("(The cycle is `projects.a` → `issues.b` → `projects.a`.)"),
+        "got: {err}"
+    );
+    // The same cycle, entered while inferring the aggregate's type.
+    assert!(compile("#projects.a = #issues.b%max\n#issues.b = project.a\n#projects a:1").is_err());
+}
+
+#[test]
+fn computed_column_across_a_to_many_path_requires_an_aggregate() {
+    let err = compile("#issues.big = id:>100\n#projects $#issues.big").unwrap_err();
+    assert_eq!(err, "The column `big` requires an aggregate function.");
+}
+
+#[test]
+fn unknown_column_across_a_to_many_path_is_still_rejected() {
+    let err = compile("#issues.big = id:>100\n#projects $#issues.nope%max").unwrap_err();
+    assert_eq!(err, "Column `nope` not found within table `issues`.");
+}
+
+#[test]
 fn custom_comparison_defined_in_terms_of_itself_is_rejected() {
     let err = compile("#issues.c:@x = c:@x\n#issues c:1").unwrap_err();
     assert_eq!(
