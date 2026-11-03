@@ -6,6 +6,24 @@ pub fn col_not_in_table(column_name: &str, table_name: &str) -> String {
     format!("Column `{column_name}` not found within table `{table_name}`.")
 }
 
+pub fn table_not_found(table_name: &str) -> String {
+    format!("Table `{table_name}` not found.")
+}
+
+pub fn no_path_to_table(from_table: &str, to_table: &str) -> String {
+    format!(
+        "The table `{to_table}` is not related to the table `{from_table}`, so `#{to_table}` can't \
+         be used here."
+    )
+}
+
+pub fn ambiguous_path_to_table(from_table: &str, to_table: &str) -> String {
+    format!(
+        "The table `{to_table}` is related to the table `{from_table}` in more than one equally \
+         direct way, so `#{to_table}` is ambiguous here."
+    )
+}
+
 pub fn no_path_parts() -> String {
     "Cannot build a ClarifiedPath without any path parts".to_string()
 }
@@ -80,7 +98,7 @@ pub fn expected_two_args() -> String {
 }
 
 pub fn multiple_fk_from_col() -> String {
-    "Schema has multiple foreign keys from the same column".to_string()
+    "The schema has multiple links from the same column.".to_string()
 }
 
 pub fn column_glob_on_path_to_many() -> String {

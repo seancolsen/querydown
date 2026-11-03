@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::labels;
 use crate::tokens::*;
 
 use super::annotation::annotation;
@@ -21,14 +22,20 @@ pub fn result_columns<'src>() -> impl Psr<'src, Vec<ResultColumnStatement>> {
 /// nested entry (`$issue.id $issue.title`), so this yields a `Vec`.
 fn result_column_statement<'src>() -> impl Psr<'src, Vec<ResultColumnStatement>> {
     recursive(|statement| {
-        just(COLUMN_SPEC_PREFIX).then(pad()).ignore_then(choice((
-            // `nested_result_columns` is tried before the other two because a nesting group and a
-            // glob (and a plain spec) can all begin with the same path; they diverge only at the
-            // `.(` that follows the nesting group's head.
-            nested_result_columns(statement),
-            column_glob().map(|glob| vec![ResultColumnStatement::Glob(glob)]),
-            column_spec().map(|spec| vec![ResultColumnStatement::Spec(spec)]),
-        )))
+        just(COLUMN_SPEC_PREFIX)
+            .then(pad())
+            .ignore_then(
+                choice((
+                    // `nested_result_columns` is tried before the other two because a nesting group
+                    // and a glob (and a plain spec) can all begin with the same path; they diverge
+                    // only at the `.(` that follows the nesting group's head.
+                    nested_result_columns(statement),
+                    column_glob().map(|glob| vec![ResultColumnStatement::Glob(glob)]),
+                    column_spec().map(|spec| vec![ResultColumnStatement::Spec(spec)]),
+                ))
+                .labelled(labels::RESULT_COLUMN_BODY),
+            )
+            .labelled(labels::RESULT_COLUMN)
     })
 }
 
@@ -50,13 +57,19 @@ fn nested_result_columns<'src>(
                 .ignore_then(entries)
                 .then_ignore(just(RESULT_COLUMNS_NESTING_BRACE_R)),
         )
-        .try_map(|(head, groups), span| {
+        // An invalid entry is reported via `validate` (rather than `try_map`) so that the error is
+        // emitted even though the surrounding syntax is fine. A `try_map` failure would instead
+        // make the parser backtrack and report some less relevant error further along.
+        .validate(|(head, groups), extra, emitter| {
             groups
                 .into_iter()
                 .flatten()
                 .map(|statement| apply_path_prefix(&head, statement))
                 .collect::<Result<Vec<ResultColumnStatement>, String>>()
-                .map_err(|message| Rich::custom(span, message))
+                .unwrap_or_else(|message| {
+                    emitter.emit(Rich::custom(extra.span(), message));
+                    Vec::new()
+                })
         })
 }
 
@@ -107,7 +120,7 @@ fn column_spec<'src>() -> impl Psr<'src, ColumnSpec> {
             pad()
                 .then(just(COLUMN_ALIAS_PREFIX))
                 .then(pad())
-                .ignore_then(db_identifier())
+                .ignore_then(db_identifier().labelled(labels::ALIAS))
                 .or_not(),
         )
         .then(
@@ -157,7 +170,8 @@ pub(crate) fn column_control<'src>() -> impl Psr<'src, ColumnControl> {
         just(COLUMN_CONTROL_FLAG_PARTITION).to(Flag::Partition),
     ));
     just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(
-        flag.repeated()
+        flag.labelled(labels::COLUMN_CONTROL_FLAG)
+            .repeated()
             .at_least(1)
             .collect::<Vec<Flag>>()
             .map(|flags| {

@@ -60,12 +60,14 @@ const result = compile(schemaJson, "postgres", "#issues $id $title");
 
 Returns the static SQL that introspects a database of the given `dialect` (`"postgres"` or
 `"duckdb"`) to produce the schema JSON consumed by `compile` / `compile_sections`. The query yields
-a single row with a single column containing the JSON. Throws on an unknown dialect.
+a single row with a single column containing the JSON. Throws a [`QuerydownError`](#errors) of kind
+`"argument"` on an unknown dialect.
 
 ### `compile(schemaJson: string, dialect: string, input: string): CompileResult`
 
 Compiles whole-query Querydown `input` against `schemaJson` for the given `dialect`. Returns a typed
-`CompileResult` **object** (see below). Throws a JS `Error` on a parse, schema, or compile failure.
+`CompileResult` **object** (see below). Throws a [`QuerydownError`](#errors) on a syntax, schema,
+compile, or argument (unknown dialect) failure; its `span` is relative to `input`.
 
 ### `compile_sections(schemaJson, dialect, baseTable, definitions, conditions, sorting, display): CompileResult`
 
@@ -83,7 +85,14 @@ whole-query string:
 Each section is parsed with its own parser, so one section's syntax cannot leak into another — a
 stray display `$` typed into the sorting input is reported as a `"Sort section: …"` error rather
 than silently changing the result set. This mirrors a multi-input query-builder UI. Returns the same
-`CompileResult` as `compile`; throws on failure, with parse errors prefixed by their section name.
+`CompileResult` as `compile`; throws a [`QuerydownError`](#errors) on failure. A syntax error names
+the section it occurred in (`err.section`, plus a prefix such as `"Sort section: "` on
+`err.message`), and its `span` is relative to that section's text.
+
+### `is_querydown_error(value: unknown): value is QuerydownError`
+
+Returns `true` if `value` is an error thrown by this package. A TypeScript type guard; see
+[Errors](#errors).
 
 ### The `CompileResult` type
 
@@ -102,6 +111,121 @@ type AnnotationValue =
   | AnnotationValue[]
   | { [key: string]: AnnotationValue };
 ```
+
+## Errors
+
+Every exported function reports failure by throwing a `QuerydownError`: a real JS `Error` (so
+`instanceof Error` holds and it has a `stack`) whose `name` is `"QuerydownError"`, with these extra
+properties:
+
+| Property   | Type                                              | Meaning                                                                       |
+| ---------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `message`  | `string`                                          | One line: optional section prefix + `reason` + `" (line L, column C)"` if located |
+| `kind`     | `"syntax" \| "compile" \| "schema" \| "argument"` | The broad category of error (see below)                                      |
+| `reason`   | `string`                                          | The description of the problem alone, without section or location            |
+| `section`  | `QuerydownSection \| null`                        | For `compile_sections`: the section the error is in                           |
+| `span`     | `SourceSpan \| null`                              | Where in the source the problem is                                            |
+| `labels`   | `QuerydownErrorLabel[]`                           | Secondary locations, each with a note (e.g. where an unclosed `[` was opened) |
+| `expected` | `string[]`                                        | For syntax errors: what would have been accepted at `span`                    |
+| `found`    | `string \| null`                                  | For syntax errors: what was found at `span` instead                           |
+| `hint`     | `string \| null`                                  | A suggestion on how to fix the problem, if available                          |
+
+Absent values are `null` (never `undefined`). The kinds are:
+
+- `"syntax"`: the Querydown source isn't valid syntax. **Always has a `span`.**
+- `"compile"`: the source is valid but can't be compiled against the schema (e.g. it names a column
+  that doesn't exist). No `span` yet, since the syntax tree doesn't record source positions.
+- `"schema"`: the schema JSON is invalid. No `span`.
+- `"argument"`: another argument is invalid, e.g. an unknown dialect. No `span`.
+
+More kinds may be added in the future, so handle unknown kinds gracefully.
+
+The generated `querydown_js.d.ts` declares these types:
+
+```ts
+type QuerydownErrorKind = "syntax" | "compile" | "schema" | "argument";
+type QuerydownSection = "definitions" | "conditions" | "sorting" | "display";
+
+interface SourcePosition {
+  offset: number; // UTF-16 code units from the start of the source
+  line: number;   // 1-based
+  column: number; // 1-based, in UTF-16 code units
+}
+
+interface SourceSpan {
+  start: SourcePosition;
+  end: SourcePosition; // exclusive; equal to start for an empty span
+}
+
+interface QuerydownErrorLabel {
+  span: SourceSpan;
+  message: string;
+}
+
+interface QuerydownError extends Error {
+  name: "QuerydownError";
+  kind: QuerydownErrorKind;
+  reason: string;
+  section: QuerydownSection | null;
+  span: SourceSpan | null;
+  labels: QuerydownErrorLabel[];
+  expected: string[];
+  found: string | null;
+  hint: string | null;
+}
+
+function is_querydown_error(value: unknown): value is QuerydownError;
+```
+
+**Positions are in UTF-16 code units**, the same units as JavaScript string indices, so
+`input.slice(err.span.start.offset, err.span.end.offset)` extracts the offending text, and `line` /
+`column` can be passed straight to editors such as Monaco or CodeMirror. (This differs from the Rust
+API, whose offsets are in bytes; see [docs/errors.md](../../docs/errors.md).) A span may be empty
+(`start.offset === end.offset`), e.g. at an unexpected end of input, so widen it if your editor
+needs a non-empty range.
+
+**Section attribution:** for `compile_sections`, a syntax error's `section` names the input it came
+from (`"definitions"`, `"conditions"`, `"sorting"`, or `"display"`), and its `span` is relative to
+that section's text. Compile errors can't be attributed to one section and have `section: null`.
+For `compile`, `section` is always `null`.
+
+For example, to show an error as a marker in an editor, falling back to the message:
+
+```ts
+import { compile, is_querydown_error } from "querydown-js";
+
+try {
+  const { sql } = compile(schemaJson, "postgres", input);
+  showSql(sql);
+  setMarkers([]);
+} catch (err) {
+  if (!is_querydown_error(err)) throw err;
+  if (err.span) {
+    const { start, end } = err.span;
+    setMarkers([{
+      startLineNumber: start.line,
+      startColumn: start.column,
+      endLineNumber: end.line,
+      // An empty span (e.g. at the end of the input) is made one character wide.
+      endColumn: start.offset === end.offset ? end.column + 1 : end.column,
+      message: err.hint ? `${err.reason}\nHint: ${err.hint}` : err.reason,
+    }]);
+  } else {
+    showError(err.message); // e.g. "Column `nope` not found within table `issues`."
+  }
+}
+```
+
+## ⚠️ Breaking change: errors are now `QuerydownError`s
+
+Previously, failures threw a plain `Error` (with `name` `"Error"`) carrying only a `message`, and
+every syntax error had the same generic message, `"Invalid querydown code"`. `introspection_sql`
+threw a bare **string** for an unknown dialect. Now every exported function throws a
+[`QuerydownError`](#errors) with structured `kind`, `span`, `hint`, etc., and syntax errors have
+specific messages that include the location, e.g. ``"Unexpected `)`, which has no matching `(`.
+Expected a value. (line 2, column 8)"``. Code that matched on the old message text, or caught
+`introspection_sql`'s string, needs updating. Consumers pinning Querydown by git revision adopt
+this when they bump to the revision containing this change.
 
 ## ⚠️ Breaking change: `compile` now returns an object
 

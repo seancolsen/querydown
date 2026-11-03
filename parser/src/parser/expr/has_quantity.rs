@@ -1,6 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::labels;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
@@ -13,7 +14,7 @@ pub fn has_quantity<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, HasQuant
     ));
     quantity
         .then_ignore(pad())
-        .then(path(expr))
+        .then(path(expr).labelled(labels::RELATED_TABLE))
         .map(|(quantity, path_parts)| HasQuantity {
             quantity,
             path_parts,

@@ -69,6 +69,7 @@ pub fn pad<'src>() -> impl Psr<'src, ()> {
     ))
     .repeated()
     .ignored()
+    .labelled(crate::labels::WHITESPACE)
     .boxed()
 }
 
@@ -94,6 +95,7 @@ pub fn db_identifier<'src>() -> impl Psr<'src, String> {
     ident()
         .map(|s: &str| s.to_string())
         .or(quoted(DB_IDENTIFIER_QUOTE))
+        .labelled(crate::labels::NAME)
 }
 
 pub fn quoted<'src>(quote: char) -> impl Psr<'src, String> {
@@ -156,14 +158,19 @@ pub fn escape<'src>(quote: char) -> impl Psr<'src, char> {
                     .repeated()
                     .exactly(4)
                     .collect::<String>()
+                    .labelled(crate::labels::UNICODE_ESCAPE_DIGITS)
                     .validate(|digits, e, emitter| {
                         char::from_u32(u32::from_str_radix(&digits, 16).unwrap()).unwrap_or_else(
                             || {
-                                emitter.emit(Rich::custom(e.span(), "invalid unicode character"));
+                                emitter.emit(Rich::custom(
+                                    e.span(),
+                                    format!("`\\u{digits}` is not a valid unicode character."),
+                                ));
                                 '\u{FFFD}' // unicode replacement character
                             },
                         )
                     }),
-            )),
+            ))
+            .labelled(crate::labels::ESCAPE_CHARACTER),
     )
 }

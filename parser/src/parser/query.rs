@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::labels;
 use crate::tokens::*;
 
 use super::utils::*;
@@ -31,9 +32,15 @@ pub fn query<'src>() -> impl Psr<'src, Query> {
 /// subqueries). The recursive handle is threaded into the definition parsers that accept subqueries.
 fn query_body<'src>() -> impl Psr<'src, Query> {
     recursive(|query| {
-        let base_table = just(TABLE_SIGIL).ignore_then(db_identifier());
+        let base_table = just(TABLE_SIGIL)
+            .ignore_then(db_identifier().labelled(labels::TABLE_NAME))
+            .labelled(labels::BASE_TABLE);
         let transformations = transformation()
-            .separated_by(pad().then(exactly(TRANSFORMATION_DELIMITER)).then(pad()))
+            .separated_by(
+                pad()
+                    .then(exactly(TRANSFORMATION_DELIMITER).labelled(labels::PIPELINE_DELIMITER))
+                    .then(pad()),
+            )
             .collect::<Vec<Transformation>>();
         definitions_with(query)
             .then(base_table)
@@ -94,15 +101,20 @@ fn definition<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Defin
         custom_comparison().map(Definition::CustomComparison),
         computed_column().map(Definition::ComputedColumn),
     ))
+    .labelled(labels::DEFINITION)
 }
 
 /// Parses one user-defined constant definition, e.g. `@user_id = 1234`. The right-hand side is
 /// either a `#( ... )` subquery or a single expression, whose value gets inlined wherever the
 /// constant is referenced.
 fn constant<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, ConstantDef> {
-    let value = choice((subquery(query), expr()));
+    let value = choice((subquery(query), expr())).labelled(labels::VALUE);
     just(CONST_SIGIL)
-        .ignore_then(ident().map(|s: &str| s.to_string()))
+        .ignore_then(
+            ident()
+                .map(|s: &str| s.to_string())
+                .labelled(labels::VARIABLE_NAME),
+        )
         .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
         .then(value)
         .map(|(name, expr)| ConstantDef { name, expr })
@@ -135,7 +147,11 @@ fn subquery<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Expr> {
 
 /// Parses a variable reference's name, e.g. the `date` in `@date`.
 fn variable_name<'src>() -> impl Psr<'src, String> {
-    just(CONST_SIGIL).ignore_then(ident().map(|s: &str| s.to_string()))
+    just(CONST_SIGIL).ignore_then(
+        ident()
+            .map(|s: &str| s.to_string())
+            .labelled(labels::VARIABLE_NAME),
+    )
 }
 
 /// Parses one user-defined function definition, e.g. `@@fiscal_year = @date => (@date - 1m)|year`.
@@ -147,10 +163,18 @@ fn function<'src>() -> impl Psr<'src, FunctionDef> {
         .at_least(1)
         .collect::<Vec<String>>();
     exactly(FUNCTION_SIGIL)
-        .ignore_then(ident().map(|s: &str| s.to_string()))
+        .ignore_then(
+            ident()
+                .map(|s: &str| s.to_string())
+                .labelled(labels::FUNCTION_NAME),
+        )
         .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
-        .then(params)
-        .then_ignore(pad().then(exactly(FUNCTION_ARROW)).then(pad()))
+        .then(params.labelled(labels::FUNCTION_PARAMETER))
+        .then_ignore(
+            pad()
+                .then(exactly(FUNCTION_ARROW).labelled(labels::FUNCTION_ARROW))
+                .then(pad()),
+        )
         .then(function_body())
         .map(|((name, params), body)| FunctionDef { name, params, body })
 }
@@ -161,7 +185,7 @@ fn function_body<'src>() -> impl Psr<'src, FunctionBody> {
         .then_ignore(pad())
         .repeated()
         .collect::<Vec<Assignment>>()
-        .then(expr())
+        .then(expr().labelled(labels::VALUE))
         .map(|(assignments, expr)| FunctionBody { assignments, expr })
 }
 
@@ -238,6 +262,7 @@ pub fn conditions<'src>() -> impl Psr<'src, ConditionSet> {
     // Each top-level filtering expression is a condition-set entry, so a lone bare word here is a
     // default text search term rather than a column reference (see `condition_entry`).
     condition_entry(expr())
+        .labelled(labels::CONDITION)
         .padded_by(pad())
         .repeated()
         .collect::<Vec<Expr>>()

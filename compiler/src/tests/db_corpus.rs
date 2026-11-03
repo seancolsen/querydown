@@ -75,14 +75,14 @@ fn test_db_corpus() {
 fn check_case(env: &TestEnv, case: &TestCase<Opts>, dialect: &str) -> Result<(), String> {
     let input = case.args.first().expect("missing input code block").clone();
     let options = build_options(case.options.identifier_resolution, dialect);
-    let compile_error = |e: String| {
+    let compile_error = |e: crate::Error| {
         report(
             case,
             &[
                 ("Dialect", dialect.to_owned()),
                 ("Schema", case.options.schema_name.clone()),
                 ("Input", input.clone()),
-                ("Compile error", e),
+                ("Compile error", e.render(&input)),
             ],
         )
     };

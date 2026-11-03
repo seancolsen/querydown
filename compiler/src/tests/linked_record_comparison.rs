@@ -14,7 +14,10 @@ fn compile(input: &str) -> Result<String, String> {
     let schema_json = get_test_resource("issue_schema.json");
     let options = build_options(crate::options::IdentifierResolution::Flexible, "postgres");
     let compiler = Compiler::new(&schema_json, options).unwrap();
-    compiler.compile(input.to_string()).map(|r| r.sql)
+    compiler
+        .compile(input.to_string())
+        .map(|r| r.sql)
+        .map_err(|e| e.to_string())
 }
 
 #[test]

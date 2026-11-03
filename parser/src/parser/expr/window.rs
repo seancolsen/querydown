@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::labels;
 use crate::parser::column_layout::column_control;
 use crate::parser::utils::*;
 use crate::tokens::*;
@@ -39,7 +40,7 @@ pub fn window<'src>(full_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
         );
 
     let function = just(COMPOSITION_PIPE_AGGREGATE)
-        .ignore_then(ident())
+        .ignore_then(ident().labelled(labels::FUNCTION_NAME))
         .then(args.or_not());
 
     just(WINDOW_DEFINITION_PREFIX)

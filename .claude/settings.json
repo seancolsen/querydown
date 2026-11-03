@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "ClaudeInChromeDomain(127.0.0.1:5199)"
+    ]
+  }
+}

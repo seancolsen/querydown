@@ -21,6 +21,7 @@ use querydown_parser::parse;
 use serde::Serialize;
 
 use crate::{
+    error::Error,
     schema::{primitive_schema::PrimitiveSchema, Column as SchemaColumn, Schema, Table, ValueType},
     sql::tree::{Column, Cte, Select, SqlExpr},
     Options,
@@ -52,15 +53,31 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    pub fn new(schema_json: &str, options: Options) -> Result<Self, String> {
+    /// Creates a compiler for the database described by `schema_json` (the JSON produced by
+    /// running the dialect's [introspection query](crate::Dialect::introspection_sql)).
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`ErrorKind::Schema`](crate::ErrorKind::Schema) error if `schema_json` is not
+    /// valid JSON, doesn't have the expected structure, or is internally inconsistent (e.g. a link
+    /// refers to a table that isn't in the schema).
+    pub fn new(schema_json: &str, options: Options) -> Result<Self, Error> {
         let primitive_schema = serde_json::from_str::<PrimitiveSchema>(schema_json)
-            .map_err(|_| "Schema input is not valid JSON.")?;
-        let schema = Schema::try_from(primitive_schema)?;
+            .map_err(|e| Error::schema(format!("The schema is not valid: {e}.")))?;
+        let schema = Schema::try_from(primitive_schema).map_err(Error::schema)?;
         Ok(Self { options, schema })
     }
 
     /// Compiles Querydown source code into SQL plus column annotations.
-    pub fn compile(&self, input: String) -> Result<CompileResult, String> {
+    ///
+    /// # Errors
+    ///
+    /// - An [`ErrorKind::Syntax`](crate::ErrorKind::Syntax) error if `input` is not valid
+    ///   Querydown. Its [`span`](Error::span) locates the problem within `input`; use
+    ///   [`Error::render`] with `input` to display it.
+    /// - An [`ErrorKind::Compile`](crate::ErrorKind::Compile) error if `input` is valid Querydown
+    ///   that can't be compiled against the schema (e.g. it refers to a column that doesn't exist).
+    pub fn compile(&self, input: String) -> Result<CompileResult, Error> {
         self.compile_query(parse(&input)?)
     }
 
@@ -70,7 +87,16 @@ impl Compiler {
     /// before compiling it. It exists so that a consumer can parse the sections of a query
     /// independently — via the parser crate's section parsers — reassemble them with
     /// [`Query::from_parts`], and then compile the result, rather than handing over a single string.
-    pub fn compile_query(&self, query: Query) -> Result<CompileResult, String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`ErrorKind::Compile`](crate::ErrorKind::Compile) error if the query can't be
+    /// compiled against the schema.
+    pub fn compile_query(&self, query: Query) -> Result<CompileResult, Error> {
+        self.compile_query_inner(query).map_err(Error::compile)
+    }
+
+    fn compile_query_inner(&self, query: Query) -> Result<CompileResult, String> {
         // Each user-defined table (`#name = #( ... )`) is compiled into a CTE plus a synthetic
         // `Table` (named after the definition) representing its output columns. The synthetic tables
         // accumulate so that a later user-defined table — and ultimately the main query — can use an

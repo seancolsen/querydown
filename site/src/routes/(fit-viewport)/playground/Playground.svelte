@@ -7,13 +7,23 @@
   import Tab from './Tab.svelte';
   import EditorGroup from './EditorGroup.svelte';
 
-  export let compile: (schema_json: string, dialect: string, input: string) => string;
+  export let compile: typeof import('querydown-js').compile;
+  export let is_querydown_error: typeof import('querydown-js').is_querydown_error;
   /**
    * Note: This component does not react to changes to this prop from the
    * parent after mount. With more work, we could improve this if needed.
    */
   export let default_schema_json: string;
   export let monaco_editor_create: typeof MonacoEditor.create;
+  export let monaco_set_model_markers: typeof MonacoEditor.setModelMarkers;
+
+  /** Formats (possibly multi-line) text as SQL line comments. */
+  function sql_comment(text: string): string {
+    return text
+      .split('\n')
+      .map((line) => `-- ${line}`)
+      .join('\n');
+  }
 
   let schema_editor_element: HTMLDivElement;
   let qd_editor_element: HTMLDivElement;
@@ -51,22 +61,46 @@
     let qd_code = starting_querydown;
     let schema_code = default_schema_json;
 
+    const qd_model = qd_editor.getModel();
+
     function handle_change() {
       let sql = '';
+      let markers: MonacoEditor.IMarkerData[] = [];
       try {
-        // `compile` returns a JSON string of `{ sql, columnAnnotations }`. The playground only
-        // displays the SQL for now.
-        const result = JSON.parse(compile(schema_code, 'postgres', qd_code));
-        sql = result.sql;
+        // `compile` also returns `columnAnnotations`, but the playground only displays the SQL.
+        sql = compile(schema_code, 'postgres', qd_code).sql;
       } catch (e) {
-        sql = `-- ${String(e)}`;
+        if (is_querydown_error(e)) {
+          sql = sql_comment(e.hint ? `${e.message}\nHint: ${e.hint}` : e.message);
+          // Only errors in the Querydown source (currently, syntax errors) have a span. Schema
+          // errors don't, so there's nothing to mark in the schema editor.
+          if (e.span) {
+            const { start, end } = e.span;
+            const is_empty = start.offset === end.offset;
+            markers = [
+              {
+                severity: 8, // MarkerSeverity.Error (a value import would load Monaco eagerly)
+                message: e.hint ? `${e.reason}\n\nHint: ${e.hint}` : e.reason,
+                startLineNumber: start.line,
+                startColumn: start.column,
+                endLineNumber: end.line,
+                // Make an empty span (e.g. at the end of input) at least one character wide.
+                endColumn: is_empty ? end.column + 1 : end.column,
+              },
+            ];
+          }
+        } else {
+          sql = sql_comment(String(e));
+        }
       }
       sql_editor.getModel()?.setValue(sql);
+      if (qd_model) {
+        monaco_set_model_markers(qd_model, 'querydown', markers);
+      }
     }
 
     handle_change();
 
-    const qd_model = qd_editor.getModel();
     qd_editor.onDidChangeModelContent(() => {
       if (qd_model) {
         qd_code = qd_model.getValue();

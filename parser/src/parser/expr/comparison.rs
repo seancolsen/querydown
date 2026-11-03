@@ -1,6 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::labels;
 use crate::parser::expr::condition_set::expansion_set;
 use crate::parser::utils::*;
 use crate::tokens::*;
@@ -13,13 +14,17 @@ pub fn comparison<'src>(
     left: impl Psr<'src, ComparisonSide>,
     right: impl Psr<'src, ComparisonSide>,
 ) -> impl Psr<'src, Comparison> {
-    left.then(operator().padded_by(pad()))
-        .then(right)
-        .map(|((left, operator), right)| Comparison {
-            left,
-            operator,
-            right,
-        })
+    left.then(
+        operator()
+            .labelled(labels::COMPARISON_OPERATOR)
+            .padded_by(pad()),
+    )
+    .then(right)
+    .map(|((left, operator), right)| Comparison {
+        left,
+        operator,
+        right,
+    })
 }
 
 /// The left side of a comparison. A condition set here (`{ ... }` or `[ ... ]`) is automatically an

@@ -182,7 +182,7 @@ fn get_chain_to_table_with_many(
     }
     let target_table = scope
         .get_table_by_name(&target.table)
-        .ok_or_else(|| "Target table not found.".to_string())?;
+        .ok_or_else(|| msg::table_not_found(&target.table))?;
 
     // Success case where the base is already at the target
     if base.get_ending_table_id() == Some(target_table.id) {
@@ -245,7 +245,12 @@ fn get_chain_to_table_with_many(
     }
     match result {
         ChainSearchResult::Winner(chain) => Ok(chain),
-        ChainSearchResult::Tie(_) => Err("Two chains tie for the same length".to_string()),
-        ChainSearchResult::NoneFound => Err("No chain found.".to_string()),
+        // Only the outermost search's error reaches the user: the recursive searches' errors are
+        // swallowed above, since they merely rule out one candidate chain.
+        ChainSearchResult::Tie(_) => Err(msg::ambiguous_path_to_table(
+            &base_table.name,
+            &target.table,
+        )),
+        ChainSearchResult::NoneFound => Err(msg::no_path_to_table(&base_table.name, &target.table)),
     }
 }

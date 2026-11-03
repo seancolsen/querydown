@@ -1490,6 +1490,7 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "querydown",
+ "serde",
  "serde_json",
 ]
 
@@ -1499,6 +1500,7 @@ version = "0.0.1"
 dependencies = [
  "js-sys",
  "querydown",
+ "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
  "wasm-bindgen-test",

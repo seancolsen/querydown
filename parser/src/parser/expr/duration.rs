@@ -56,7 +56,14 @@ pub fn duration<'src>() -> impl Psr<'src, Duration> {
     part.repeated()
         .at_least(1)
         .collect::<Vec<Part>>()
-        .try_map(|parts, span| assemble(parts).map_err(|s| Rich::custom(span, s)))
+        // `validate` (rather than `try_map`) reports an invalid duration like `1y2y` as such,
+        // instead of backtracking and parsing it as something else entirely.
+        .validate(|parts, extra, emitter| {
+            assemble(parts).unwrap_or_else(|message| {
+                emitter.emit(Rich::custom(extra.span(), message));
+                Duration::default()
+            })
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -98,7 +105,10 @@ fn assemble(parts: Vec<Part>) -> Result<Duration, String> {
     let mut duration = Duration::default();
     for part in parts {
         if kinds_seen.contains(&part.kind) {
-            return Err(format!("Duration can't have two {} parts.", part.kind));
+            return Err(format!(
+                "A duration can't have more than one {} part.",
+                part.kind.to_string().to_lowercase()
+            ));
         }
         match part.kind {
             Year => duration.years = part.value,

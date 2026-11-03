@@ -17,6 +17,7 @@ pub use path::{path, path_to_one};
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::labels;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
@@ -109,6 +110,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             condition_set(id.clone()).map(Expr::ConditionSet),
             parenthetical(id.clone()),
         ))
+        .labelled(labels::VALUE)
         .boxed();
         let id_pipe = pipe(id_atom.clone(), id.clone()).boxed();
         let id_multiplication = multiplication(id_pipe).boxed();
@@ -140,6 +142,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
                 condition_set(string_mode.clone()).map(Expr::ConditionSet),
                 parenthetical(string_mode.clone()),
             ))
+            .labelled(labels::VALUE)
             .boxed();
             let str_pipe = pipe(str_atom.clone(), string_mode.clone()).boxed();
             let str_multiplication = multiplication(str_pipe).boxed();
@@ -285,7 +288,11 @@ fn operator<'src>(
 }
 
 fn variable<'src>() -> impl Psr<'src, String> {
-    just(CONST_SIGIL).ignore_then(ident().map(|s: &str| s.to_string()))
+    just(CONST_SIGIL).ignore_then(
+        ident()
+            .map(|s: &str| s.to_string())
+            .labelled(labels::VARIABLE_NAME),
+    )
 }
 
 /// Parses a direct function call, written with the `@@` sigil, e.g. `@@max(due_date|age|days 0)`.
@@ -302,7 +309,11 @@ fn function_call<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> 
             just(COMPOSITION_ARGUMENT_BRACE_R),
         );
     exactly(FUNCTION_SIGIL)
-        .ignore_then(ident().map(|s: &str| s.to_string()))
+        .ignore_then(
+            ident()
+                .map(|s: &str| s.to_string())
+                .labelled(labels::FUNCTION_NAME),
+        )
         .then(args)
         .map(|(name, args)| {
             Expr::Call(Call {

@@ -1,6 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::labels;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
@@ -54,7 +55,7 @@ fn path_part_to_one<'src>() -> impl Psr<'src, PathPart> {
 }
 
 fn table_with_one<'src>() -> impl Psr<'src, String> {
-    exactly(PATH_TO_TABLE_WITH_ONE_PREFIX).ignore_then(db_identifier())
+    exactly(PATH_TO_TABLE_WITH_ONE_PREFIX).ignore_then(db_identifier().labelled(labels::TABLE_NAME))
 }
 
 fn table_with_many<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, TableWithMany> {
@@ -64,6 +65,7 @@ fn table_with_many<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, TableWith
     );
     just(TABLE_SIGIL).ignore_then(
         db_identifier()
+            .labelled(labels::TABLE_NAME)
             .then(column.or_not())
             .then(condition_set(expr).or_not())
             .map(|((table, column), cs)| TableWithMany {

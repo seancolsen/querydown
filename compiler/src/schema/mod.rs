@@ -280,9 +280,12 @@ impl TryFrom<PrimitiveSchema> for Schema {
 
         let foreign_keys: Vec<ForeignKey> = {
             let get_table_by_name = |name: &String| -> Result<&Table, String> {
-                let table_id = table_lookup
-                    .get(name)
-                    .ok_or_else(|| format!("Unknown table: {}", name))?;
+                let table_id = table_lookup.get(name).ok_or_else(|| {
+                    format!(
+                        "The schema has a link involving the table `{name}`, which is not \
+                             among the schema's tables."
+                    )
+                })?;
                 let table = tables
                     .get(table_id)
                     .ok_or_else(|| format!("Table not found by id: {}", table_id))?;
@@ -290,10 +293,13 @@ impl TryFrom<PrimitiveSchema> for Schema {
             };
             let get_column_id_by_name =
                 |table: &Table, name: &String| -> Result<ColumnId, String> {
-                    let column_id = table
-                        .column_lookup
-                        .get(name)
-                        .ok_or_else(|| format!("Unknown column: {}", name))?;
+                    let column_id = table.column_lookup.get(name).ok_or_else(|| {
+                        format!(
+                            "The schema has a link involving the column `{name}`, which is not \
+                                 among the columns of the table `{}`.",
+                            table.name
+                        )
+                    })?;
                     Ok(*column_id)
                 };
             let mut foreign_keys: Vec<ForeignKey> = vec![];

@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::labels;
 use crate::tokens::*;
 
 use super::utils::*;
@@ -63,6 +64,7 @@ fn value<'src>() -> impl Psr<'src, AnnotationValue> {
             quoted_string,
             ident_string,
         ))
+        .labelled(labels::ANNOTATION_VALUE)
     })
 }
 
@@ -72,7 +74,8 @@ fn object<'src>(value: impl Psr<'src, AnnotationValue>) -> impl Psr<'src, Annota
     let key = ident()
         .map(|s: &str| s.to_string())
         .or(quoted(STRING_QUOTE_SINGLE))
-        .or(quoted(STRING_QUOTE_DOUBLE));
+        .or(quoted(STRING_QUOTE_DOUBLE))
+        .labelled(labels::ANNOTATION_KEY);
 
     let entry = key
         .then_ignore(just(ANNOTATION_KEY_VALUE_SEPARATOR).padded_by(pad()))

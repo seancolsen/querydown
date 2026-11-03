@@ -7,6 +7,8 @@ mod db_introspection;
 mod default_text_search;
 mod definitions;
 mod equality_operators;
+mod error_robustness;
+mod errors;
 mod grouping;
 mod introspection;
 mod linked_record_comparison;

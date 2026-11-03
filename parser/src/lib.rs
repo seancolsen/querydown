@@ -1,14 +1,25 @@
+// `Error` is deliberately a plain struct with public fields (e.g. `err.span`) rather than a boxed
+// handle, for ease of use. It's larger than Clippy's threshold for error types, but errors are the
+// cold path, so the cost of moving it around is immaterial.
+#![allow(clippy::result_large_err)]
+
+mod diagnose;
+mod labels;
 mod parser;
+mod render;
 
 pub mod ast;
+pub mod error;
 pub mod tokens;
+
+pub use error::{Error, ErrorKind, Label, Position, Span};
 
 use chumsky::prelude::*;
 use parser::{conditions, definitions, pad, query, result_columns, sorting, Psr};
 
 /// Parses a complete Querydown query — definitions, base table, and transformations — into an
 /// [`ast::Query`].
-pub fn parse(input: &str) -> Result<ast::Query, String> {
+pub fn parse(input: &str) -> Result<ast::Query, Error> {
     run(query(), input)
 }
 
@@ -20,7 +31,7 @@ pub fn parse(input: &str) -> Result<ast::Query, String> {
 /// reassemble them via [`ast::Query::from_parts`] before compiling. Parsing the sections separately
 /// keeps them isolated: text entered for one section cannot introduce constructs that belong to
 /// another (e.g. a filtering section cannot smuggle in constant definitions).
-pub fn parse_definitions(input: &str) -> Result<ast::Definitions, String> {
+pub fn parse_definitions(input: &str) -> Result<ast::Definitions, Error> {
     run(definitions(), input)
 }
 
@@ -28,7 +39,7 @@ pub fn parse_definitions(input: &str) -> Result<ast::Definitions, String> {
 /// boolean expressions, combined with `AND`, into an [`ast::ConditionSet`].
 ///
 /// See [`parse_definitions`] for how the section parsers fit together.
-pub fn parse_conditions(input: &str) -> Result<ast::ConditionSet, String> {
+pub fn parse_conditions(input: &str) -> Result<ast::ConditionSet, Error> {
     run(conditions(), input)
 }
 
@@ -36,7 +47,7 @@ pub fn parse_conditions(input: &str) -> Result<ast::ConditionSet, String> {
 /// expressions into a `Vec<`[`ast::SortExpr`]`>`.
 ///
 /// See [`parse_definitions`] for how the section parsers fit together.
-pub fn parse_sorting(input: &str) -> Result<Vec<ast::SortExpr>, String> {
+pub fn parse_sorting(input: &str) -> Result<Vec<ast::SortExpr>, Error> {
     run(sorting(), input)
 }
 
@@ -44,21 +55,21 @@ pub fn parse_sorting(input: &str) -> Result<Vec<ast::SortExpr>, String> {
 /// statements into a `Vec<`[`ast::ResultColumnStatement`]`>`.
 ///
 /// See [`parse_definitions`] for how the section parsers fit together.
-pub fn parse_display(input: &str) -> Result<Vec<ast::ResultColumnStatement>, String> {
+pub fn parse_display(input: &str) -> Result<Vec<ast::ResultColumnStatement>, Error> {
     run(result_columns(), input)
 }
 
 /// Runs a parser over the whole of `input`, allowing surrounding whitespace/comments and requiring
-/// that the entire input is consumed.
-fn run<'src, T>(parser: impl Psr<'src, T>, input: &'src str) -> Result<T, String> {
+/// that the entire input is consumed. A failure is reported as an [`ErrorKind::Syntax`] [`Error`]
+/// locating the problem within `input`.
+fn run<'src, T>(parser: impl Psr<'src, T>, input: &'src str) -> Result<T, Error> {
     pad()
         .ignore_then(parser)
         .then_ignore(pad())
         .then_ignore(end())
         .parse(input)
         .into_result()
-        // TODO_ERR improve error handling
-        .map_err(|_| "Invalid querydown code".to_string())
+        .map_err(|errors| diagnose::diagnose(input, errors))
 }
 
 #[cfg(test)]

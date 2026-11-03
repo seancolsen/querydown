@@ -9,5 +9,5 @@ pub fn number<'src>() -> impl Psr<'src, String> {
         .then(just('.').then(digits(10)).or_not())
         .to_slice()
         .map(|s: &str| s.to_string())
-        .labelled("number")
+        .labelled(crate::labels::NUMBER)
 }

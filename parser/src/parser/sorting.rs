@@ -1,6 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::labels;
 use crate::tokens::*;
 
 use super::expr::{expr, path};
@@ -23,12 +24,19 @@ pub fn sorting<'src>() -> impl Psr<'src, Vec<SortExpr>> {
 /// entry (`\\issue.id \\issue.title`), so this yields a `Vec`.
 fn sort_statement<'src>() -> impl Psr<'src, Vec<SortExpr>> {
     recursive(|statement| {
-        just(SORT_EXPR_PREFIX).then(pad()).ignore_then(choice((
-            // `nested_sort_exprs` is tried before `sort_expr_tail` because both begin with the same
-            // path; they diverge only at the `.(` that follows the nesting group's head.
-            nested_sort_exprs(statement),
-            sort_expr_tail().map(|sort_expr| vec![sort_expr]),
-        )))
+        just(SORT_EXPR_PREFIX)
+            .then(pad())
+            .ignore_then(
+                choice((
+                    // `nested_sort_exprs` is tried before `sort_expr_tail` because both begin with
+                    // the same path; they diverge only at the `.(` that follows the nesting group's
+                    // head.
+                    nested_sort_exprs(statement),
+                    sort_expr_tail().map(|sort_expr| vec![sort_expr]),
+                ))
+                .labelled(labels::VALUE),
+            )
+            .labelled(labels::SORT_EXPR)
     })
 }
 
@@ -50,13 +58,19 @@ fn nested_sort_exprs<'src>(
                 .ignore_then(entries)
                 .then_ignore(just(SORTING_NESTING_BRACE_R)),
         )
-        .try_map(|(head, groups), span| {
+        // An invalid entry is reported via `validate` (rather than `try_map`) so that the error is
+        // emitted even though the surrounding syntax is fine. A `try_map` failure would instead
+        // make the parser backtrack and report some less relevant error further along.
+        .validate(|(head, groups), extra, emitter| {
             groups
                 .into_iter()
                 .flatten()
                 .map(|sort_expr| apply_path_prefix(&head, sort_expr))
                 .collect::<Result<Vec<SortExpr>, String>>()
-                .map_err(|message| Rich::custom(span, message))
+                .unwrap_or_else(|message| {
+                    emitter.emit(Rich::custom(extra.span(), message));
+                    Vec::new()
+                })
         })
 }
 
@@ -98,7 +112,8 @@ pub(crate) fn sort_flags<'src>() -> impl Psr<'src, (SortDirection, NullsSort)> {
         just(COLUMN_CONTROL_FLAG_NULLS_FIRST).to(Flag::NullsFirst),
     ));
     just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(
-        flag.repeated()
+        flag.labelled(labels::SORT_FLAG)
+            .repeated()
             .at_least(1)
             .collect::<Vec<Flag>>()
             .map(|flags| {

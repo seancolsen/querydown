@@ -5,13 +5,16 @@
   import Spinner from '../../../icons/Spinner.svelte';
   import { qd_monarch, qd_theme } from './monarch';
 
-  let compile: ((schema_json: string, dialect: string, input: string) => string) | undefined;
+  let compile: typeof import('querydown-js').compile | undefined;
+  let is_querydown_error: typeof import('querydown-js').is_querydown_error | undefined;
   let default_schema_json: string | undefined;
   let monaco_editor_create: typeof MonacoEditor.create | undefined;
+  let monaco_set_model_markers: typeof MonacoEditor.setModelMarkers | undefined;
 
   async function init_compile() {
     const qd = await import('querydown-js');
     compile = qd.compile;
+    is_querydown_error = qd.is_querydown_error;
   }
 
   async function init_default_schema_json() {
@@ -26,6 +29,7 @@
     monaco.editor.defineTheme('qd', qd_theme);
     monaco.editor.setTheme('qd');
     monaco_editor_create = monaco.editor.create;
+    monaco_set_model_markers = monaco.editor.setModelMarkers;
   }
 
   onMount(() => {
@@ -36,8 +40,14 @@
   });
 </script>
 
-{#if compile && default_schema_json && monaco_editor_create}
-  <Playground {compile} {default_schema_json} {monaco_editor_create} />
+{#if compile && is_querydown_error && default_schema_json && monaco_editor_create && monaco_set_model_markers}
+  <Playground
+    {compile}
+    {is_querydown_error}
+    {default_schema_json}
+    {monaco_editor_create}
+    {monaco_set_model_markers}
+  />
 {:else}
   <div class="spinner">
     <Spinner />

@@ -51,6 +51,8 @@ $#comments.created_at%min \sd
 
 **[Documentation](./docs/language.md)**
 
+- [Error handling](./docs/errors.md) &mdash; the error type returned by the Rust API, and how the CLI reports errors
+
 
 ## Design goals
 

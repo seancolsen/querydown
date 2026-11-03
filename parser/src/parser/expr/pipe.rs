@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::labels;
 use crate::parser::sorting::sort_flags;
 use crate::parser::utils::*;
 use crate::tokens::*;
@@ -75,7 +76,11 @@ fn anonymous_function<'src>(
         .then(body_expr)
         .map(|(assignments, expr)| FunctionBody { assignments, expr });
     params
-        .then_ignore(pad().then(exactly(FUNCTION_ARROW)).then(pad()))
+        .then_ignore(
+            pad()
+                .then(exactly(FUNCTION_ARROW).labelled(labels::FUNCTION_ARROW))
+                .then(pad()),
+        )
         .then(function_body)
         .delimited_by(
             just(EXPR_PAREN_L).then(pad()),
@@ -111,7 +116,7 @@ pub fn pipe<'src>(
 
     let scalar_call = just(COMPOSITION_PIPE_SCALAR)
         .padded_by(pad())
-        .ignore_then(ident())
+        .ignore_then(ident().labelled(labels::FUNCTION_NAME))
         .then(scalar_args.or_not())
         .map(|(name, extra_args)| PipeStep::Call {
             dimension: FunctionDimension::Scalar,
@@ -122,7 +127,7 @@ pub fn pipe<'src>(
 
     let aggregate_call = just(COMPOSITION_PIPE_AGGREGATE)
         .padded_by(pad())
-        .ignore_then(ident())
+        .ignore_then(ident().labelled(labels::AGGREGATE_FUNCTION_NAME))
         .then(aggregate_order_by(extra_args_expr.clone()).or_not())
         .map(|(name, order_by)| PipeStep::Call {
             dimension: FunctionDimension::Aggregate,
@@ -136,7 +141,7 @@ pub fn pipe<'src>(
     // from a piped aggregate like `created_at%max` whose `args` contains the piped-in expression.
     let leading_aggregate = just(COMPOSITION_PIPE_AGGREGATE)
         .padded_by(pad())
-        .ignore_then(ident())
+        .ignore_then(ident().labelled(labels::AGGREGATE_FUNCTION_NAME))
         .then(aggregate_order_by(extra_args_expr).or_not())
         .map(|(name, order_by)| {
             Expr::Call(Call {

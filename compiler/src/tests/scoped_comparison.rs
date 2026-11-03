@@ -12,7 +12,10 @@ fn compile(input: &str) -> Result<String, String> {
     let schema_json = get_test_resource("issue_schema.json");
     let options = build_options(crate::options::IdentifierResolution::Flexible, "postgres");
     let compiler = Compiler::new(&schema_json, options).unwrap();
-    compiler.compile(input.to_string()).map(|r| r.sql)
+    compiler
+        .compile(input.to_string())
+        .map(|r| r.sql)
+        .map_err(|e| e.to_string())
 }
 
 /// Asserts that the scoped and flat forms compile to identical SQL (and that they compile at all).

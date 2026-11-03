@@ -12,6 +12,6 @@ pub fn date<'src>() -> impl Psr<'src, Date> {
             .then_ignore(just('-'))
             .then(usize_with_digit_count(2))
             .map(|((year, month), day)| Date { year, month, day })
-            .labelled("date"),
+            .labelled(crate::labels::DATE),
     )
 }

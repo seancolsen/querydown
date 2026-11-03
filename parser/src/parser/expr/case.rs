@@ -1,6 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::labels;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
@@ -23,7 +24,7 @@ pub fn case<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Case> {
     let variant = expr
         .clone()
         .then_ignore(pad())
-        .then_ignore(just(CASE_VARIANT_SEPARATOR))
+        .then_ignore(just(CASE_VARIANT_SEPARATOR).labelled(labels::CASE_VARIANT_SEPARATOR))
         .then_ignore(pad())
         .then(expr.clone())
         .map(|(condition, value)| CaseVariant { condition, value });
@@ -37,7 +38,7 @@ pub fn case<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Case> {
                 .at_least(1)
                 .collect::<Vec<CaseVariant>>(),
         )
-        .then_ignore(exactly(CASE_FALLBACK))
+        .then_ignore(exactly(CASE_FALLBACK).labelled(labels::CASE_FALLBACK))
         .then_ignore(pad())
         .then(expr)
         .map(|(variants, fallback)| Case {
