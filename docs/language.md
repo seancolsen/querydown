@@ -1164,26 +1164,35 @@ This also works:
 
 ### Intersecting paths
 
-Paths to data can traverse the relationship graph in ways that visit the same table multiple times, so long as each path segment in the Querydown code specifies an unambiguous route between two nodes.
+A path can pass through the same table more than once, and can even come back to the table it started from. Each `#` part of the path finds its own route, so the path as a whole may loop back on itself.
 
+> Issues, showing the most recent creation date among all the issues that share a label with each issue
 
-> Issues, shwo
+```qd
+#issues $* $#labels.#issues.created_at%max
+```
 
-> Issues, showing the most recent date on which any of the comment authors have created issues
+Here, `#labels` goes from `issues` through `issue_labels` to `labels`. Then `#issues` goes back through `issue_labels` to `issues`. An issue shares its labels with itself, so its own creation date counts too. An issue with no labels shows `null`.
+
+Column name chains can loop back too:
+
+> Issues, showing the most recent creation date among all the issues that each issue's author has commented on
 
 ```qd
 #issues $* $author.#comments.issue.created_at%max
 ```
 
-Here, we begin at `issues`, then hop to `users`, `comments`, and finally back to `issues`. This works because we've specified all the intermediate destinations unambiguously.
+This path goes from `issues` to `users`, then to `comments`, and then back to `issues`.
 
-For comparison, here is a different query...
+When Querydown finds the route for a single `#` part, it never visits the same table twice. So a `#` part can't lead from a table back to that same table:
+
+> Attempt to show, for each issue, the most recent creation date among "related" issues
 
 ```qd
-#issues $* $#issues.created_at%max
+#issues $* $#issues.created_at%max // ERROR!
 ```
 
-Here, we've said, _"begin at the `issues` table, and find the shortest unambiguous path back to the `issues` table which yields multiple records."_ 
+There are many ways to get from one issue to other issues: through shared labels, the same author, the same project, and so on. Name a table in between to say which one you mean, as in the examples above.
 
 ### Specifying the linking column
 
