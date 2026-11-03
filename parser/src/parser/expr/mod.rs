@@ -71,82 +71,105 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
     // atom level. They meet at the `comparison` rule, which is shared by both: a comparison's left
     // side is always parsed in identifier mode and its right side always in string mode, regardless
     // of which mode the comparison itself appears in. That shared rule is what makes the two chains
-    // mutually recursive, so each is `declare`d up front and `define`d once both are built.
+    // mutually recursive.
+    //
+    // The mutual recursion is built from two nested `recursive` calls — string mode inside
+    // identifier mode — rather than with `Recursive::declare`. A declared parser that refers to
+    // itself holds a strong reference to itself, forming a reference cycle that leaks the whole
+    // parser (hundreds of kilobytes) every time `expr()` is called, i.e. on every parse. The handles
+    // that `recursive` passes to its closure are weak, so no cycle forms. The one strong reference to
+    // the string-mode parser lives in the identifier-mode parser's comparison rule, which keeps it
+    // alive for as long as the identifier-mode parser itself.
 
     // Each precedence level is `.boxed()` to type-erase it. Chumsky combinator types grow
     // multiplicatively as they nest, and this parser nests deeply; without these boxing
     // "firewalls" the fully monomorphized type — and rustc's memory use compiling it — balloons
     // far enough to OOM the build. Boxing is semantically transparent and also speeds up compiles.
-    let mut id = Recursive::declare();
-    let mut string_mode = Recursive::declare();
+    recursive(|id| {
+        // --- Identifier-mode chain: a bare word is a column reference. ---
+        let id_atom = choice((
+            // `duration` is tried before `number` because both begin with a digit. A duration
+            // requires a trailing unit (e.g. `6m`), so a unit-less number like `6` falls through.
+            duration().map(Expr::Duration),
+            number().map(Expr::Number),
+            date().map(Expr::Date),
+            string().map(Expr::String),
+            // `function_call` is tried before `variable` because both begin with `@`; the `@@`
+            // prefix of a call would otherwise be misread as the start of a `@`-prefixed variable.
+            function_call(id.clone()),
+            variable().map(Expr::Variable),
+            window(id.clone()),
+            // `scoped_comparison` is tried before `path` because both begin with a path; they
+            // diverge only at the condition set that must immediately follow a scoped comparison's
+            // head. When no such condition set follows, this falls through to a plain `path`.
+            scoped_comparison(id.clone()),
+            path(id.clone()).map(Expr::Path),
+            has_quantity(id.clone()).map(Expr::HasQuantity),
+            case(id.clone()).map(Expr::Case),
+            condition_set(id.clone()).map(Expr::ConditionSet),
+            parenthetical(id.clone()),
+        ))
+        .boxed();
+        let id_pipe = pipe(id_atom.clone(), id.clone()).boxed();
+        let id_multiplication = multiplication(id_pipe).boxed();
+        let id_addition = addition(id_multiplication).boxed();
 
-    // --- Identifier-mode chain: a bare word is a column reference. ---
-    let id_atom = choice((
-        // `duration` is tried before `number` because both begin with a digit. A duration
-        // requires a trailing unit (e.g. `6m`), so a unit-less number like `6` falls through.
-        duration().map(Expr::Duration),
-        number().map(Expr::Number),
-        date().map(Expr::Date),
-        string().map(Expr::String),
-        // `function_call` is tried before `variable` because both begin with `@`; the `@@`
-        // prefix of a call would otherwise be misread as the start of a `@`-prefixed variable.
-        function_call(id.clone()),
-        variable().map(Expr::Variable),
-        window(id.clone()),
-        // `scoped_comparison` is tried before `path` because both begin with a path; they diverge
-        // only at the condition set that must immediately follow a scoped comparison's head. When
-        // no such condition set follows, this falls through to a plain `path`.
-        scoped_comparison(id.clone()),
-        path(id.clone()).map(Expr::Path),
-        has_quantity(id.clone()).map(Expr::HasQuantity),
-        case(id.clone()).map(Expr::Case),
-        condition_set(id.clone()).map(Expr::ConditionSet),
-        parenthetical(id.clone()),
-    ))
-    .boxed();
-    let id_pipe = pipe(id_atom.clone(), id.clone()).boxed();
-    let id_multiplication = multiplication(id_pipe).boxed();
-    let id_addition = addition(id_multiplication).boxed();
+        // The string-mode chain's top-level atoms, built inside its `recursive` closure (where its
+        // weak self-handle is available) and handed out for the identifier-mode comparison rule.
+        let mut str_parts = None;
 
-    // --- String-mode chain: a bare word — at any depth — is a string literal. ---
-    //
-    // This mirrors the identifier-mode chain above in every respect except its atom: bare words
-    // resolve via `comparison_rhs_value` (string literal) instead of `path` (column reference), and
-    // every sub-parser recurses back into this same string-mode chain so the behavior holds at any
-    // depth. `case` and `window` are omitted because neither is meaningful as a comparison value.
-    let str_atom = choice((
-        // See the ordering note on `id_atom` above: `duration` before `number`.
-        duration().map(Expr::Duration),
-        number().map(Expr::Number),
-        date().map(Expr::Date),
-        string().map(Expr::String),
-        // See the ordering note on `id_atom` above: `function_call` before `variable`.
-        function_call(string_mode.clone()),
-        variable().map(Expr::Variable),
-        comparison_rhs_value(string_mode.clone()),
-        has_quantity(string_mode.clone()).map(Expr::HasQuantity),
-        condition_set(string_mode.clone()).map(Expr::ConditionSet),
-        parenthetical(string_mode.clone()),
-    ))
-    .boxed();
-    let str_pipe = pipe(str_atom.clone(), string_mode.clone()).boxed();
-    let str_multiplication = multiplication(str_pipe).boxed();
-    let str_addition = addition(str_multiplication).boxed();
+        let string_mode = recursive(|string_mode| {
+            // --- String-mode chain: a bare word — at any depth — is a string literal. ---
+            //
+            // This mirrors the identifier-mode chain above in every respect except its atom: bare
+            // words resolve via `comparison_rhs_value` (string literal) instead of `path` (column
+            // reference), and every sub-parser recurses back into this same string-mode chain so
+            // the behavior holds at any depth. `case` and `window` are omitted because neither is
+            // meaningful as a comparison value.
+            let str_atom = choice((
+                // See the ordering note on `id_atom` above: `duration` before `number`.
+                duration().map(Expr::Duration),
+                number().map(Expr::Number),
+                date().map(Expr::Date),
+                string().map(Expr::String),
+                // See the ordering note on `id_atom` above: `function_call` before `variable`.
+                function_call(string_mode.clone()),
+                variable().map(Expr::Variable),
+                comparison_rhs_value(string_mode.clone()),
+                has_quantity(string_mode.clone()).map(Expr::HasQuantity),
+                condition_set(string_mode.clone()).map(Expr::ConditionSet),
+                parenthetical(string_mode.clone()),
+            ))
+            .boxed();
+            let str_pipe = pipe(str_atom.clone(), string_mode.clone()).boxed();
+            let str_multiplication = multiplication(str_pipe).boxed();
+            let str_addition = addition(str_multiplication).boxed();
+            str_parts = Some((str_atom.clone(), str_addition.clone()));
 
-    // The shared comparison rule, drawing its left side from the identifier-mode chain and its right
-    // side from the string-mode chain. This is the single point at which the two chains meet.
-    let comparison_expr = comparison(
-        left_comparison_side(id.clone(), id_atom, id_addition.clone()),
-        right_comparison_side(string_mode.clone(), str_atom, str_addition.clone()),
-    )
-    .map(|c| Expr::Comparison(Box::new(c)))
-    .boxed();
+            // The shared comparison rule, drawing its left side from the identifier-mode chain
+            // and its right side from the string-mode chain. This is the point at which the two
+            // chains meet.
+            let comparison_expr = comparison(
+                left_comparison_side(id.clone(), id_atom.clone(), id_addition.clone()),
+                right_comparison_side(string_mode.clone(), str_atom, str_addition.clone()),
+            )
+            .map(|c| Expr::Comparison(Box::new(c)))
+            .boxed();
+            or_string_shorthand(negation(comparison_expr.or(str_addition)).boxed()).boxed()
+        });
 
-    id.define(or_condition_set(negation(comparison_expr.clone().or(id_addition)).boxed()).boxed());
-    string_mode
-        .define(or_string_shorthand(negation(comparison_expr.or(str_addition)).boxed()).boxed());
-
-    id
+        // `recursive` calls its closure immediately, so the parts have been set.
+        let (str_atom, str_addition) = str_parts.expect("string-mode parts were built");
+        // The same comparison rule, for identifier mode. It is given the (strong) `string_mode`
+        // handle, which is what keeps the string-mode parser alive.
+        let comparison_expr = comparison(
+            left_comparison_side(id.clone(), id_atom, id_addition.clone()),
+            right_comparison_side(string_mode, str_atom, str_addition),
+        )
+        .map(|c| Expr::Comparison(Box::new(c)))
+        .boxed();
+        or_condition_set(negation(comparison_expr.or(id_addition)).boxed()).boxed()
+    })
 }
 
 /// Negates an expression with a `!` prefix, producing [`Expr::Not`]. This binds more loosely than
