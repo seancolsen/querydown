@@ -2,7 +2,10 @@ use querydown_parser::ast::{Date, Duration};
 
 use super::{
     dialect::{duration_part, Dialect, NormalizedDuration, RegExFlags},
-    expr::{build::cmp::comparison, SqlExpr},
+    expr::{
+        build::{cmp::comparison, sql_func},
+        SqlExpr,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,5 +117,9 @@ impl Dialect for Postgres {
             "(CAST(hashtext({a}) AS DOUBLE PRECISION) + 2147483648) / 4294967295.0",
             a = arg.content
         ))
+    }
+
+    fn year_month(&self, arg: SqlExpr) -> SqlExpr {
+        sql_func("to_char", [arg, SqlExpr::atom("'YYYY-MM'".to_string())])
     }
 }

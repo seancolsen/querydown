@@ -263,6 +263,16 @@ pub mod date_time {
     pub fn extract_epoch(a: SqlExpr) -> SqlExpr {
         SqlExpr::atom(format!("EXTRACT(epoch FROM {})", a.content))
     }
+
+    /// The integer value of one calendar field (`year`, `month`, `day`, …) of a date or timestamp.
+    /// `EXTRACT` returns `numeric` in Postgres (and `BIGINT` in DuckDB), so the result is cast to
+    /// `INTEGER` to give the same whole-number type on every dialect.
+    pub fn extract_field(field: &str, a: SqlExpr) -> SqlExpr {
+        SqlExpr::atom(format!(
+            "CAST(EXTRACT({} FROM {}) AS INTEGER)",
+            field, a.content
+        ))
+    }
 }
 
 pub mod func {

@@ -2900,6 +2900,128 @@ SELECT
 FROM "users";
 ```
 
+### Date `year`, `month`, and `day`
+
+> The calendar components of each issue's creation date, as integers
+
+```qd
+#issues $id $created_at|year $created_at|month $created_at|day
+```
+
+```sql
+SELECT
+  "issues"."id",
+  CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER),
+  CAST(EXTRACT(month FROM "issues"."created_at") AS INTEGER),
+  CAST(EXTRACT(day FROM "issues"."created_at") AS INTEGER)
+FROM "issues";
+```
+
+### Date `year` within a condition
+
+> Issues created in 2023
+
+```qd
+#issues created_at|year:2023 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) = 2023;
+```
+
+### Date `year` of a date column
+
+> Users born before 2000, applying `year` to a `date` (rather than a timestamp)
+
+```qd
+#users birth_date|year:<2000 $username
+```
+
+```sql
+SELECT
+  "users"."username"
+FROM "users"
+WHERE
+  CAST(EXTRACT(year FROM "users"."birth_date") AS INTEGER) < 2000;
+```
+
+### Date `year_month`
+
+> The number of issues created in each month
+
+```qd
+#issues $created_at|year_month \g $%count
+```
+
+```sql
+SELECT
+  to_char("issues"."created_at", 'YYYY-MM'),
+  count(*)
+FROM "issues"
+GROUP BY to_char("issues"."created_at", 'YYYY-MM');
+```
+
+### Date `year_month` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The number of issues created in each month, targeting DuckDB
+
+```qd
+#issues $created_at|year_month \g $%count
+```
+
+```sql
+SELECT
+  strftime("issues"."created_at", '%Y-%m'),
+  count(*)
+FROM "issues"
+GROUP BY strftime("issues"."created_at", '%Y-%m');
+```
+
+### Date components of a zoned timestamp
+
+> `last_seen` is a zoned `timestamptz`. Postgres reads its components in the session time zone.
+
+```qd
+#users $username $last_seen|year $last_seen|year_month
+```
+
+```sql
+SELECT
+  "users"."username",
+  CAST(EXTRACT(year FROM "users"."last_seen") AS INTEGER),
+  to_char("users"."last_seen", 'YYYY-MM')
+FROM "users";
+```
+
+### Date components of a zoned timestamp (DuckDB)
+
+> DuckDB (without the ICU extension) can't operate on zoned timestamps, so `last_seen` is first
+> coerced to a naive timestamp, and its components are read from the UTC wall-clock value.
+
+```toml options
+dialect = "duckdb"
+```
+
+```qd
+#users $username $last_seen|year $last_seen|year_month
+```
+
+```sql
+SELECT
+  "users"."username",
+  CAST(EXTRACT(year FROM CAST("users"."last_seen" AS TIMESTAMP)) AS INTEGER),
+  strftime(CAST("users"."last_seen" AS TIMESTAMP), '%Y-%m')
+FROM "users";
+```
+
 ### Aggregate `product`
 
 > The product of the issue ids in each project

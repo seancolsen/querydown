@@ -259,6 +259,40 @@ Returns the interval from now _until_ a future timestamp, compiling to `value - 
 #issues $title $due_date|countdown|days // days until each issue is due
 ```
 
+### `year`
+
+Returns the year of a date or timestamp as an integer, compiling to `CAST(EXTRACT(year FROM value) AS INTEGER)`. Not to be confused with [`years`](#years), which converts an _interval_ into a number of years.
+
+```qd
+#issues created_at|year:2023 $title // issues created in 2023
+```
+
+### `month`
+
+Returns the month (1–12) of a date or timestamp as an integer, compiling to `CAST(EXTRACT(month FROM value) AS INTEGER)`.
+
+```qd
+#issues $title $due_date|month
+```
+
+### `day`
+
+Returns the day of the month (1–31) of a date or timestamp as an integer, compiling to `CAST(EXTRACT(day FROM value) AS INTEGER)`. Not to be confused with [`days`](#days), which converts an _interval_ into a number of days.
+
+```qd
+#users $username $birth_date|day
+```
+
+### `year_month`
+
+Returns the year and month of a date or timestamp as a `YYYY-MM` string (e.g. `"2023-03"`). Handy for grouping by month. Compiles to `to_char(value, 'YYYY-MM')` (Postgres) or `strftime(value, '%Y-%m')` (DuckDB).
+
+```qd
+#issues $created_at|year_month \g $%count // issues created per month
+```
+
+For the components above, a zoned timestamp (`timestamptz`) is read in the session time zone on Postgres. On DuckDB, which can't operate on zoned timestamps without the ICU extension, it is first cast to a naive timestamp, so the components reflect its UTC value.
+
 ### `years`
 
 Converts an interval into a number of years, compiling to `EXTRACT(epoch FROM value) / 31557600`.

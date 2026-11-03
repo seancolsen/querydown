@@ -265,6 +265,33 @@ fn unit_hash(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
     Ok(scope.options.dialect.unit_hash(a))
 }
 
+/// Converts the single date/time argument of a calendar-component function (`year`, `month`, …).
+/// On a dialect that can't operate on zoned timestamps (see
+/// [`crate::sql::Dialect::coerces_timestamptz`]), a zoned argument is first coerced to a naive
+/// timestamp, so the component is read from its UTC wall-clock value.
+fn temporal_arg(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+    let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
+    let zone = arg_zone(&arg, scope);
+    let a = convert_expr(arg, scope)?;
+    let dialect = scope.options.dialect.as_ref();
+    if zone == TemporalZone::Zoned && dialect.coerces_timestamptz() {
+        Ok(dialect.coerce_temporal_to_naive(a))
+    } else {
+        Ok(a)
+    }
+}
+
+/// `year(x)`, `month(x)`, `day(x)`: one calendar field of a date or timestamp, as an integer.
+fn calendar_field(args: Vec<Expr>, scope: &mut Scope, field: &str) -> Result<SqlExpr, String> {
+    Ok(extract_field(field, temporal_arg(args, scope)?))
+}
+
+/// `year_month(x)`: a date or timestamp formatted as a `YYYY-MM` string.
+fn year_month(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+    let a = temporal_arg(args, scope)?;
+    Ok(scope.options.dialect.year_month(a))
+}
+
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     use TypeRule::*;
     use ValueType::*;
@@ -273,13 +300,14 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     // dedicated duration value type. Addition and subtraction preserve their left operand's type so
     // that `date|plus(1w)` stays a date.
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc, TypeRule); 34] = [
+    let templates: [(&str, ScalarFunc, TypeRule); 38] = [
         ("abs",         |e, s| args_1(e, s, abs),                    SameAsArg(0)),
         ("age",         |e, s| temporal_age(e, s),                  Fixed(Unknown)),
         ("and",         |e, s| args_v(e, s, build::cmp::and),        Fixed(Boolean)),
         ("ceil",        |e, s| args_1(e, s, ceil),                   Fixed(Number)),
         ("concat",      |e, s| args_v(e, s, concat),                 Fixed(Text)),
         ("countdown",   |e, s| temporal_countdown(e, s),            Fixed(Unknown)),
+        ("day",         |e, s| calendar_field(e, s, "day"),          Fixed(Number)),
         ("days",        |e, s| args_1(e, s, days),                   Fixed(Unknown)),
         ("divide",      |e, s| args_2(e, s, divide),                 Fixed(Number)),
         ("exp",         |e, s| args_1(e, s, exp),                    Fixed(Number)),
@@ -296,6 +324,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("minus",       |e, s| temporal_minus(e, s),                SameAsArg(0)),
         ("minutes",     |e, s| args_1(e, s, minutes),                Fixed(Unknown)),
         ("mod",         |e, s| args_2(e, s, modulo),                 Fixed(Number)),
+        ("month",       |e, s| calendar_field(e, s, "month"),        Fixed(Number)),
         ("not",         |e, s| args_1(e, s, not),                    Fixed(Boolean)),
         ("or",          |e, s| args_v(e, s, build::cmp::or),         Fixed(Boolean)),
         ("plus",        |e, s| args_2(e, s, add),                    SameAsArg(0)),
@@ -307,6 +336,8 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("unit_hash",   |e, s| unit_hash(e, s),                      Fixed(Number)),
         ("uppercase",   |e, s| args_1(e, s, upper),                  Fixed(Text)),
         ("xor",         |e, s| args_v(e, s, build::cmp::xor),        Fixed(Boolean)),
+        ("year",        |e, s| calendar_field(e, s, "year"),         Fixed(Number)),
+        ("year_month",  |e, s| year_month(e, s),                     Fixed(Text)),
         ("years",       |e, s| args_1(e, s, years),                  Fixed(Unknown)),
     ];
     templates

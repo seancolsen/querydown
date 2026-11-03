@@ -124,6 +124,10 @@ impl Dialect for DuckDB {
         ))
     }
 
+    fn year_month(&self, arg: SqlExpr) -> SqlExpr {
+        sql_func("strftime", [arg, SqlExpr::atom("'%Y-%m'".to_string())])
+    }
+
     fn coerce_temporal_to_naive(&self, e: SqlExpr) -> SqlExpr {
         // DuckDB built without the ICU extension can't perform arithmetic or comparison involving a
         // `timestamptz` (e.g. `@now`) unless the timezone data the ICU extension would supply is

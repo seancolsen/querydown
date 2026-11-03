@@ -158,6 +158,10 @@ pub trait Dialect {
     /// unsigned 64-bit value, while Postgres's `hashtext` produces a signed 32-bit value.
     fn unit_hash(&self, arg: SqlExpr) -> SqlExpr;
 
+    /// Format a date or timestamp as a `YYYY-MM` string (e.g. `2023-03`). The dialects have no
+    /// common date-formatting function: Postgres uses `to_char`, DuckDB uses `strftime`.
+    fn year_month(&self, arg: SqlExpr) -> SqlExpr;
+
     /// Coerce a zoned timestamp expression to a naive (zone-less) one, for use when a binary
     /// operation mixes a zoned and a naive temporal operand. The default is the identity: most
     /// databases (including Postgres) reconcile the two sides natively, so no coercion is needed.
