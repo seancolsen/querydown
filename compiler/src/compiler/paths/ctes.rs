@@ -153,6 +153,11 @@ pub fn build_cte_select(
             let (link_joins, link_ctes) = link_scope.decompose_join_tree();
             select.joins.extend(link_joins);
             select.ctes.extend(link_ctes);
+            // Keep the aliases of those joins taken, so that later joins in this CTE (e.g. one made
+            // by an aggregate's sorting) can't reuse them.
+            let link_aliases = link_scope.cloned_aliases();
+            drop(link_scope);
+            cte_scope.reserve_aliases(link_aliases);
         }
         starting_alias = ending_alias;
     }
@@ -204,6 +209,9 @@ pub fn build_cte_select(
                     let (ob_joins, ob_ctes) = ob_scope.decompose_join_tree();
                     select.joins.extend(ob_joins);
                     select.ctes.extend(ob_ctes);
+                    let ob_aliases = ob_scope.cloned_aliases();
+                    drop(ob_scope);
+                    cte_scope.reserve_aliases(ob_aliases);
                     sorts
                 };
                 let dialect = cte_scope.options.dialect.as_ref();

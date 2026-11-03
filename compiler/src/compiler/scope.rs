@@ -448,6 +448,13 @@ impl<'a, 'b> Scope<'a, 'b> {
         self.aliases.clone()
     }
 
+    /// Reserves `aliases` in this scope so that it won't assign any of them again. Used after a
+    /// scope spawned via [`Scope::spawn_with_aliases`] has folded its joins into this scope's query,
+    /// so that the aliases those joins use stay taken.
+    pub fn reserve_aliases(&mut self, aliases: HashSet<String>) {
+        self.aliases.extend(aliases);
+    }
+
     pub fn with_path_prefix<T>(
         &mut self,
         path_prefix: Vec<PathPart>,

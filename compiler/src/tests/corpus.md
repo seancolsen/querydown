@@ -2295,6 +2295,39 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk";
 ```
 
+### Aggregate sorting that joins a table a path filter already joined
+
+> The filter on `#comments` joins `users` (for `user.username`), and the sort joins `users` again
+> (for `author.username`), via a different foreign key. The second join gets its own alias.
+
+```qd
+#projects $#issues.#comments{user.username:x}.body%list_all(\\author.username)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg("comments"."body" ORDER BY "users_1"."username" ASC NULLS LAST) AS "v1"
+    FROM "issues"
+    JOIN "comments" ON
+      "issues"."id" = "comments"."issue"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    LEFT JOIN "users" AS "users_1" ON
+      "issues"."author" = "users_1"."id"
+    WHERE
+      COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
 ### List aggregate of grouped records sorted by its value
 
 > Within a grouped query, `list` collects a column of each group's records. The `\s` flags sort it
