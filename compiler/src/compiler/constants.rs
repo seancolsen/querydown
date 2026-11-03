@@ -2,6 +2,14 @@ pub const CTE_ALIAS_PREFIX: &str = "cte";
 pub const CTE_PK_COLUMN_ALIAS: &str = "pk";
 pub const CTE_VALUE_COLUMN_PREFIX: &str = "v";
 
+/// Names used by the two-level aggregation that a `list` sorted by an aggregated sort key (e.g.
+/// `%list(\\created_at%min)`) compiles to. An inner CTE with this alias groups the related
+/// records by `(pk, value)`, computing each aggregated sort key as a `sort<n>` column; the outer
+/// query then collects the values, ordered by those columns.
+pub const DISTINCT_VALUES_CTE_ALIAS: &str = "distinct_values";
+pub const DISTINCT_VALUE_COLUMN_ALIAS: &str = "value";
+pub const DISTINCT_VALUES_SORT_COLUMN_PREFIX: &str = "sort";
+
 /// The prefix used to name the CTEs that carry the result of each non-final stage of a query
 /// pipeline (stages separated by `~~~`). Each such CTE becomes the base "table" of the next stage.
 pub const PIPELINE_CTE_ALIAS_PREFIX: &str = "pipe";

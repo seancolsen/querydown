@@ -91,6 +91,35 @@ pub fn aggregate_fn_without_argument(function_name: &str) -> String {
     )
 }
 
+pub fn list_sorted_by_row_expr() -> String {
+    "The `list` function removes duplicate values, so it can only be sorted by the listed value \
+     itself (e.g. `%list(\\s)`) or by an aggregated sorting expression that summarizes the records \
+     sharing each value (e.g. `%list(\\\\created_at%min)` or `%list(\\\\%count \\d)`). To sort \
+     by each record without removing duplicates, use `list_all` instead."
+        .to_string()
+}
+
+pub fn aggregated_sort_outside_list() -> String {
+    "Aggregated sorting expressions (e.g. `\\\\created_at%min` or `\\\\%count`) are only \
+     supported within the `list` function, where they order its distinct values."
+        .to_string()
+}
+
+pub fn aggregated_sort_in_grouped_list() -> String {
+    "Aggregated sorting expressions (e.g. `\\\\created_at%min`) within `list` are only supported \
+     when listing values from a related table (e.g. \
+     `#comments.user.username%list(\\\\created_at%min)`), not when listing a column of grouped \
+     records."
+        .to_string()
+}
+
+pub fn value_sort_without_value(function_name: &str) -> String {
+    format!(
+        "`\\s` sorts by the value being aggregated, but `%{}` is used on its own, without a value.",
+        function_name
+    )
+}
+
 pub fn aggregate_fn_applied_to_a_non_path() -> String {
     "Aggregate functions must be applied directly to a column, without any intermediate computations. This restriction may be relaxed in future versions".to_string()
 }

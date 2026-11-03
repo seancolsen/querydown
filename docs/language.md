@@ -66,6 +66,9 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Aggregate counts](#aggregate-counts)
   - [Specifying an aggregate function](#specifying-an-aggregate-function)
   - [Sorting within an aggregate function](#sorting-within-an-aggregate-function)
+    - [Sorting by the aggregated value](#sorting-by-the-aggregated-value)
+    - [The context of a sorting expression](#the-context-of-a-sorting-expression)
+    - [Sorting distinct values](#sorting-distinct-values)
   - ["Has some" and "has none" conditions](#has-some-and-has-none-conditions)
   - [Conditions to filter aggregate data](#conditions-to-filter-aggregate-data)
   - [Transitive relationships](#transitive-relationships)
@@ -940,8 +943,9 @@ _(See a list of [all aggregate functions](./functions.md#aggregate-functions).)_
 
 Some aggregate functions (notably [`list`](./functions.md#list) and
 [`list_all`](./functions.md#list_all)) produce a result whose order is meaningful. You can control
-that order by attaching one or more [standalone sorting expressions](#sorting-outside-of-result-columns)
-(written with the `\\` prefix) inside the function's parentheses.
+that order by attaching one or more sorting entries inside the function's parentheses. Each entry
+is either a [standalone sorting expression](#sorting-outside-of-result-columns) (written with the
+`\\` prefix) or the `\s` [column flags](#basic-sorting).
 
 > For each issue, list its label names in alphabetical order
 
@@ -949,25 +953,99 @@ that order by attaching one or more [standalone sorting expressions](#sorting-ou
 #issues $title $#labels.name%list(\\name)
 ```
 
+As with standalone sorting expressions, `\\` entries may be followed by `\d` (descending) and `\n`
+(nulls first) flags, and when several entries are given, the first takes precedence.
+
+#### Sorting by the aggregated value
+
+To sort by the very value being aggregated, use the `\s` column flag, just as you would to sort a
+result column. Combine it with `d` and `n` as usual: `\sd`, `\sn`, `\sdn`.
+
+> For each issue, list its label names in reverse alphabetical order
+
+```
+#issues $title $#labels.name%list(\sd)
+```
+
+This is the same as writing out a sorting expression that reaches the aggregated column — here
+`\\name \d` — but it saves you from repeating the path.
+
+#### The context of a sorting expression
+
 A sorting expression attached to an aggregate is evaluated **from the context of the first `#` table
 in the aggregated path**, not from the path's final column. This lets you sort by a column of an
 intermediate join table that the path passes through.
 
-> For each issue, list its label names, ordered by the join table's own `id` column
+> For each issue, list all its label names, ordered by the join table's own `id` column
 
 ```
-#issues $title $#issue_labels.label.name%list(\\id)
+#issues $title $#issue_labels.label.name%list_all(\\id)
 ```
 
 Here the path begins with `#issue_labels`, so `\\id` refers to `issue_labels.id`. To sort by a column
 that is reached by following a path out of that first `#` table, write the full path in the sorting
-expression — for example `\\label.name` sorts by the related label's name.
+expression — for example `\\label.name` sorts by the related label's name. (Since `label.name` is the
+column being aggregated, reached the same way, that's a sort by the aggregated value, equivalent to
+`\s`.)
 
-Because [`list`](./functions.md#list) removes duplicates via SQL `DISTINCT`, and SQL only allows a
-`DISTINCT` aggregate's `ORDER BY` to sort by the value being aggregated, sorting `list` by a
-different column (as in the `\\id` example above) falls back to a non-distinct `array_agg`. Use
-[`list_all`](./functions.md#list_all) if you want non-distinct results with an arbitrary sort order
-regardless.
+#### Sorting distinct values
+
+[`list`](./functions.md#list) removes duplicate values, which affects how it can be sorted. Take this
+query, which lists the users who have commented on each issue:
+
+```
+#issues $title $#comments.user.username%list
+```
+
+If a user has commented on an issue three times, their username appears just once in the list. But
+those three comments each have their own `created_at`, so it's not meaningful to sort the list by
+`\\created_at` — which of the three dates would decide where the username goes? For that reason,
+every sorting entry within `list` must be one of the following:
+
+- **A sort by the listed value itself**, written as `\s` (or as a path to it, like `\\user.username`
+  above).
+
+  > For each issue, list the users who have commented on it, alphabetically
+
+  ```
+  #issues $title $#comments.user.username%list(\s)
+  ```
+
+- **An aggregated sorting expression**, which summarizes the records that share each value. It's
+  written like any other [aggregate](#specifying-an-aggregate-function) and is computed
+  separately for each distinct value, from the records (here, the comments) behind that value.
+
+  > For each issue, list the users who have commented on it, in the order in which they first
+  > commented
+
+  ```
+  #issues $title $#comments.user.username%list(\\created_at%min)
+  ```
+
+  > ... with the most recently active commenter first
+
+  ```
+  #issues $title $#comments.user.username%list(\\created_at%max \d)
+  ```
+
+  > ... with the most frequent commenter first, breaking ties alphabetically
+
+  ```
+  #issues $title $#comments.user.username%list(\\%count \d \s)
+  ```
+
+Sorting `list` by anything else (such as `\\created_at`) is an error. If you want to sort by each
+individual record and you don't mind duplicates, use [`list_all`](./functions.md#list_all) instead,
+which accepts any sorting expression.
+
+Aggregated sorting expressions have a couple of limitations:
+
+- They can only be used within `list`. Other aggregate functions don't remove duplicates, so they
+  have no use for them.
+- They're only supported when listing values from related records via a `#` path, as above, and not
+  when listing a column of [grouped](#grouping-and-aggregation) records (e.g.
+  `#issues $status \g $title%list(\\id%min)`). Sorting grouped records by the listed value
+  (`$title%list(\s)`) works fine.
 
 ### "Has some" and "has none" conditions
 

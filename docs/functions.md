@@ -394,7 +394,15 @@ Collects the distinct values of a column into an array, compiling to SQL `array_
 #projects $name $#issues.title%list
 ```
 
-If `list` is sorted (see [Sorting within an aggregate function](./language.md#sorting-within-an-aggregate-function)) by something other than the collected column itself, it compiles to a non-distinct `array_agg` instead — SQL only allows a `DISTINCT` aggregate's `ORDER BY` to sort by the value being aggregated.
+Sort the list by attaching sorting entries in parentheses (see [Sorting within an aggregate function](./language.md#sorting-within-an-aggregate-function)). Because `list` removes duplicates, each entry must sort either by the listed value itself (`\s`, `\sd`, …) or by an aggregated sorting expression that summarizes the records sharing each value (see [Sorting distinct values](./language.md#sorting-distinct-values)):
+
+```qd
+#projects $name $#issues.title%list(\sd) // reverse alphabetical
+#issues $title $#comments.user.username%list(\\created_at%min) // in order of first comment
+#issues $title $#comments.user.username%list(\\%count \d \s) // most frequent commenter first
+```
+
+Sorting `list` by a per-record expression, such as `\\created_at`, is an error. Use [`list_all`](#list_all) for that.
 
 ### `list_all`
 
@@ -402,6 +410,12 @@ Collects the values of a column into an array without removing duplicates, compi
 
 ```qd
 #projects $name $#issues.title%list_all
+```
+
+Unlike `list`, `list_all` may be sorted by any expression, including per-record ones, since it doesn't need to reconcile duplicates:
+
+```qd
+#issues $title $#comments.user.username%list_all(\\created_at) // one entry per comment, oldest first
 ```
 
 ### `all_true`

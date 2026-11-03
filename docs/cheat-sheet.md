@@ -81,6 +81,7 @@ Regex flags
 | `\` | column control flags prefix | ✅ |
 | `\\` | [sorting expression](./language.md#sorting-outside-of-result-columns) prefix (followed by optional `\d` / `\n` flags) | ✅ |
 | `.( )` | [scoped sorting expressions](./language.md#scoped-sorting-expressions) | ✅ |
+| `%list(\\created_at%min \d)` `%list(\sd)` | [sorting within an aggregate function](./language.md#sorting-within-an-aggregate-function), by an expression or (via `\s`) by the aggregated value | ✅ |
 | `@{ }` | [column annotations](./language.md#column-level-annotations) (written last in the spec) | ✅ |
 
 Column control flags:

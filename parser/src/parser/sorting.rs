@@ -98,36 +98,58 @@ fn sort_expr_tail<'src>() -> impl Psr<'src, SortExpr> {
         })
 }
 
+#[derive(Clone)]
+enum SortFlag {
+    Desc,
+    NullsFirst,
+}
+
+/// Parses one `d` (descending) or `n` (nulls first) sort flag letter.
+fn sort_flag<'src>() -> impl Psr<'src, SortFlag> {
+    choice((
+        just(COLUMN_CONTROL_FLAG_DESC).to(SortFlag::Desc),
+        just(COLUMN_CONTROL_FLAG_NULLS_FIRST).to(SortFlag::NullsFirst),
+    ))
+    .labelled(labels::SORT_FLAG)
+}
+
+fn fold_sort_flags(flags: Vec<SortFlag>) -> (SortDirection, NullsSort) {
+    let mut direction = SortDirection::default();
+    let mut nulls_sort = NullsSort::default();
+    for flag in flags {
+        match flag {
+            SortFlag::Desc => direction = SortDirection::Desc,
+            SortFlag::NullsFirst => nulls_sort = NullsSort::First,
+        }
+    }
+    (direction, nulls_sort)
+}
+
 /// Parses the optional `\d` / `\n` flags that may follow a standalone sorting expression. Only `d`
 /// (descending) and `n` (nulls first) are accepted — `s` is implied by the `\\` prefix. Flags may
 /// be combined within a single backslash group, e.g. `\dn`.
 pub(crate) fn sort_flags<'src>() -> impl Psr<'src, (SortDirection, NullsSort)> {
-    #[derive(Clone)]
-    enum Flag {
-        Desc,
-        NullsFirst,
-    }
-    let flag = choice((
-        just(COLUMN_CONTROL_FLAG_DESC).to(Flag::Desc),
-        just(COLUMN_CONTROL_FLAG_NULLS_FIRST).to(Flag::NullsFirst),
-    ));
     just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(
-        flag.labelled(labels::SORT_FLAG)
+        sort_flag()
             .repeated()
             .at_least(1)
-            .collect::<Vec<Flag>>()
-            .map(|flags| {
-                let mut direction = SortDirection::default();
-                let mut nulls_sort = NullsSort::default();
-                for flag in flags {
-                    match flag {
-                        Flag::Desc => direction = SortDirection::Desc,
-                        Flag::NullsFirst => nulls_sort = NullsSort::First,
-                    }
-                }
-                (direction, nulls_sort)
-            }),
+            .collect::<Vec<SortFlag>>()
+            .map(fold_sort_flags),
     )
+}
+
+/// Parses the column flags `\s`, `\sd`, `\sn`, or `\sdn` written within an aggregate function's
+/// parentheses, where they sort by the value being aggregated (e.g. `%list(\sd)`). As with result
+/// column flags, the `s` means "sort" and may be followed by `d` and/or `n`.
+pub(crate) fn value_sort_flags<'src>() -> impl Psr<'src, (SortDirection, NullsSort)> {
+    just(COLUMN_CONTROL_FLAGS_PREFIX)
+        .then(just(COLUMN_CONTROL_FLAG_SORT))
+        .ignore_then(
+            sort_flag()
+                .repeated()
+                .collect::<Vec<SortFlag>>()
+                .map(fold_sort_flags),
+        )
 }
 
 #[cfg(test)]

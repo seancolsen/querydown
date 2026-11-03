@@ -504,7 +504,28 @@ pub struct Call {
     pub dimension: FunctionDimension,
     pub args: Vec<Expr>,
     pub syntax: CallSyntax,
-    pub order_by: Vec<SortExpr>,
+    /// The sorting entries written within an aggregate function's parentheses, e.g. the `\\name`
+    /// in `#labels.name%list(\\name)`. Always empty for scalar functions.
+    pub order_by: Vec<AggregateSortExpr>,
+}
+
+/// One sorting entry within an aggregate function's parentheses. Either a `\\`-prefixed sorting
+/// expression (`%list(\\created_at%min \d)`) or the column flags `\s`, `\sd`, etc., which sort by
+/// the value being aggregated (`%list(\sd)`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AggregateSortExpr {
+    pub key: AggregateSortKey,
+    pub direction: SortDirection,
+    pub nulls_sort: NullsSort,
+}
+
+/// What an [`AggregateSortExpr`] sorts by.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AggregateSortKey {
+    /// The value being aggregated, written via the `\s` column flag (e.g. `%list(\s)`).
+    Value,
+    /// An arbitrary expression, written with the `\\` prefix (e.g. `%list(\\created_at%min)`).
+    Expr(Expr),
 }
 
 #[derive(Debug, Clone, PartialEq)]

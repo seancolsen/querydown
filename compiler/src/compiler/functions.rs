@@ -2,17 +2,17 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 use querydown_parser::ast::{
-    AnonymousFunctionCall, Assignment, Call, Expr, FunctionBody, FunctionDef, FunctionDimension,
-    SortExpr,
+    AggregateSortExpr, AggregateSortKey, AnonymousFunctionCall, Assignment, Call, Expr,
+    FunctionBody, FunctionDef, FunctionDimension, PathPart,
 };
 
 use crate::{
     compiler::{
-        expr::convert_expr,
-        paths::{
-            clarify_path, render_order_by, AggWrapper, AggregateExprTemplate, ClarifiedPath,
-            ClarifiedPathTail,
+        aggregate_sorting::{
+            compile_aggregate, resolve_aggregate_sorting, AggregateKind, CompiledAggregate,
         },
+        expr::convert_expr,
+        paths::{clarify_path, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail},
         scope::{Expansion, Scope},
         temporal::{now_operand, reconcile, TemporalZone},
         typing::infer_type,
@@ -118,12 +118,15 @@ fn apply_function(
 fn convert_aggregate_call(
     name: &str,
     e: Vec<Expr>,
-    order_by: Vec<SortExpr>,
+    order_by: Vec<AggregateSortExpr>,
     s: &mut Scope,
 ) -> Result<SqlExpr, String> {
     // A standalone aggregate with no argument, e.g. `%count`, which is shorthand for `count(*)`.
     // Only `count` is meaningful without an argument.
     if e.is_empty() {
+        if order_by.iter().any(|o| o.key == AggregateSortKey::Value) {
+            return Err(msg::value_sort_without_value(name));
+        }
         if name == "count" {
             return Ok(build::agg::count_star());
         }
@@ -139,7 +142,8 @@ pub type ScalarFuncMap = HashMap<String, ScalarFunction>;
 pub type ScalarFunc = fn(Vec<Expr>, &mut Scope) -> Result<SqlExpr, String>;
 
 pub type AggregateFuncMap = HashMap<String, AggregateFunction>;
-pub type AggregateFunc = fn(Vec<Expr>, Vec<SortExpr>, &mut Scope) -> Result<SqlExpr, String>;
+pub type AggregateFunc =
+    fn(Vec<Expr>, Vec<AggregateSortExpr>, &mut Scope) -> Result<SqlExpr, String>;
 
 /// A built-in scalar function: the closure that compiles it, paired with the rule describing the
 /// type of value it returns (consulted by type inference).
@@ -349,14 +353,23 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
 /// Used for an aggregate function that takes one argument
 fn agg_1(
     args: Vec<Expr>,
-    order_by: Vec<SortExpr>,
+    order_by: Vec<AggregateSortExpr>,
     scope: &mut Scope,
-    agg_wrapper: AggWrapper,
+    kind: AggregateKind,
     coalesce_to_zero: bool,
 ) -> Result<SqlExpr, String> {
     let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let Expr::Path(path_parts) = arg0 else {
         return Err(msg::aggregate_fn_applied_to_a_non_path());
+    };
+    // Sorting expressions are evaluated from the context of the first `#` table in the path (or
+    // the current table, when there is none), so this is the aggregated value's path from there.
+    let value_path = match path_parts
+        .iter()
+        .position(|part| matches!(part, PathPart::TableWithMany(_)))
+    {
+        Some(index) => path_parts[index + 1..].to_vec(),
+        None => path_parts.clone(),
     };
     let ClarifiedPath { head, tail } = clarify_path(path_parts, scope)?;
     match tail {
@@ -368,10 +381,11 @@ fn agg_1(
             };
             let aggregate_expr_template = AggregateExprTemplate::new(
                 column_name,
-                agg_wrapper,
+                kind,
                 order_by,
                 coalesce_to_zero,
                 anchor_table_id,
+                value_path,
             );
             scope.join_chain_to_many(
                 &head,
@@ -388,18 +402,21 @@ fn agg_1(
                 None => scope.get_base_table().name.clone(),
             };
             let reference = scope.table_column_expr(&table_name, &column_name);
-            let order_by_str = render_order_by(order_by, scope)?;
-            Ok(agg_wrapper(
-                reference,
-                order_by_str,
-                scope.options.dialect.as_ref(),
-            ))
+            let sorts = resolve_aggregate_sorting(order_by, &value_path, scope)?;
+            let dialect = scope.options.dialect.as_ref();
+            match compile_aggregate(kind, reference, &sorts, dialect)? {
+                CompiledAggregate::Expr(expr) => Ok(expr),
+                // A two-level aggregation would need to restructure the whole grouped query, which
+                // isn't supported.
+                CompiledAggregate::NeedsTwoLevelList => Err(msg::aggregated_sort_in_grouped_list()),
+            }
         }
         None => Err(msg::aggregate_fn_applied_to_a_path_without_a_column()),
     }
 }
 
 pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
+    use AggregateKind::*;
     use TypeRule::*;
     use ValueType::*;
     // Each wrapper ignores the trailing `&dyn Dialect` argument except `product`, whose SQL differs
@@ -407,17 +424,17 @@ pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
     // preserve their argument's type, `list`/`list_all` wrap it in an array, and the rest are fixed.
     #[rustfmt::skip]
     let templates: [(&str, AggregateFunc, TypeRule); 11] = [
-        ("all_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_and(a, ob), false),           Fixed(Boolean)),
-        ("any_true", |e, ob, s| agg_1(e, ob, s, |a, ob, _| bool_or(a, ob), false),            Fixed(Boolean)),
-        ("avg",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| avg(a, ob), false),                Fixed(Number)),
-        ("count",    |e, ob, s| agg_1(e, ob, s, |a, ob, _| count(a, ob), true),               Fixed(Number)),
-        ("distinct", |e, ob, s| agg_1(e, ob, s, |a, ob, _| count_distinct(a, ob), true),      Fixed(Number)),
-        ("list",     |e, ob, s| agg_1(e, ob, s, |a, ob, _| array_agg_distinct(a, ob), false), ArrayOfArg(0)),
-        ("list_all", |e, ob, s| agg_1(e, ob, s, |a, ob, _| array_agg(a, ob), false),          ArrayOfArg(0)),
-        ("max",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| max(a, ob), false),                SameAsArg(0)),
-        ("min",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| min(a, ob), false),                SameAsArg(0)),
-        ("product",  |e, ob, s| agg_1(e, ob, s, |a, _ob, d| d.aggregate_product(a), false),   Fixed(Number)),
-        ("sum",      |e, ob, s| agg_1(e, ob, s, |a, ob, _| sum(a, ob), false),                Fixed(Number)),
+        ("all_true", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| bool_and(a, ob)), false),         Fixed(Boolean)),
+        ("any_true", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| bool_or(a, ob)), false),          Fixed(Boolean)),
+        ("avg",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| avg(a, ob)), false),              Fixed(Number)),
+        ("count",    |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| count(a, ob)), true),             Fixed(Number)),
+        ("distinct", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| count_distinct(a, ob)), true),    Fixed(Number)),
+        ("list",     |e, ob, s| agg_1(e, ob, s, DistinctList, false),                                ArrayOfArg(0)),
+        ("list_all", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| array_agg(a, ob)), false),        ArrayOfArg(0)),
+        ("max",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| max(a, ob)), false),              SameAsArg(0)),
+        ("min",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| min(a, ob)), false),              SameAsArg(0)),
+        ("product",  |e, ob, s| agg_1(e, ob, s, Wrapped(|a, _ob, d| d.aggregate_product(a)), false), Fixed(Number)),
+        ("sum",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| sum(a, ob)), false),              Fixed(Number)),
     ];
     templates
         .into_iter()

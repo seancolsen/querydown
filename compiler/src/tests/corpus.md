@@ -1970,17 +1970,225 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk";
 ```
 
-### List aggregate sorted by a join-table column
+### List aggregate sorted by its own value via column flags
+
+> Issues with an array of their distinct label names sorted reverse-alphabetically. Within an
+> aggregate's parentheses, the column flags `\s` (plus optional `d` and `n`) sort by the value being
+> aggregated, without needing to spell out its path.
+
+```qd
+#issues $id $#labels.name%list(\sd)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" DESC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate sorted via a path from the join table
+
+> The sorting expression may itself follow a path out of the first `#` table. Here `\\label.name`
+> walks from `issue_labels` to its `label`. That resolves to the very column being aggregated (via
+> the same route), so it's recognized as a sort by the aggregated value: the existing `labels` join
+> is reused and the `DISTINCT` is kept.
+
+```qd
+#issues $id $#issue_labels.label.name%list(\\label.name)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate sorted via a to-one path to its value
+
+> Issues with the distinct usernames of their commenters, sorted alphabetically. The sort is
+> evaluated from `comments`, so the username is reached via `user.username` — the same route as the
+> aggregated value — and `DISTINCT` is kept.
+
+```qd
+#issues $id $title $#comments.user.username%list(\\user.username)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg(DISTINCT "users"."username" ORDER BY "users"."username" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    JOIN "users" ON
+      "comments"."user" = "users"."id"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate sorted by an aggregated sort key
+
+> Issues with the distinct usernames of their commenters, in the order of each user's first comment
+> on the issue. Because each username may appear on several comments, the sort key is aggregated
+> (`%min`) per distinct username. SQL can't express that with a single `DISTINCT` aggregate, so it
+> compiles to a two-level aggregation: an inner CTE groups the comments by issue and username,
+> computing the sort key, and the outer query collects the usernames ordered by it.
+
+```qd
+#issues $id $#comments.user.username%list(\\created_at%min)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          "users"."username" AS "value",
+          min("comments"."created_at") AS "sort1"
+        FROM "comments"
+        JOIN "users" ON
+          "comments"."user" = "users"."id"
+        GROUP BY "comments"."issue", "users"."username"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."sort1" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate sorted by several sort keys
+
+> Issues with the distinct usernames of their commenters, most frequent commenter first, breaking
+> ties by the most recent comment and then alphabetically. Aggregated sort keys and sorts by the
+> value itself (`\s`) may be mixed freely.
+
+```qd
+#issues $id $#comments.user.username%list(\\%count \d \\created_at%max \d \s)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          "users"."username" AS "value",
+          count(*) AS "sort1",
+          max("comments"."created_at") AS "sort2"
+        FROM "comments"
+        JOIN "users" ON
+          "comments"."user" = "users"."id"
+        GROUP BY "comments"."issue", "users"."username"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."sort1" DESC NULLS LAST, "distinct_values"."sort2" DESC NULLS LAST, "distinct_values"."value" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List aggregate sorted by an aggregated sort key over a filtered path
+
+> Conditions on the aggregated path apply within the inner CTE of the two-level aggregation, so
+> only the matching records contribute to the sort keys.
+
+```qd
+#issues $id $#comments{!user:issue.author}.user.username%list(\\%count \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          "users"."username" AS "value",
+          count(*) AS "sort1"
+        FROM "comments"
+        JOIN "users" ON
+          "comments"."user" = "users"."id"
+        LEFT JOIN "issues" ON
+          "comments"."issue" = "issues"."id"
+        WHERE
+          NOT "comments"."user" = "issues"."author"
+        GROUP BY "comments"."issue", "users"."username"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."sort1" DESC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List all aggregate sorted by a join-table column
 
 > Issues with an array of their label names, sorted by a column of the join table rather than a
 > column of the labels themselves. Because the aggregated path begins with `#issue_labels`, the
-> sorting expression `\\id` is evaluated from the context of the `issue_labels` join table, so the
-> array is ordered by `issue_labels.id`. SQL requires a `DISTINCT` aggregate's `ORDER BY` to sort by
-> the aggregated value itself, so sorting by an unrelated column like this falls back to a
-> non-distinct `array_agg` rather than producing SQL the database would reject.
+> sorting expression `\\id` is evaluated from the context of the `issue_labels` join table. Such a
+> per-record sort key is only allowed with `list_all`: `list` removes duplicates, which may disagree
+> on the sort key.
 
 ```qd
-#issues $id $#issue_labels.label.name%list(\\id)
+#issues $id $#issue_labels.label.name%list_all(\\id)
 ```
 
 ```sql
@@ -2002,37 +2210,21 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk";
 ```
 
-### List aggregate sorted via a path from the join table
+### List aggregate of grouped records sorted by its value
 
-> The sorting expression may itself follow a path out of the first `#` table. Here `\\label.name`
-> walks from `issue_labels` to its `label`, sorting the array by the label name — the same result as
-> sorting from `#labels` directly, but reached explicitly through the join table. As above, this
-> sorts by a different SQL expression (`labels_1.name`) than the one being aggregated
-> (`labels.name`), so it also falls back to a non-distinct `array_agg`.
+> Within a grouped query, `list` collects a column of each group's records. The `\s` flags sort it
+> by that column.
 
 ```qd
-#issues $id $#issue_labels.label.name%list(\\label.name)
+#issues $status \g $title%list(\s)
 ```
 
 ```sql
-WITH
-  "cte0" AS (
-    SELECT
-      "issue_labels"."issue" AS "pk",
-      array_agg("labels"."name" ORDER BY "labels_1"."name" ASC NULLS LAST) AS "v1"
-    FROM "issue_labels"
-    JOIN "labels" ON
-      "issue_labels"."label" = "labels"."id"
-    LEFT JOIN "labels" AS "labels_1" ON
-      "issue_labels"."label" = "labels_1"."id"
-    GROUP BY "issue_labels"."issue"
-  )
 SELECT
-  "issues"."id",
-  "cte0"."v1"
+  "issues"."status",
+  array_agg(DISTINCT "issues"."title" ORDER BY "issues"."title" ASC NULLS LAST)
 FROM "issues"
-LEFT JOIN "cte0" ON
-  "issues"."id" = "cte0"."pk";
+GROUP BY "issues"."status";
 ```
 
 ### List all aggregate (non-distinct array_agg)

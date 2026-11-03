@@ -7,7 +7,7 @@ use crate::{
     errors::msg,
     schema::{
         chain::{Chain, ChainIntersecting},
-        links::{FilteredLink, Link, LinkToOne, MultiLink},
+        links::{FilteredLink, Link, LinkToOne, MultiLink, Reference},
         ChainSearchBase, Table, TableId,
     },
 };
@@ -89,6 +89,26 @@ pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath
         column_name_opt.map(ClarifiedPathTail::Column)
     };
     Ok(ClarifiedPath { head, tail })
+}
+
+/// Returns true when two paths, both evaluated from the scope's base table, reach the same column
+/// via the same route (the same links, with the same filters). Paths that fail to resolve are never
+/// alike. Comparing resolved paths rather than their written form means that differences which
+/// don't affect the result (such as the letter case of identifiers, when the compiler is configured
+/// to ignore it) don't prevent a match.
+pub fn paths_resolve_alike(a: Vec<PathPart>, b: Vec<PathPart>, scope: &Scope) -> bool {
+    let (Ok(a), Ok(b)) = (build_linked_path(a, scope), build_linked_path(b, scope)) else {
+        return false;
+    };
+    type LinkKey = (Reference, Reference, ConditionSet);
+    let link_keys = |chain: Option<Chain<FilteredLink>>| -> Vec<LinkKey> {
+        chain
+            .into_iter()
+            .flatten()
+            .map(|link| (link.get_start(), link.get_end(), link.condition_set))
+            .collect()
+    };
+    a.column == b.column && link_keys(a.chain) == link_keys(b.chain)
 }
 
 #[derive(Debug)]

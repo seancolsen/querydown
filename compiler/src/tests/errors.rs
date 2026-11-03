@@ -179,3 +179,87 @@ fn table_with_one_path_is_an_error_rather_than_a_crash() {
         "Paths to a single related record via `>>` (as in `>>users`) are not yet supported."
     );
 }
+
+// ------------------------------------------------------------------------------------------------
+// Sorting within aggregate functions
+// ------------------------------------------------------------------------------------------------
+
+#[test]
+fn list_sorted_by_a_per_record_expression_is_an_error() {
+    // `list` removes duplicates, which may disagree on a per-record sort key. This used to fall
+    // back silently to a non-distinct `array_agg`.
+    for input in [
+        r"#issues $#comments.user.username%list(\\created_at)",
+        r"#issues $#issue_labels.label.name%list(\\id)",
+        r"#issues $#comments.user.username%list(\s \\created_at \d)",
+        r"#issues $status \g $title%list(\\id)",
+    ] {
+        let err = compile_error(input);
+        assert!(
+            err.message
+                .starts_with("The `list` function removes duplicate values")
+                && err.message.contains("use `list_all` instead"),
+            "for {input}: {}",
+            err.message
+        );
+    }
+}
+
+#[test]
+fn per_record_sorts_remain_allowed_outside_list() {
+    assert!(compile(r"#issues $#comments.user.username%list_all(\\created_at)").is_ok());
+    assert!(compile(r"#issues $#comments.user.username%list_all(\s)").is_ok());
+}
+
+#[test]
+fn aggregated_sort_key_outside_list_is_an_error() {
+    for input in [
+        r"#issues $#comments.user.username%list_all(\\created_at%min)",
+        r"#issues $#comments.created_at%max(\\%count)",
+    ] {
+        let err = compile_error(input);
+        assert!(
+            err.message
+                .starts_with("Aggregated sorting expressions (e.g. `\\\\created_at%min` or"),
+            "for {input}: {}",
+            err.message
+        );
+    }
+}
+
+#[test]
+fn aggregated_sort_key_in_grouped_list_is_an_error() {
+    let err = compile_error(r"#issues $status \g $title%list(\\id%min)");
+    assert!(
+        err.message
+            .contains("not when listing a column of grouped records"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn value_sort_on_a_standalone_aggregate_is_an_error() {
+    let err = compile_error(r"#issues $%count(\s)");
+    assert_eq!(
+        err.message,
+        "`\\s` sorts by the value being aggregated, but `%count` is used on its own, without a value."
+    );
+}
+
+#[test]
+fn sort_by_a_path_to_the_listed_value_keeps_distinct() {
+    // A sort path that reaches the aggregated column via the same route is a sort by the value
+    // itself, so `list` keeps its `DISTINCT` (rather than joining the table a second time).
+    let sql = compile(r"#issues $#comments.user.username%list(\\user.username \d)").unwrap();
+    assert!(
+        sql.contains(
+            r#"array_agg(DISTINCT "users"."username" ORDER BY "users"."username" DESC NULLS LAST)"#
+        ),
+        "{sql}"
+    );
+    assert!(!sql.contains("users_1"), "{sql}");
+    // Flexible identifier resolution means letter case doesn't defeat the match.
+    let sql = compile(r"#issues $#comments.user.username%list(\\User.UserName)").unwrap();
+    assert!(sql.contains("array_agg(DISTINCT"), "{sql}");
+}

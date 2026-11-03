@@ -2,35 +2,39 @@ use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
 use crate::labels;
-use crate::parser::sorting::sort_flags;
+use crate::parser::sorting::{sort_flags, value_sort_flags};
 use crate::parser::utils::*;
 use crate::tokens::*;
 
-fn agg_sort_expr<'src>(expr_parser: impl Psr<'src, Expr>) -> impl Psr<'src, SortExpr> {
-    just(SORT_EXPR_PREFIX)
+/// One sorting entry within an aggregate function's parentheses: either a `\\`-prefixed sorting
+/// expression with optional `\d`/`\n` flags (`\\created_at%min \d`), or the column flags `\s`,
+/// `\sd`, etc., which sort by the value being aggregated.
+fn agg_sort_expr<'src>(expr_parser: impl Psr<'src, Expr>) -> impl Psr<'src, AggregateSortExpr> {
+    let expr_entry = just(SORT_EXPR_PREFIX)
         .ignore_then(pad())
         .ignore_then(expr_parser)
         .then(pad().ignore_then(sort_flags()).or_not())
-        .map(|(expr, flags)| {
-            let (direction, nulls_sort) = flags.unwrap_or_default();
-            SortExpr {
-                expr,
-                direction,
-                nulls_sort,
-            }
-        })
+        .map(|(expr, flags)| (AggregateSortKey::Expr(expr), flags.unwrap_or_default()));
+    let value_entry = value_sort_flags().map(|flags| (AggregateSortKey::Value, flags));
+    choice((expr_entry, value_entry)).map(|(key, (direction, nulls_sort))| AggregateSortExpr {
+        key,
+        direction,
+        nulls_sort,
+    })
 }
 
-/// An aggregate's optional ORDER BY clause, e.g. the `(\name)` in `labels.name%list(\name)`. Built
-/// from a fresh copy of the extra-args expression parser at each use site because the parser is
-/// consumed when constructed.
-fn aggregate_order_by<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Vec<SortExpr>> {
+/// An aggregate's optional ORDER BY clause, e.g. the `(\\name)` in `labels.name%list(\\name)` or the
+/// `(\sd)` in `labels.name%list(\sd)`. Built from a fresh copy of the extra-args expression parser
+/// at each use site because the parser is consumed when constructed.
+fn aggregate_order_by<'src>(
+    args_expr: impl Psr<'src, Expr>,
+) -> impl Psr<'src, Vec<AggregateSortExpr>> {
     just(COMPOSITION_ARGUMENT_BRACE_L)
         .ignore_then(
             agg_sort_expr(args_expr)
                 .padded_by(pad())
                 .repeated()
-                .collect::<Vec<SortExpr>>(),
+                .collect::<Vec<AggregateSortExpr>>(),
         )
         .then_ignore(just(COMPOSITION_ARGUMENT_BRACE_R))
 }
@@ -42,7 +46,7 @@ enum PipeStep {
         dimension: FunctionDimension,
         name: String,
         extra_args: Vec<Expr>,
-        order_by: Vec<SortExpr>,
+        order_by: Vec<AggregateSortExpr>,
     },
     AnonymousFn {
         params: Vec<String>,
@@ -183,4 +187,84 @@ pub fn pipe<'src>(
             }
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::expr;
+    use super::*;
+
+    fn parse(input: &str) -> Result<Expr, ()> {
+        expr()
+            .then_ignore(end())
+            .parse(input)
+            .into_result()
+            .map_err(|_| ())
+    }
+
+    fn order_by(input: &str) -> Vec<AggregateSortExpr> {
+        match parse(input) {
+            Ok(Expr::Call(call)) => call.order_by,
+            other => panic!("expected a call for {input}, got {other:?}"),
+        }
+    }
+
+    fn col(name: &str) -> Expr {
+        Expr::Path(vec![PathPart::Column(name.to_string())])
+    }
+
+    fn sort(
+        key: AggregateSortKey,
+        direction: SortDirection,
+        nulls: NullsSort,
+    ) -> AggregateSortExpr {
+        AggregateSortExpr {
+            key,
+            direction,
+            nulls_sort: nulls,
+        }
+    }
+
+    #[test]
+    fn test_aggregate_value_sort_flags() {
+        use AggregateSortKey::Value;
+        use NullsSort::*;
+        use SortDirection::*;
+        assert_eq!(order_by(r"name%list(\s)"), vec![sort(Value, Asc, Last)]);
+        assert_eq!(order_by(r"name%list(\sd)"), vec![sort(Value, Desc, Last)]);
+        assert_eq!(order_by(r"name%list(\sn)"), vec![sort(Value, Asc, First)]);
+        assert_eq!(order_by(r"name%list(\snd)"), vec![sort(Value, Desc, First)]);
+        assert_eq!(
+            order_by(r"name%list( \sdn )"),
+            vec![sort(Value, Desc, First)]
+        );
+    }
+
+    #[test]
+    fn test_aggregate_sort_entries_mix() {
+        use NullsSort::*;
+        use SortDirection::*;
+        // A `\\` entry's flags are distinguished from a following `\s` entry.
+        assert_eq!(
+            order_by(r"name%list(\\a \d \sd \\b)"),
+            vec![
+                sort(AggregateSortKey::Expr(col("a")), Desc, Last),
+                sort(AggregateSortKey::Value, Desc, Last),
+                sort(AggregateSortKey::Expr(col("b")), Asc, Last),
+            ]
+        );
+        // An aggregate may serve as a sort key.
+        let entries = order_by(r"name%list(\\%count \d)");
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(
+            &entries[0].key,
+            AggregateSortKey::Expr(Expr::Call(Call { name, .. })) if name == "count"
+        ));
+    }
+
+    #[test]
+    fn test_aggregate_value_sort_flags_require_s() {
+        assert!(parse(r"name%list(\d)").is_err());
+        assert!(parse(r"name%list(\x)").is_err());
+    }
 }
