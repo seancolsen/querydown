@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use querydown_parser::ast::{
-    ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, PathPart,
+    ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, PathPart, WindowFn,
 };
 
 use crate::{
@@ -144,6 +144,23 @@ impl Drop for ExpansionGuard {
     }
 }
 
+/// A context in which SQL doesn't permit a window function, so that compiling one there would
+/// produce SQL the database rejects. See [`Scope::with_window_ban`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowBan {
+    /// A `WHERE` clause. Window functions written directly among a stage's conditions are computed
+    /// in a wrapping query instead (see [`Scope::substitute_window`]), so this only catches windows
+    /// that are reached some other way, e.g. through a computed column.
+    Condition,
+    /// Anything compiled within the CTE for a path to related records (`#comments{…}`), whose
+    /// values end up in a `WHERE` clause or an aggregate.
+    RelatedRecords,
+    /// The argument or sorting of an aggregate function.
+    Aggregate,
+    /// The arguments, partitioning, or ordering of another window function.
+    Nested,
+}
+
 pub struct Scope<'a, 'b> {
     parent: Option<&'b Scope<'a, 'b>>,
     pub options: &'a Options,
@@ -174,6 +191,16 @@ pub struct Scope<'a, 'b> {
     /// Custom comparisons, defined before the query and keyed by `(canonical table name, comparison
     /// name as written in the definition)`. The name is looked up using identifier resolution.
     custom_comparisons: HashMap<String, HashMap<String, CustomComparisonDef>>,
+    /// When set, compiling a window function is an error (see [`WindowBan`]). Inherited by spawned
+    /// scopes, since anything they compile is folded into the same part of the query.
+    window_ban: Option<WindowBan>,
+    /// Window functions whose values were computed in a wrapping query, paired with the SQL that
+    /// references each value. A window function that matches one of these compiles to that
+    /// reference instead. Not inherited by spawned scopes, which compile in other contexts.
+    window_substitutions: Vec<(WindowFn, SqlExpr)>,
+    /// Whether this scope has compiled a window function (excluding substitutions). Used to reject
+    /// window functions in a grouped stage.
+    has_compiled_window: bool,
 }
 
 impl<'a, 'b> Scope<'a, 'b> {
@@ -202,6 +229,9 @@ impl<'a, 'b> Scope<'a, 'b> {
             expansion_state: Rc::default(),
             user_functions: HashMap::new(),
             custom_comparisons: HashMap::new(),
+            window_ban: None,
+            window_substitutions: Vec::new(),
+            has_compiled_window: false,
         }
     }
 
@@ -439,7 +469,50 @@ impl<'a, 'b> Scope<'a, 'b> {
             expansion_state: Rc::clone(&self.expansion_state),
             user_functions: HashMap::new(),
             custom_comparisons: HashMap::new(),
+            window_ban: self.window_ban,
+            window_substitutions: Vec::new(),
+            has_compiled_window: false,
         }
+    }
+
+    /// Bans window functions while evaluating `f` (see [`WindowBan`]), restoring the previous ban
+    /// afterward. The innermost ban wins, since it best describes where the window function is.
+    pub fn with_window_ban<T>(&mut self, ban: WindowBan, f: impl FnOnce(&mut Self) -> T) -> T {
+        let previous = self.window_ban.replace(ban);
+        let result = f(self);
+        self.window_ban = previous;
+        result
+    }
+
+    /// Bans window functions for the rest of this scope's life (see [`WindowBan`]).
+    pub fn ban_windows(&mut self, ban: WindowBan) {
+        self.window_ban = Some(ban);
+    }
+
+    pub fn window_ban(&self) -> Option<WindowBan> {
+        self.window_ban
+    }
+
+    /// Makes `window` compile to `reference`, the column through which a wrapping query supplies
+    /// its value.
+    pub fn add_window_substitution(&mut self, window: WindowFn, reference: SqlExpr) {
+        self.window_substitutions.push((window, reference));
+    }
+
+    /// The SQL referencing `window`'s value, if a wrapping query supplies it.
+    pub fn substitute_window(&self, window: &WindowFn) -> Option<SqlExpr> {
+        self.window_substitutions
+            .iter()
+            .find(|(w, _)| w == window)
+            .map(|(_, reference)| reference.clone())
+    }
+
+    pub fn note_compiled_window(&mut self) {
+        self.has_compiled_window = true;
+    }
+
+    pub fn has_compiled_window(&self) -> bool {
+        self.has_compiled_window
     }
 
     /// Returns a copy of the table aliases currently reserved in this scope. Used to seed a spawned

@@ -78,6 +78,41 @@ pub fn unknown_window_function(function_name: &str) -> String {
     format!("Window function `{}` does not exist.", function_name)
 }
 
+pub fn window_in_indirect_condition() -> String {
+    "A window function can only be used in a condition when it's written directly among the \
+     query's conditions (e.g. `#issues %%(project\\p created_at\\sd)%row_number:1`), not when \
+     it's reached through a computed column, a custom comparison, a function's body, or a scoped \
+     condition. To filter on it, compute it as a result column, and then filter on that column in \
+     the next stage of a pipeline (`~~~`)."
+        .to_string()
+}
+
+pub fn window_in_related_records() -> String {
+    "Window functions can't be used with related records, e.g. in a filter like `#comments{…}` or \
+     in a computed column that's aggregated across a to-many relationship. Instead, compute the \
+     value as a result column of one stage of a pipeline (`~~~`), and use it in the next stage."
+        .to_string()
+}
+
+pub fn window_in_aggregate() -> String {
+    "Window functions can't be used within an aggregate function. Instead, compute the value as a \
+     result column of one stage of a pipeline (`~~~`), and aggregate it in the next stage."
+        .to_string()
+}
+
+pub fn window_in_window() -> String {
+    "Window functions can't be nested within another window function. Instead, compute the inner \
+     value as a result column of one stage of a pipeline (`~~~`), and use it in the next stage."
+        .to_string()
+}
+
+pub fn window_in_grouped_stage() -> String {
+    "A query can't combine `\\g` grouping with a window function in its result columns or sorting. \
+     Use a pipeline (`~~~`) to group the output of a window function in a later stage, or to apply \
+     a window function to the groups."
+        .to_string()
+}
+
 pub fn window_fn_wrong_arg_count(
     function_name: &str,
     min_args: usize,

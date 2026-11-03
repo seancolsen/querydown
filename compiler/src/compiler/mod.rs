@@ -23,6 +23,7 @@ use serde::Serialize;
 
 use crate::{
     error::Error,
+    errors::msg,
     schema::{primitive_schema::PrimitiveSchema, Column as SchemaColumn, Schema, Table, ValueType},
     sql::tree::{Column, Cte, Select, SqlExpr},
     Options,
@@ -33,9 +34,13 @@ use self::{
     expr::{convert_condition_set, convert_expr},
     rendering::Render,
     result_columns::{convert_result_columns, convert_sort_exprs, ConvertedResultColumns},
-    scope::Scope,
-    window::{extract_window_conditions, SplitConditions, WindowProjection},
+    scope::{Scope, WindowBan},
+    window::{extract_window_conditions, SplitConditions, WINDOW_PROJECTION_ALIAS_PREFIX},
 };
+
+/// The alias of the CTE that computes the window functions referenced by a stage's conditions (see
+/// `compile_stage`).
+const WINDOW_SOURCE_CTE_ALIAS: &str = "qdwin_src";
 
 /// The output of compiling Querydown code: the generated SQL plus column-level annotation.
 ///
@@ -264,17 +269,58 @@ fn compile_stage(
     scope.register_computed_columns(computed_columns.to_vec())?;
 
     // SQL disallows window functions in a `WHERE` clause. When a stage's conditions reference a
-    // window function, the window-bearing conditions are split off to be applied in an outer
-    // query that wraps this one (see `wrap_stage_for_windows`).
+    // window function, the conditions that do are split off from the rest. An inner query (a CTE)
+    // selects the base table's rows that pass the other conditions, along with the value of each
+    // window function, computed over those rows. The stage then reads from that CTE in place of its
+    // base table, under the base table's own alias, so that everything else about the stage —
+    // result columns, grouping, sorting, related records — compiles exactly as it otherwise would.
+    // Its `WHERE` applies the window conditions, referencing the precomputed values.
     let SplitConditions {
         inner: inner_conditions,
         outer: outer_conditions,
-        projections,
+        windows,
     } = extract_window_conditions(transformation.conditions);
-    let is_wrapped = !projections.is_empty();
 
     let mut select = Select::from(base_table.name.clone());
-    select.conditions = convert_condition_set(inner_conditions, &mut scope)?;
+    let mut window_source_cte = None;
+    if windows.is_empty() {
+        select.conditions = scope.with_window_ban(WindowBan::Condition, |scope| {
+            convert_condition_set(inner_conditions, scope)
+        })?;
+    } else {
+        let source_alias = scope.get_alias(WINDOW_SOURCE_CTE_ALIAS);
+        let mut source_scope = Scope::build_with_base_table(options, schema, base_table);
+        source_scope.register_constants(constants.to_vec());
+        source_scope.register_functions(functions.to_vec());
+        source_scope.register_custom_comparisons(custom_comparisons.to_vec())?;
+        source_scope.register_computed_columns(computed_columns.to_vec())?;
+        let mut source = Select::from(base_table.name.clone());
+        source.conditions = source_scope.with_window_ban(WindowBan::Condition, |scope| {
+            convert_condition_set(inner_conditions, scope)
+        })?;
+        (source.columns, _) = expand_base_table_columns(base_table, &source_scope);
+        for (index, window) in windows.into_iter().enumerate() {
+            let alias = format!("{WINDOW_PROJECTION_ALIAS_PREFIX}{index}");
+            let sql = convert_expr(Expr::Window(window.clone()), &mut source_scope)?;
+            source.columns.push(Column::new(sql, Some(alias.clone())));
+            let reference = scope.table_column_expr(scope.get_base_alias(), &alias);
+            scope.add_window_substitution(window, reference);
+        }
+        (source.joins, source.ctes) = source_scope.decompose_join_tree();
+        select.base_table = source_alias.clone();
+        select.base_table_alias = Some(base_table.name.clone());
+        window_source_cte = Some(Cte {
+            alias: source_alias,
+            select: source,
+            // This CTE is used as the stage's base table (via `FROM`), not joined, so this field
+            // is never consulted.
+            join_column_name: String::new(),
+        });
+        select.conditions = scope.with_window_ban(WindowBan::Condition, |scope| {
+            convert_condition_set(outer_conditions, scope)
+        })?;
+    }
+
     let standalone_sorting = convert_sort_exprs(transformation.sorting, &mut scope)?;
     let ConvertedResultColumns {
         mut columns,
@@ -283,6 +329,9 @@ fn compile_stage(
         mut column_annotations,
         mut output_names,
     } = convert_result_columns(transformation.result_columns, &mut scope)?;
+    if !grouping.is_empty() && scope.has_compiled_window() {
+        return Err(msg::window_in_grouped_stage());
+    }
     if columns.is_empty() {
         // With no explicit result columns, the stage emits every column of its base table. We list
         // them explicitly rather than emitting `SELECT *` so that the result set is exactly the
@@ -300,28 +349,6 @@ fn compile_stage(
         .chain(column_sorting)
         .collect();
 
-    if is_wrapped {
-        // Give every real result column an explicit, unique alias so the wrapping query can
-        // reference it by name.
-        let real_output_names = dedupe_names(output_names);
-        for (column, name) in columns.iter_mut().zip(real_output_names.iter()) {
-            column.alias = Some(name.clone());
-        }
-        select.columns = columns;
-        return wrap_stage_for_windows(
-            options,
-            schema,
-            scope,
-            select,
-            real_output_names,
-            column_annotations,
-            projections,
-            outer_conditions,
-            constants,
-            functions,
-        );
-    }
-
     let output_names = if is_last {
         output_names
     } else {
@@ -336,73 +363,12 @@ fn compile_stage(
 
     select.columns = columns;
     (select.joins, select.ctes) = scope.decompose_join_tree();
+    if let Some(cte) = window_source_cte {
+        select.ctes.insert(0, cte);
+    }
 
     Ok(StageOutput {
         select,
-        output_names,
-        column_annotations,
-    })
-}
-
-/// Wraps a stage whose conditions reference window functions. The supplied `inner` select is
-/// finished (its window values are projected as hidden columns, its real columns aliased to
-/// `output_names`) and becomes a CTE. An outer select reads from that CTE, selecting the real
-/// columns through and applying the window predicate that SQL would not permit in a `WHERE`.
-#[allow(clippy::too_many_arguments)]
-fn wrap_stage_for_windows(
-    options: &Options,
-    schema: &Schema,
-    mut scope: Scope,
-    mut inner: Select,
-    output_names: Vec<String>,
-    column_annotations: Vec<Option<AnnotationValue>>,
-    projections: Vec<WindowProjection>,
-    outer_conditions: querydown_parser::ast::ConditionSet,
-    constants: &[ConstantDef],
-    functions: &[FunctionDef],
-) -> Result<StageOutput, String> {
-    // Project each extracted window function as a hidden column on the inner select, aliased so
-    // the outer query can filter on it.
-    for projection in &projections {
-        let sql = convert_expr(Expr::Window(projection.window.clone()), &mut scope)?;
-        inner
-            .columns
-            .push(Column::new(sql, Some(projection.alias.clone())));
-    }
-    (inner.joins, inner.ctes) = scope.decompose_join_tree();
-
-    let wrap_alias = scope.get_alias("qdwin_src");
-
-    // Compile the outer (window) conditions against a synthetic table whose columns are the
-    // inner select's outputs: the real result columns plus the projected window values.
-    let mut wrap_column_names = output_names.clone();
-    wrap_column_names.extend(projections.iter().map(|p| p.alias.clone()));
-    let synthetic = build_pipeline_table(wrap_alias.clone(), &wrap_column_names);
-    let mut outer_scope = Scope::build_with_base_table(options, schema, &synthetic);
-    outer_scope.register_constants(constants.to_vec());
-    outer_scope.register_functions(functions.to_vec());
-    let outer_conditions_sql = convert_condition_set(outer_conditions, &mut outer_scope)?;
-
-    let inner_cte = Cte {
-        alias: wrap_alias.clone(),
-        select: inner,
-        join_column_name: String::new(),
-    };
-    let mut outer = Select::from(wrap_alias.clone());
-    outer.columns = output_names
-        .iter()
-        .map(|name| {
-            Column::new(
-                SqlExpr::atom(options.dialect.table_column(&wrap_alias, name)),
-                Some(name.clone()),
-            )
-        })
-        .collect();
-    outer.conditions = outer_conditions_sql;
-    outer.ctes = vec![inner_cte];
-
-    Ok(StageOutput {
-        select: outer,
         output_names,
         column_annotations,
     })

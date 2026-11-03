@@ -339,3 +339,84 @@ fn sort_by_a_path_to_the_listed_value_keeps_distinct() {
     let sql = compile(r"#issues $#comments.user.username%list(\\User.UserName)").unwrap();
     assert!(sql.contains("array_agg(DISTINCT"), "{sql}");
 }
+
+// ------------------------------------------------------------------------------------------------
+// Window functions where SQL doesn't permit them
+// ------------------------------------------------------------------------------------------------
+
+/// Asserts that each input fails to compile with a message starting with `prefix`. These all used
+/// to compile to SQL that the database rejected.
+#[track_caller]
+fn assert_window_errors(inputs: &[&str], prefix: &str) {
+    for input in inputs {
+        let err = compile_error(input);
+        assert!(
+            err.message.starts_with(prefix),
+            "for {input}: {}",
+            err.message
+        );
+    }
+}
+
+#[test]
+fn window_reached_indirectly_from_a_condition_is_an_error() {
+    assert_window_errors(
+        &[
+            "#comments.n = %%(issue\\p user\\p)%count\n#comments n:3",
+            "#issues.latest:@x = %%(project\\p created_at\\sd)%row_number:@x\n#issues latest:1",
+            "#issues project{%%(product\\p)%count:3}",
+        ],
+        "A window function can only be used in a condition when it's written directly",
+    );
+}
+
+#[test]
+fn window_with_related_records_is_an_error() {
+    assert_window_errors(
+        &[
+            "#comments.n = %%(issue\\p user\\p)%count\n#issues $#comments{n:3}.user.username%list",
+            "#comments.n = %%(issue\\p user\\p)%count\n#issues $#comments.n%max",
+            "#issues ++#comments{%%(user\\p)%count:3}",
+            r"#issues $#comments.user.username%list_all(\\%%(user\p)%count)",
+        ],
+        "Window functions can't be used with related records",
+    );
+}
+
+#[test]
+fn window_within_an_aggregate_is_an_error() {
+    assert_window_errors(
+        &["#comments.n = %%(issue\\p user\\p)%count\n#comments $issue \\g $n%max"],
+        "Window functions can't be used within an aggregate function",
+    );
+}
+
+#[test]
+fn window_within_a_window_is_an_error() {
+    assert_window_errors(
+        &[
+            r"#issues $%%(project\p)%max(%%(project\p)%count)",
+            r"#issues $%%(%%(project\p)%count\p)%row_number",
+        ],
+        "Window functions can't be nested within another window function",
+    );
+}
+
+#[test]
+fn window_in_a_grouped_stage_is_an_error() {
+    assert_window_errors(
+        &[
+            r"#issues \\%%()%rank $project \g $%count",
+            r"#issues $%%(project\p)%count \g $%count",
+        ],
+        "A query can't combine `\\g` grouping with a window function",
+    );
+}
+
+#[test]
+fn window_conditions_combine_with_grouping() {
+    // Window conditions filter the rows before they're grouped, so they work in a grouped stage.
+    assert!(
+        compile(r"#issues %%(project\p created_at\sd)%row_number:1 $status \g $%count").is_ok()
+    );
+}

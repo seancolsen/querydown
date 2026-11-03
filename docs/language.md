@@ -1398,9 +1398,22 @@ automatically computes the window value in a subquery and applies your filter to
 #issues %%(project\p created_at\sd)%row_number:1 $id $title $project
 ```
 
-This compiles to a query that computes `row_number() OVER (…)` in an inner subquery and then filters
-`= 1` in the outer query. Any ordinary (non-window) conditions in the same stage stay in the inner
-subquery.
+This compiles to a query that computes `row_number() OVER (…)` in a subquery (a CTE) and then filters
+`= 1` in the outer query, which reads from the subquery in place of the base table. The window
+function is computed over the rows that pass the stage's ordinary (non-window) conditions, which are
+applied within the subquery. Everything else about the stage then works just as it would without the
+window condition, including [grouping](#grouping-and-aggregation): the window condition filters the
+rows before they're grouped.
+
+> For each project, count the issues that were the most recent issue assigned to some user:
+
+```qd
+#assignments %%(user\p issue.created_at\sd)%row_number:1 $issue.project \g $%count
+```
+
+A window function must be written directly among the stage's conditions. One reached any other way,
+such as through a [computed column](#computed-columns), a [custom comparison](#custom-comparisons),
+or a [scoped comparison](#scoped-comparisons), is an error.
 
 Equivalently, you can compute the window value as a column in one [pipeline](#pipeline-of-multiple-queries)
 stage and filter it as a plain column in the next stage:
@@ -1416,8 +1429,15 @@ rn:1 $id $title $project
 - There is no syntax for an explicit **frame clause** (`ROWS`/`RANGE BETWEEN …`); windows use each
   function's SQL default frame. Note in particular that `last_value` and `nth_value` use the default
   frame ending at the current row.
-- A single stage cannot combine `\g` [grouping](#grouping-and-aggregation) with a window function. Use a
-  [pipeline](#pipeline-of-multiple-queries) to group the output of a window stage.
+- A single stage cannot combine `\g` [grouping](#grouping-and-aggregation) with a window function in
+  its result columns or sorting. Use a [pipeline](#pipeline-of-multiple-queries) to group the output
+  of a window stage. (A window function in the stage's _conditions_ is fine, as described
+  [above](#filtering-on-a-window-function).)
+- Window functions can't be used within an aggregate function, within another window function, or
+  with [related records](#referencing-multiple-related-records) (e.g. in a filter like
+  `#comments{…}`, or in a computed column that's aggregated across a to-many relationship). In each of
+  these cases, compute the window value as a result column in one stage of a
+  [pipeline](#pipeline-of-multiple-queries), and use it in the next stage.
 
 ## Variables
 

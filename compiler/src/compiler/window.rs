@@ -3,14 +3,25 @@
 //! A window function compiles to a SQL `func(args) OVER (PARTITION BY ... ORDER BY ...)` expression.
 //! Because SQL forbids window functions in a `WHERE` clause, a stage whose conditions reference a
 //! window function is automatically wrapped: the window values are computed in an inner query (a
-//! CTE) and the predicate is applied in an outer query that reads from it. See
-//! [`super::mod`]'s `compile_stage` for the wrapping logic; this module supplies the pieces it needs
-//! ([`expr_contains_window`] and [`extract_window_conditions`]).
+//! CTE) over the rows that pass the stage's other conditions, and the rest of the stage reads from
+//! it, applying the window predicate in its own `WHERE`. See [`super::mod`]'s `compile_stage` for
+//! the wrapping logic; this module supplies the condition splitting it needs
+//! ([`extract_window_conditions`]).
+//!
+//! SQL also forbids window functions in aggregates, in other window functions, and (in the CTEs
+//! that Querydown builds for related records) in `WHERE` clauses that can't be wrapped. Those
+//! contexts set a [`WindowBan`] on the scope, so that a window function reaching them — e.g.
+//! through a computed column — is reported as a compile error rather than producing invalid SQL.
 
-use querydown_parser::ast::{Comparison, ComparisonSide, Expr, WindowFn};
+use querydown_parser::ast::{ComparisonSide, Expr, WindowFn};
 
 use crate::{
-    compiler::{expr::convert_expr, functions::TypeRule, paths::render_order_by, scope::Scope},
+    compiler::{
+        expr::convert_expr,
+        functions::TypeRule,
+        paths::render_order_by,
+        scope::{Scope, WindowBan},
+    },
     errors::msg,
     schema::ValueType,
     sql::tree::SqlExpr,
@@ -71,6 +82,24 @@ pub(super) fn window_fn_return_type(name: &str) -> Option<TypeRule> {
 
 /// Converts a window function application into a SQL `func(...) OVER (...)` expression.
 pub fn convert_window(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, String> {
+    if let Some(reference) = scope.substitute_window(&window) {
+        return Ok(reference);
+    }
+    if let Some(ban) = scope.window_ban() {
+        return Err(match ban {
+            WindowBan::Condition => msg::window_in_indirect_condition(),
+            WindowBan::RelatedRecords => msg::window_in_related_records(),
+            WindowBan::Aggregate => msg::window_in_aggregate(),
+            WindowBan::Nested => msg::window_in_window(),
+        });
+    }
+    scope.note_compiled_window();
+    scope.with_window_ban(WindowBan::Nested, |scope| {
+        convert_window_parts(window, scope)
+    })
+}
+
+fn convert_window_parts(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, String> {
     let WindowFn {
         function,
         args,
@@ -120,152 +149,79 @@ pub fn convert_window(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, St
     Ok(SqlExpr::atom(format!("{} OVER ({})", call, over)))
 }
 
-/// Whether an expression contains a window function anywhere within it.
-pub fn expr_contains_window(expr: &Expr) -> bool {
+/// Collects the window functions within `expr` whose values a wrapping query can supply (see
+/// [`extract_window_conditions`]), skipping duplicates.
+///
+/// This descends only into the parts of an expression that are compiled in the stage's own scope,
+/// without any path prefix, so that each collected window compiles the same way in the wrapping
+/// query as it would have here. Windows elsewhere — within a scoped condition (`issue{…}`), a
+/// has-quantity condition (`++#comments{…}`), an anonymous function's body, or a subquery — aren't
+/// collected, and are reported as errors when compiled (see [`WindowBan`]).
+fn collect_windows(expr: &Expr, windows: &mut Vec<WindowFn>) {
     match expr {
-        Expr::Window(_) => true,
-        Expr::Not(e) => expr_contains_window(e),
+        Expr::Window(window) => {
+            if !windows.contains(window) {
+                windows.push(window.clone());
+            }
+        }
+        Expr::Not(e) => collect_windows(e, windows),
         Expr::Product(a, b) | Expr::Quotient(a, b) | Expr::Sum(a, b) | Expr::Difference(a, b) => {
-            expr_contains_window(a) || expr_contains_window(b)
+            collect_windows(a, windows);
+            collect_windows(b, windows);
         }
-        Expr::Call(call) => call.args.iter().any(expr_contains_window),
+        Expr::Call(call) => call.args.iter().for_each(|a| collect_windows(a, windows)),
+        Expr::AnonymousFunctionCall(call) => {
+            call.args.iter().for_each(|a| collect_windows(a, windows))
+        }
         Expr::Case(case) => {
-            case.variants
-                .iter()
-                .any(|v| expr_contains_window(&v.condition) || expr_contains_window(&v.value))
-                || expr_contains_window(&case.fallback)
+            for variant in &case.variants {
+                collect_windows(&variant.condition, windows);
+                collect_windows(&variant.value, windows);
+            }
+            collect_windows(&case.fallback, windows);
         }
-        Expr::ConditionSet(cs) => cs.entries.iter().any(expr_contains_window),
-        Expr::ScopedConditionSet(s) => s.condition_set.entries.iter().any(expr_contains_window),
-        Expr::Comparison(c) => side_contains_window(&c.left) || side_contains_window(&c.right),
-        Expr::AnonymousFunctionCall(c) => {
-            c.args.iter().any(expr_contains_window)
-                || c.body
-                    .assignments
-                    .iter()
-                    .any(|a| expr_contains_window(&a.expr))
-                || expr_contains_window(&c.body.expr)
+        Expr::ConditionSet(cs) => cs.entries.iter().for_each(|e| collect_windows(e, windows)),
+        Expr::Comparison(c) => {
+            for side in [&c.left, &c.right] {
+                match side {
+                    ComparisonSide::Expr(e) => collect_windows(e, windows),
+                    ComparisonSide::Expansion(cs) => {
+                        cs.entries.iter().for_each(|e| collect_windows(e, windows))
+                    }
+                    ComparisonSide::Range(r) => {
+                        collect_windows(&r.lower.expr, windows);
+                        collect_windows(&r.upper.expr, windows);
+                    }
+                }
+            }
         }
-        Expr::Number(_)
+        Expr::ScopedConditionSet(_)
+        | Expr::HasQuantity(_)
+        | Expr::Subquery(_)
+        | Expr::Number(_)
         | Expr::Date(_)
         | Expr::Duration(_)
         | Expr::String(_)
         | Expr::Variable(_)
-        | Expr::Path(_)
-        // A scalar subquery is a self-contained query; an outer window function cannot reach into it.
-        | Expr::Subquery(_)
-        | Expr::HasQuantity(_) => false,
+        | Expr::Path(_) => {}
     }
-}
-
-fn side_contains_window(side: &ComparisonSide) -> bool {
-    match side {
-        ComparisonSide::Expr(e) => expr_contains_window(e),
-        ComparisonSide::Expansion(cs) => cs.entries.iter().any(expr_contains_window),
-        ComparisonSide::Range(r) => {
-            expr_contains_window(&r.lower.expr) || expr_contains_window(&r.upper.expr)
-        }
-    }
-}
-
-/// A window function extracted from a stage's conditions, paired with the alias under which its value
-/// is projected by the inner (wrapped) query so the outer query can filter on it.
-pub struct WindowProjection {
-    pub alias: String,
-    pub window: WindowFn,
 }
 
 /// The alias prefix for the hidden columns that carry window-function values out of the inner query
 /// of a wrapped stage.
-const WINDOW_PROJECTION_ALIAS_PREFIX: &str = "qdwin";
+pub const WINDOW_PROJECTION_ALIAS_PREFIX: &str = "qdwin";
 
-/// Replaces every window function within `expr` with a reference to a projected column, collecting
-/// the extracted windows into `projections`. The returned expression is suitable for the outer query
-/// of a wrapped stage, where each window value is available as a plain column.
-fn extract_windows(expr: Expr, projections: &mut Vec<WindowProjection>) -> Expr {
-    use querydown_parser::ast::PathPart;
-    match expr {
-        Expr::Window(window) => {
-            let alias = format!("{}{}", WINDOW_PROJECTION_ALIAS_PREFIX, projections.len());
-            projections.push(WindowProjection {
-                alias: alias.clone(),
-                window,
-            });
-            Expr::Path(vec![PathPart::Column(alias)])
-        }
-        Expr::Not(e) => Expr::Not(Box::new(extract_windows(*e, projections))),
-        Expr::Product(a, b) => Expr::Product(
-            Box::new(extract_windows(*a, projections)),
-            Box::new(extract_windows(*b, projections)),
-        ),
-        Expr::Quotient(a, b) => Expr::Quotient(
-            Box::new(extract_windows(*a, projections)),
-            Box::new(extract_windows(*b, projections)),
-        ),
-        Expr::Sum(a, b) => Expr::Sum(
-            Box::new(extract_windows(*a, projections)),
-            Box::new(extract_windows(*b, projections)),
-        ),
-        Expr::Difference(a, b) => Expr::Difference(
-            Box::new(extract_windows(*a, projections)),
-            Box::new(extract_windows(*b, projections)),
-        ),
-        Expr::Comparison(c) => {
-            let Comparison {
-                left,
-                operator,
-                right,
-            } = *c;
-            Expr::Comparison(Box::new(Comparison {
-                left: extract_windows_from_side(left, projections),
-                operator,
-                right: extract_windows_from_side(right, projections),
-            }))
-        }
-        Expr::ConditionSet(mut cs) => {
-            cs.entries = cs
-                .entries
-                .into_iter()
-                .map(|e| extract_windows(e, projections))
-                .collect();
-            Expr::ConditionSet(cs)
-        }
-        // Window functions inside a function call, case expression, or has-quantity are not extracted
-        // (and won't appear there in practice); such conditions would surface a "window in WHERE"
-        // error from the database, which is acceptable for these unusual shapes.
-        other => other,
-    }
-}
-
-fn extract_windows_from_side(
-    side: ComparisonSide,
-    projections: &mut Vec<WindowProjection>,
-) -> ComparisonSide {
-    match side {
-        ComparisonSide::Expr(e) => ComparisonSide::Expr(extract_windows(e, projections)),
-        ComparisonSide::Expansion(mut cs) => {
-            cs.entries = cs
-                .entries
-                .into_iter()
-                .map(|e| extract_windows(e, projections))
-                .collect();
-            ComparisonSide::Expansion(cs)
-        }
-        ComparisonSide::Range(r) => ComparisonSide::Range(r),
-    }
-}
-
-/// The result of separating a stage's conditions into those that may stay in the inner query's
-/// `WHERE` and those that must be applied in an outer query because they reference window functions.
+/// The result of separating a stage's conditions into those that may be applied before its window
+/// functions are computed and those that must be applied afterward, because they reference them.
 pub struct SplitConditions {
-    /// Conditions without window functions, to be applied in the inner query.
+    /// Conditions without window functions, to be applied in the inner query, before the window
+    /// functions are computed.
     pub inner: querydown_parser::ast::ConditionSet,
-    /// Conditions referencing window functions, with each window replaced by a reference to its
-    /// projected alias, to be applied in the outer (wrapping) query. Empty when no wrapping is
-    /// needed.
+    /// Conditions referencing window functions, to be applied in the outer (wrapping) query. Empty
+    /// when no wrapping is needed.
     pub outer: querydown_parser::ast::ConditionSet,
-    /// The window functions extracted from `outer`, to be projected by the inner query.
-    pub projections: Vec<WindowProjection>,
+    /// The window functions within `outer`, to be computed by the inner query.
+    pub windows: Vec<WindowFn>,
 }
 
 /// Splits a stage's conditions into inner and outer parts for window-function wrapping. When the
@@ -277,45 +233,38 @@ pub fn extract_window_conditions(
 ) -> SplitConditions {
     use querydown_parser::ast::{ConditionSet, Conjunction};
 
-    let has_window = conditions.entries.iter().any(expr_contains_window);
-    if !has_window {
+    let windows_of = |entry: &Expr| {
+        let mut windows = Vec::new();
+        collect_windows(entry, &mut windows);
+        windows
+    };
+    let mut windows = Vec::new();
+    for entry in &conditions.entries {
+        collect_windows(entry, &mut windows);
+    }
+    if windows.is_empty() {
         return SplitConditions {
             inner: conditions,
             outer: ConditionSet::default(),
-            projections: Vec::new(),
+            windows,
         };
     }
 
-    let mut projections = Vec::new();
     if conditions.conjunction == Conjunction::And {
-        let mut inner_entries = Vec::new();
-        let mut outer_entries = Vec::new();
-        for entry in conditions.entries {
-            if expr_contains_window(&entry) {
-                outer_entries.push(extract_windows(entry, &mut projections));
-            } else {
-                inner_entries.push(entry);
-            }
-        }
+        let (outer_entries, inner_entries) = conditions
+            .entries
+            .into_iter()
+            .partition(|entry| !windows_of(entry).is_empty());
         SplitConditions {
             inner: ConditionSet::via_and(inner_entries),
             outer: ConditionSet::via_and(outer_entries),
-            projections,
+            windows,
         }
     } else {
-        let conjunction = conditions.conjunction;
-        let outer_entries = conditions
-            .entries
-            .into_iter()
-            .map(|e| extract_windows(e, &mut projections))
-            .collect();
         SplitConditions {
             inner: ConditionSet::default(),
-            outer: ConditionSet {
-                conjunction,
-                entries: outer_entries,
-            },
-            projections,
+            outer: conditions,
+            windows,
         }
     }
 }

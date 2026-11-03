@@ -17,7 +17,11 @@ impl Render for SqlExpr {
 
 impl Render for Select {
     fn render(&self, scope: &mut Scope) -> String {
-        let base_table_name = scope.options.dialect.quote_identifier(&self.base_table);
+        let mut base_table_name = scope.options.dialect.quote_identifier(&self.base_table);
+        if let Some(alias) = &self.base_table_alias {
+            let quoted_alias = scope.options.dialect.quote_identifier(alias);
+            base_table_name = format!("{base_table_name} AS {quoted_alias}");
+        }
 
         let select = "SELECT".to_string();
         // An empty display section is expanded into an explicit column list at compile time, so

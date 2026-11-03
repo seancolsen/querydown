@@ -5,6 +5,10 @@ pub use super::expr::SqlExpr;
 #[derive(Debug)]
 pub struct Select {
     pub base_table: String,
+    /// The alias under which `base_table` is addressed, when it differs from its name. A stage
+    /// whose conditions reference window functions reads from a CTE in place of its base table,
+    /// under the base table's own name (e.g. `FROM "qdwin_src" AS "issues"`).
+    pub base_table_alias: Option<String>,
     pub columns: Vec<Column>,
     pub ctes: Vec<Cte>,
     pub joins: Vec<Join>,
@@ -74,6 +78,7 @@ impl From<String> for Select {
     fn from(base_table: String) -> Self {
         Self {
             base_table,
+            base_table_alias: None,
             columns: vec![],
             ctes: vec![],
             joins: vec![],

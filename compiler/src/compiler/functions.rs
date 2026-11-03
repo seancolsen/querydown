@@ -14,7 +14,7 @@ use crate::{
         },
         expr::{convert_expr, convert_expr_with_path_prefix, resolve_computed_column},
         paths::{clarify_path, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail},
-        scope::{Expansion, Scope},
+        scope::{Expansion, Scope, WindowBan},
         temporal::{now_operand, reconcile, TemporalZone},
         typing::infer_type,
     },
@@ -402,34 +402,37 @@ fn agg_1(
         // Aggregating a column on the base table or a to-one related table (e.g. `created_at%max`).
         // This produces a direct SQL aggregate expression used in conjunction with `GROUP BY`.
         Some(ClarifiedPathTail::Column(column_name)) => {
-            let reference = match computed_column {
-                // A computed column's definition is aggregated in its place, evaluated relative to
-                // the table hosting it (as `convert_path` does for an unaggregated reference).
-                Some((head_parts, expr, expansion)) => {
-                    let _guard = scope.enter_expansion(expansion)?;
-                    convert_expr_with_path_prefix(expr, head_parts, scope)?
+            scope.with_window_ban(WindowBan::Aggregate, |scope| {
+                let reference = match computed_column {
+                    // A computed column's definition is aggregated in its place, evaluated
+                    // relative to the table hosting it (as `convert_path` does for an unaggregated
+                    // reference).
+                    Some((head_parts, expr, expansion)) => {
+                        let _guard = scope.enter_expansion(expansion)?;
+                        convert_expr_with_path_prefix(expr, head_parts, scope)?
+                    }
+                    None => {
+                        let table_name = match head {
+                            Some(chain_to_one) => scope.join_chain_to_one(&chain_to_one),
+                            None => scope.get_base_alias().to_owned(),
+                        };
+                        scope.table_column_expr(&table_name, &column_name)
+                    }
+                };
+                let sorts = resolve_aggregate_sorting(order_by, &value_path, scope)?;
+                let dialect = scope.options.dialect.as_ref();
+                match compile_aggregate(kind, reference, &sorts, dialect)? {
+                    CompiledAggregate::Expr(expr) => Ok(expr),
+                    // A two-level aggregation would need to restructure the whole grouped query,
+                    // which isn't supported.
+                    CompiledAggregate::NeedsTwoLevelList(ListMode::All) => {
+                        Err(msg::aggregated_sort_in_grouped_list())
+                    }
+                    CompiledAggregate::NeedsTwoLevelList(ListMode::Top) => {
+                        Err(msg::top_in_grouped_query())
+                    }
                 }
-                None => {
-                    let table_name = match head {
-                        Some(chain_to_one) => scope.join_chain_to_one(&chain_to_one),
-                        None => scope.get_base_alias().to_owned(),
-                    };
-                    scope.table_column_expr(&table_name, &column_name)
-                }
-            };
-            let sorts = resolve_aggregate_sorting(order_by, &value_path, scope)?;
-            let dialect = scope.options.dialect.as_ref();
-            match compile_aggregate(kind, reference, &sorts, dialect)? {
-                CompiledAggregate::Expr(expr) => Ok(expr),
-                // A two-level aggregation would need to restructure the whole grouped query, which
-                // isn't supported.
-                CompiledAggregate::NeedsTwoLevelList(ListMode::All) => {
-                    Err(msg::aggregated_sort_in_grouped_list())
-                }
-                CompiledAggregate::NeedsTwoLevelList(ListMode::Top) => {
-                    Err(msg::top_in_grouped_query())
-                }
-            }
+            })
         }
         None => Err(msg::aggregate_fn_applied_to_a_path_without_a_column()),
     }

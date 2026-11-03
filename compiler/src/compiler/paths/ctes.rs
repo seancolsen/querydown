@@ -13,7 +13,7 @@ use crate::{
         },
         expr::{convert_condition_set, convert_expr},
         join_tree::make_join_from_link,
-        scope::{Expansion, Scope},
+        scope::{Expansion, Scope, WindowBan},
     },
     errors::msg,
     schema::{
@@ -112,6 +112,8 @@ pub fn build_cte_select(
     let base_table = schema.tables.get(&end.table_id).unwrap();
     let base_column = base_table.columns.get(&end.column_id).unwrap();
     let mut cte_scope = parent_scope.spawn(base_table);
+    // Everything compiled for this CTE lands in its `WHERE` clause or within an aggregate.
+    cte_scope.ban_windows(WindowBan::RelatedRecords);
     let mut select = Select::from(cte_scope.get_base_table().name.clone());
     let pk_expr = cte_scope.table_column_expr(&base_table.name, &base_column.name);
     select.grouping.push(pk_expr.clone());

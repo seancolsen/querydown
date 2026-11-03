@@ -4927,7 +4927,9 @@ FROM "issues";
 
 ### Filtering on a window function
 
-> The most recent issue in each project. Because SQL forbids window functions in `WHERE`, the window value is computed in a wrapping subquery and filtered in the outer query.
+> The most recent issue in each project. Because SQL forbids window functions in `WHERE`, the
+> window value is computed in a CTE, which the query then reads from in place of its base table,
+> under the base table's own name.
 
 ```qd
 #issues %%(project\p created_at\sd)%row_number:1 $id $title $project
@@ -4937,24 +4939,31 @@ FROM "issues";
 WITH
   "qdwin_src" AS (
     SELECT
-      "issues"."id" AS "id",
-      "issues"."title" AS "title",
-      "issues"."project" AS "project",
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
       row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
     FROM "issues"
   )
 SELECT
-  "qdwin_src"."id" AS "id",
-  "qdwin_src"."title" AS "title",
-  "qdwin_src"."project" AS "project"
-FROM "qdwin_src"
+  "issues"."id",
+  "issues"."title",
+  "issues"."project"
+FROM "qdwin_src" AS "issues"
 WHERE
-  "qdwin_src"."qdwin0" = 1;
+  "issues"."qdwin0" = 1;
 ```
 
 ### Filtering on a window function alongside an ordinary filter
 
-> Non-window conditions stay in the inner query; only the window predicate is applied in the outer query.
+> Non-window conditions are applied within the CTE, before the window function is computed; only
+> the window predicate is applied in the outer query.
 
 ```qd
 #issues status:="open" %%(project\p created_at\sd)%row_number:1 $id $project
@@ -4964,24 +4973,31 @@ WHERE
 WITH
   "qdwin_src" AS (
     SELECT
-      "issues"."id" AS "id",
-      "issues"."project" AS "project",
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
       row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
     FROM "issues"
     WHERE
       lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C")
   )
 SELECT
-  "qdwin_src"."id" AS "id",
-  "qdwin_src"."project" AS "project"
-FROM "qdwin_src"
+  "issues"."id",
+  "issues"."project"
+FROM "qdwin_src" AS "issues"
 WHERE
-  "qdwin_src"."qdwin0" = 1;
+  "issues"."qdwin0" = 1;
 ```
 
 ### Filtering on a window function with an empty display section
 
-> With no result columns, every column of the base table is listed explicitly in both the inner and outer queries.
+> With no result columns, every column of the base table is listed explicitly.
 
 ```qd
 #issues %%(project\p created_at\sd)%row_number:1
@@ -4991,31 +5007,140 @@ WHERE
 WITH
   "qdwin_src" AS (
     SELECT
-      "issues"."id" AS "id",
-      "issues"."title" AS "title",
-      "issues"."description" AS "description",
-      "issues"."created_at" AS "created_at",
-      "issues"."author" AS "author",
-      "issues"."status" AS "status",
-      "issues"."project" AS "project",
-      "issues"."duplicate_of" AS "duplicate_of",
-      "issues"."due_date" AS "due_date",
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
       row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
     FROM "issues"
   )
 SELECT
-  "qdwin_src"."id" AS "id",
-  "qdwin_src"."title" AS "title",
-  "qdwin_src"."description" AS "description",
-  "qdwin_src"."created_at" AS "created_at",
-  "qdwin_src"."author" AS "author",
-  "qdwin_src"."status" AS "status",
-  "qdwin_src"."project" AS "project",
-  "qdwin_src"."duplicate_of" AS "duplicate_of",
-  "qdwin_src"."due_date" AS "due_date"
-FROM "qdwin_src"
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "qdwin_src" AS "issues"
 WHERE
-  "qdwin_src"."qdwin0" = 1;
+  "issues"."qdwin0" = 1;
+```
+
+### Filtering on a window function with sorting and related records
+
+> Everything apart from the window predicate compiles as it would without it: here, sorting and
+> a join to a related record.
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 $title \s $author.username
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "issues"."title",
+  "users"."username"
+FROM "qdwin_src" AS "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  "issues"."qdwin0" = 1
+ORDER BY
+  "issues"."title" ASC NULLS LAST;
+```
+
+### Filtering on a window function before grouping
+
+> Conditions filter the rows before they're grouped, including window conditions. Here, the
+> second stage keeps the users who tie for the most comments on each issue, then groups them by
+> issue.
+
+```qd
+#comments $issue \g $user.username \g $%count -> n
+~~~
+%%(issue\p n\sd)%rank:1 $issue \g $username%list
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "comments"."issue" AS "issue",
+      "users"."username" AS "username",
+      count(*) AS "n"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    GROUP BY "comments"."issue", "users"."username"
+  ),
+  "qdwin_src" AS (
+    SELECT
+      "pipe0"."issue",
+      "pipe0"."username",
+      "pipe0"."n",
+      rank() OVER (PARTITION BY "pipe0"."issue" ORDER BY "pipe0"."n" DESC NULLS LAST) AS "qdwin0"
+    FROM "pipe0"
+  )
+SELECT
+  "pipe0"."issue",
+  array_agg(DISTINCT "pipe0"."username")
+FROM "qdwin_src" AS "pipe0"
+WHERE
+  "pipe0"."qdwin0" = 1
+GROUP BY "pipe0"."issue";
+```
+
+### Filtering on a window function within a function call
+
+> A window function anywhere within a condition's expressions is computed in the CTE.
+
+```qd
+#issues %%(project\p created_at\sd)%row_number|plus(1):2 $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" + 1 = 2;
 ```
 
 ### Window column flowing between pipeline stages
