@@ -1752,6 +1752,25 @@ WHERE
   lower("users"."username" COLLATE "C") = lower('alice' COLLATE "C");
 ```
 
+### Self-referential foreign key, followed twice
+
+> A to-one path may revisit a table more than once. Each instance of `issues` gets its own alias.
+
+```qd
+#issues $id->id $duplicate_of.duplicate_of.title->t
+```
+
+```sql
+SELECT
+  "issues"."id" AS "id",
+  "issues_1"."title" AS "t"
+FROM "issues"
+LEFT JOIN "issues" AS "issues_2" ON
+  "issues"."duplicate_of" = "issues_2"."id"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues_2"."duplicate_of" = "issues_1"."id";
+```
+
 ## Paths to many
 
 ### Count of related records is coalesced to zero
@@ -1885,6 +1904,72 @@ SELECT
 FROM "projects"
 LEFT JOIN "cte0" ON
   "projects"."id" = "cte0"."pk";
+```
+
+### Path through many, many, revisiting the base table
+
+> Issues, showing the date of the most recently created issue that shares a label with the issue.
+> The path leaves `issues` and comes back to it, so the second visit to `issue_labels` gets its own
+> alias within the CTE.
+
+```qd
+#issues $id->id $#labels.#issues.created_at%max->v
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      max("issues"."created_at") AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    JOIN "issue_labels" AS "issue_labels_1" ON
+      "labels"."id" = "issue_labels_1"."label"
+    JOIN "issues" ON
+      "issue_labels_1"."issue" = "issues"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id" AS "id",
+  "cte0"."v1" AS "v"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Path through many, one, many, revisiting the aggregated table
+
+> Users, listing the titles of open issues in any project the user has created an issue in. The
+> second visit to `issues` is aliased `issues_1`, and both the filter and the aggregated value
+> refer to that instance.
+
+```qd
+#users $id->id $#issues.project.#issues{status:="open"}.title%list->v
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk",
+      array_agg(DISTINCT "issues_1"."title") AS "v1"
+    FROM "issues"
+    JOIN "projects" ON
+      "issues"."project" = "projects"."id"
+    JOIN "issues" AS "issues_1" ON
+      "projects"."id" = "issues_1"."project"
+    WHERE
+      lower("issues_1"."status" COLLATE "C") = lower('open' COLLATE "C")
+    GROUP BY "issues"."author"
+  )
+SELECT
+  "users"."id" AS "id",
+  "cte0"."v1" AS "v"
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk";
 ```
 
 ### List aggregate (array_agg)

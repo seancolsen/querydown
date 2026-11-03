@@ -107,14 +107,14 @@ fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Stri
     match (clarified_path.head, clarified_path.tail) {
         (None, None) => Ok(SqlExpr::empty()),
         (None, Some(ClarifiedPathTail::Column(column_name))) => {
-            let table_name = scope.get_base_table().name.clone();
+            let table_name = scope.get_base_alias().to_owned();
             Ok(scope.table_column_expr(&table_name, &column_name))
         }
         (Some(chain_to_one), None) => {
             let (truncated_chain_to_one_opt, last_link) = chain_to_one.with_last_link_broken_off();
             let table_name = match truncated_chain_to_one_opt {
                 Some(truncated_chain_to_one) => scope.join_chain_to_one(&truncated_chain_to_one),
-                None => scope.get_base_table().name.clone(),
+                None => scope.get_base_alias().to_owned(),
             };
             let column_reference = last_link.get_start();
             let column_name = scope.schema.get_referenced_column_name(&column_reference);

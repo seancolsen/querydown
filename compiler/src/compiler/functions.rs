@@ -399,7 +399,7 @@ fn agg_1(
         Some(ClarifiedPathTail::Column(column_name)) => {
             let table_name = match head {
                 Some(chain_to_one) => scope.join_chain_to_one(&chain_to_one),
-                None => scope.get_base_table().name.clone(),
+                None => scope.get_base_alias().to_owned(),
             };
             let reference = scope.table_column_expr(&table_name, &column_name);
             let sorts = resolve_aggregate_sorting(order_by, &value_path, scope)?;

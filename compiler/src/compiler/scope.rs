@@ -149,6 +149,10 @@ pub struct Scope<'a, 'b> {
     pub options: &'a Options,
     pub schema: &'a Schema,
     base_table: &'a Table,
+    /// The alias under which the base table appears in the SQL. Usually the table's own name, but a
+    /// scope evaluating a filter on a table that a path revisits (e.g. the second `comments` in
+    /// `#comments.issue.#comments{…}`) addresses that table by a suffixed alias.
+    base_alias: String,
     join_tree: JoinTree,
     pub path_prefix: Vec<PathPart>,
     aliases: HashSet<String>,
@@ -186,6 +190,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             options,
             schema,
             base_table,
+            base_alias: base_table.name.to_owned(),
             join_tree: JoinTree::new(base_table.name.to_owned()),
             path_prefix: vec![],
             aliases: HashSet::from([base_table.name.to_owned()]),
@@ -389,31 +394,41 @@ impl<'a, 'b> Scope<'a, 'b> {
         self.base_table
     }
 
+    /// The alias under which the base table appears in the SQL (see [`Scope::spawn_with_aliases`]).
+    pub fn get_base_alias(&self) -> &str {
+        &self.base_alias
+    }
+
     pub fn decompose_join_tree(&mut self) -> (Vec<Join>, Vec<Cte>) {
-        let join_tree = std::mem::replace(
-            &mut self.join_tree,
-            JoinTree::new(self.base_table.name.to_owned()),
-        );
+        let join_tree =
+            std::mem::replace(&mut self.join_tree, JoinTree::new(self.base_alias.clone()));
         join_tree.decompose(self)
     }
 
     pub fn spawn(&'b self, base_table: &'a Table) -> Self {
-        self.spawn_with_aliases(base_table, HashSet::new())
+        self.spawn_with_aliases(base_table, &base_table.name, HashSet::new())
     }
 
-    /// Like [`Scope::spawn`], but seeds the new scope's set of reserved table aliases. This is used
-    /// when the spawned scope renders SQL that is folded back into the parent's query (e.g. an
-    /// aggregate's `ORDER BY`), so that any joins it introduces avoid colliding with aliases the
-    /// parent has already assigned.
-    pub fn spawn_with_aliases(&'b self, base_table: &'a Table, aliases: HashSet<String>) -> Self {
+    /// Like [`Scope::spawn`], but seeds the new scope's set of reserved table aliases and names the
+    /// alias by which the base table is addressed. This is used when the spawned scope renders SQL
+    /// that is folded back into the parent's query (e.g. an aggregate's `ORDER BY`), so that any
+    /// joins it introduces avoid colliding with aliases the parent has already assigned, and so
+    /// that its columns refer to the right instance of a table the parent joined more than once.
+    pub fn spawn_with_aliases(
+        &'b self,
+        base_table: &'a Table,
+        base_alias: &str,
+        aliases: HashSet<String>,
+    ) -> Self {
         let mut aliases = aliases;
-        aliases.insert(base_table.name.to_owned());
+        aliases.insert(base_alias.to_owned());
         Scope {
             parent: Some(self),
             options: self.options,
             schema: self.schema,
             base_table,
-            join_tree: JoinTree::new(base_table.name.to_owned()),
+            base_alias: base_alias.to_owned(),
+            join_tree: JoinTree::new(base_alias.to_owned()),
             path_prefix: vec![],
             aliases,
             cte_naming_index: 0,

@@ -251,8 +251,7 @@ fn handle_glob(
     })?;
 
     let (table, table_alias) = if glob.head.is_empty() {
-        let base_table = scope.get_base_table();
-        (scope.get_base_table(), base_table.name.clone())
+        (scope.get_base_table(), scope.get_base_alias().to_owned())
     } else {
         let clarified_path = clarify_path(glob.head, scope)?;
         if let Some(tail) = clarified_path.tail {

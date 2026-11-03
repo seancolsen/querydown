@@ -139,9 +139,11 @@ pub fn build_cte_select(
             let link_table = schema.tables.get(&link.get_end().table_id).unwrap();
             // Seed the filter's scope with the aliases already reserved by the CTE so that any
             // tables or nested CTEs it introduces (e.g. a `{--#comments}` filter that itself
-            // aggregates a related table) get distinct aliases.
+            // aggregates a related table) get distinct aliases. The filter's base is addressed by
+            // this link's alias, which is suffixed when the path revisits a table (e.g. the second
+            // `issues` in `#issues.project.#issues{…}`).
             let mut link_scope =
-                cte_scope.spawn_with_aliases(link_table, cte_scope.cloned_aliases());
+                cte_scope.spawn_with_aliases(link_table, &ending_alias, cte_scope.cloned_aliases());
             let converted = convert_condition_set(link.condition_set, &mut link_scope)?;
             select.conditions = cmp::and([select.conditions, converted]);
             // Fold any joins and nested CTEs the filter produced into this CTE's SELECT. Without
@@ -175,19 +177,25 @@ pub fn build_cte_select(
                     .resolve_identifier(&ending_table.column_lookup, &column_name)
                     .ok_or_else(|| msg::col_not_in_table(&column_name, &ending_table.name))?;
                 let column = ending_table.columns.get(column_id).unwrap();
-                let reference = cte_scope.table_column_expr(&ending_table.name, &column.name);
+                // `starting_alias` now holds the alias of the chain's final table.
+                let reference = cte_scope.table_column_expr(&starting_alias, &column.name);
                 // Sorting conditions are evaluated from the context of the table named by the first
                 // `#` part of the path (the anchor), not the path's final table. The anchor is
                 // already joined into this CTE (it lies along the chain), so we share the CTE's
                 // existing aliases to avoid a duplicate-alias collision when a sort reaches a table
-                // the CTE already joined.
+                // the CTE already joined. The anchor's alias is its table name: the anchor lies on
+                // the first `#` part's chain, which never revisits a table, and the CTE reserves no
+                // aliases before that chain's tables.
                 let sorts = {
                     let anchor_table = schema
                         .tables
                         .get(&template.order_by_anchor_table_id)
                         .unwrap();
-                    let mut ob_scope =
-                        cte_scope.spawn_with_aliases(anchor_table, cte_scope.cloned_aliases());
+                    let mut ob_scope = cte_scope.spawn_with_aliases(
+                        anchor_table,
+                        &anchor_table.name,
+                        cte_scope.cloned_aliases(),
+                    );
                     let sorts = resolve_aggregate_sorting(
                         template.order_by,
                         &template.value_path,

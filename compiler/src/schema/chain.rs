@@ -91,7 +91,9 @@ impl<L: Link> Chain<L> {
         if self.stats.ending_table_id != link_starting_table_id {
             return Err("Link does not connect to chain");
         }
-        if self.stats.table_ids.contains(&link_ending_table_id) {
+        if self.intersecting == ChainIntersecting::Disallowed
+            && self.stats.table_ids.contains(&link_ending_table_id)
+        {
             return Err("Link would cause chain to intersect itself");
         }
         self.links.push(link);
