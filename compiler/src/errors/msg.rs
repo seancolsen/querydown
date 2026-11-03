@@ -42,7 +42,11 @@ pub fn window_fn_wrong_arg_count(
 }
 
 pub fn unknown_variable(variable_name: &str) -> String {
-    format!("Unknown variable `{}`.", variable_name)
+    format!("Unknown variable `@{}`.", variable_name)
+}
+
+pub fn constant_refers_to_itself(name: &str) -> String {
+    format!("The constant `@{name}` is defined in terms of itself.")
 }
 
 pub fn aggregate_fn_applied_to_a_path_without_a_column() -> String {

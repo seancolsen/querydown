@@ -25,7 +25,7 @@ use crate::{
         expr::resolve_computed_column,
         functions::TypeRule,
         paths::{clarify_path, ClarifiedPathTail},
-        scope::Scope,
+        scope::{Expansion, Scope, VariableLookup},
         temporal::now_has_tz,
         window::window_fn_return_type,
     },
@@ -77,11 +77,14 @@ fn infer_variable(name: &str, scope: &mut Scope) -> ValueType {
         VAR_TRUE | VAR_FALSE => ValueType::Boolean,
         VAR_INFINITY => ValueType::Number,
         VAR_NULL => ValueType::Unknown,
-        // A user-defined constant or a function parameter: infer the type of its bound expression.
-        // We clone it to release the immutable borrow of `scope` before recursing.
-        _ => match scope.get_variable(name).cloned() {
-            Some(expr) => infer_type(&expr, scope),
-            None => ValueType::Unknown,
+        // A user-defined constant or a function parameter: infer the type of its bound expression,
+        // with the binding hidden meanwhile (as in compilation; see `Scope::hide_binding`).
+        _ => match scope.lookup_variable(name) {
+            VariableLookup::Found(expr, id) => {
+                let _guard = scope.hide_binding(id);
+                infer_type(&expr, scope)
+            }
+            _ => ValueType::Unknown,
         },
     }
 }
@@ -96,7 +99,14 @@ fn infer_path(parts: &[PathPart], scope: &mut Scope) -> ValueType {
         .chain(parts.iter().cloned())
         .collect();
     match resolve_computed_column(&prefixed_parts, scope) {
-        Ok(Some((head_parts, expr))) => return infer_with_path_prefix(&expr, head_parts, scope),
+        Ok(Some((head_parts, expr, expansion))) => {
+            // A self-referential computed column is reported as an error by compilation; here,
+            // just stop.
+            let Ok(_guard) = scope.enter_expansion(expansion) else {
+                return ValueType::Unknown;
+            };
+            return infer_with_path_prefix(&expr, head_parts, scope);
+        }
         Ok(None) => {}
         Err(_) => return ValueType::Unknown,
     }
@@ -165,6 +175,11 @@ fn infer_call(call: &Call, scope: &mut Scope) -> ValueType {
             if let Some(func) = scope.get_scalar_function(&call.name) {
                 func.return_type.clone()
             } else if let Some(def) = scope.get_user_function(&call.name).cloned() {
+                // A recursive function is reported as an error by compilation; here, just stop.
+                let Ok(_guard) = scope.enter_expansion(Expansion::Function(def.name.clone()))
+                else {
+                    return ValueType::Unknown;
+                };
                 return infer_function_body(def.params, def.body, &call.args, scope);
             } else {
                 return ValueType::Unknown;

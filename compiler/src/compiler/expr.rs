@@ -14,7 +14,7 @@ use super::{
     },
     functions::{convert_anonymous_function_call, convert_call},
     paths::{clarify_path, ClarifiedPathTail},
-    scope::Scope,
+    scope::{BindingKind, Expansion, Scope, VariableLookup},
     temporal::{now_operand, reconcile, TemporalZone},
     typing::infer_type,
 };
@@ -76,10 +76,20 @@ fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, String
         VAR_NULL => value::null(),
         // A user-defined variable (constant or function parameter): inline its bound expression.
         name => {
-            return match scope.get_variable(name) {
-                Some(expr) => convert_expr(expr.clone(), scope),
-                None => Err(msg::unknown_variable(name)),
-            }
+            return match scope.lookup_variable(name) {
+                VariableLookup::Found(expr, id) => {
+                    // While the bound expression is inlined, references within it to the same name
+                    // resolve to whatever this binding shadows. See `Scope::hide_binding`.
+                    let _guard = scope.hide_binding(id);
+                    convert_expr(expr, scope)
+                }
+                VariableLookup::OnlyHidden(BindingKind::Constant) => {
+                    Err(msg::constant_refers_to_itself(name))
+                }
+                VariableLookup::OnlyHidden(BindingKind::Local) | VariableLookup::NotFound => {
+                    Err(msg::unknown_variable(name))
+                }
+            };
         }
     };
     Ok(SqlExpr::atom(sql.to_string()))
@@ -89,7 +99,8 @@ fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Stri
     let prefixed_parts: Vec<PathPart> = scope.path_prefix.iter().cloned().chain(parts).collect();
     // If the path names a computed column, substitute its definition, evaluated relative to the
     // table that hosts it (the head of the path).
-    if let Some((head_parts, expr)) = resolve_computed_column(&prefixed_parts, scope)? {
+    if let Some((head_parts, expr, expansion)) = resolve_computed_column(&prefixed_parts, scope)? {
+        let _guard = scope.enter_expansion(expansion)?;
         return convert_expr_with_path_prefix(expr, head_parts, scope);
     }
     let clarified_path = clarify_path(prefixed_parts, scope)?;
@@ -123,12 +134,13 @@ fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Stri
 }
 
 /// If `parts` names a computed column, returns the head of the path (the parts that lead to the
-/// table hosting the computed column) together with the computed column's expression. A real column
-/// of the same name always takes precedence, in which case this returns `None`.
+/// table hosting the computed column) together with the computed column's expression and the
+/// [`Expansion`] identifying it (with which to guard its expansion against cycles). A real column of
+/// the same name always takes precedence, in which case this returns `None`.
 pub(super) fn resolve_computed_column(
     parts: &[PathPart],
     scope: &Scope,
-) -> Result<Option<(Vec<PathPart>, Expr)>, String> {
+) -> Result<Option<(Vec<PathPart>, Expr, Expansion)>, String> {
     // Only a trailing plain column can name a computed column.
     let Some((PathPart::Column(name), head_parts)) = parts.split_last() else {
         return Ok(None);
@@ -156,9 +168,13 @@ pub(super) fn resolve_computed_column(
     {
         return Ok(None);
     }
-    Ok(scope
-        .get_computed_column(&table.name, name)
-        .map(|expr| (head_parts.to_vec(), expr.clone())))
+    Ok(scope.get_computed_column(&table.name, name).map(|expr| {
+        let expansion = Expansion::ComputedColumn {
+            table: table.name.clone(),
+            column: name.clone(),
+        };
+        (head_parts.to_vec(), expr.clone(), expansion)
+    }))
 }
 
 /// Converts an expression with `path_prefix` temporarily set, restoring the previous prefix

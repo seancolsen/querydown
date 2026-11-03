@@ -13,7 +13,7 @@ use crate::{
             clarify_path, render_order_by, AggWrapper, AggregateExprTemplate, ClarifiedPath,
             ClarifiedPathTail,
         },
-        scope::Scope,
+        scope::{Expansion, Scope},
         temporal::{now_operand, reconcile, TemporalZone},
         typing::infer_type,
     },
@@ -73,6 +73,7 @@ fn convert_user_function_call(
     args: Vec<Expr>,
     scope: &mut Scope,
 ) -> Result<SqlExpr, String> {
+    let _guard = scope.enter_expansion(Expansion::Function(def.name.clone()))?;
     apply_function(&def.name, def.params, def.body, args, scope)
 }
 

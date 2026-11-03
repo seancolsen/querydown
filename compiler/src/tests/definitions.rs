@@ -134,3 +134,79 @@ fn user_defined_table_with_unknown_base_table_is_rejected() {
     let err = compile("#foo = #( #nonexistent $id )\n#foo $id").unwrap_err();
     assert!(err.contains("nonexistent"), "got: {err}");
 }
+
+// Self-referential definitions used to recurse until the stack overflowed, crashing the process (or,
+// in the WebAssembly build, the whole module). They are now reported as errors.
+
+#[test]
+fn constant_defined_in_terms_of_itself_is_rejected() {
+    let err = compile("@a = @a + 1\n#issues $@a").unwrap_err();
+    assert_eq!(err, "The constant `@a` is defined in terms of itself.");
+    let err = compile("@a = @b\n@b = @a\n#issues $@a").unwrap_err();
+    assert_eq!(err, "The constant `@a` is defined in terms of itself.");
+}
+
+#[test]
+fn recursive_function_is_rejected() {
+    let err = compile("@@f = @x => @x|f\n#issues $id|f").unwrap_err();
+    assert_eq!(
+        err,
+        "The function `f` calls itself, but functions can't be recursive."
+    );
+    let err = compile("@@f = @x => @x|g\n@@g = @x => @x|f\n#issues $id|f").unwrap_err();
+    assert_eq!(
+        err,
+        "The function `f` calls itself, but functions can't be recursive. (The cycle is `f` → `g` \
+         → `f`.)"
+    );
+}
+
+#[test]
+fn computed_column_defined_in_terms_of_itself_is_rejected() {
+    let err = compile("#issues.foo = foo + 1\n#issues $foo").unwrap_err();
+    assert_eq!(
+        err,
+        "The computed column `foo` on the table `issues` is defined in terms of itself."
+    );
+    let err = compile("#issues.foo = bar\n#issues.bar = foo\n#issues $foo").unwrap_err();
+    assert!(
+        err.ends_with("(The cycle is `issues.foo` → `issues.bar` → `issues.foo`.)"),
+        "got: {err}"
+    );
+    // Type inference also expands computed columns (e.g. to decide how `:` compares), and must not
+    // recurse forever either.
+    assert!(compile("#issues.foo = foo\n#issues foo:1").is_err());
+}
+
+#[test]
+fn custom_comparison_defined_in_terms_of_itself_is_rejected() {
+    let err = compile("#issues.c:@x = c:@x\n#issues c:1").unwrap_err();
+    assert_eq!(
+        err,
+        "The custom comparison `c` on the table `issues` is defined in terms of itself."
+    );
+}
+
+#[test]
+fn default_text_search_defined_in_terms_of_itself_is_rejected() {
+    // `zzz` is a bare word — i.e. a default text search — within the default text search's own
+    // definition.
+    let input = "#issues.__querydown_default_text_search:@x = [ title:@x zzz ]\n#issues hello";
+    let err = compile(input).unwrap_err();
+    assert!(
+        err.starts_with(
+            "The default text search for the table `issues` is defined in terms of itself."
+        ),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn function_parameter_may_be_bound_to_a_variable_of_the_same_name() {
+    // The argument `@x` refers to the constant, not to the parameter it is bound to. This used to
+    // recurse forever.
+    let sql = compile("@x = 1\n@@double = @x => @x * 2\n#issues $@x|double").unwrap();
+    assert!(sql.contains("1 * 2"), "got: {sql}");
+    let sql = compile("@@f = @x => @x|g\n@@g = @x => @x + 1\n#issues $id|f").unwrap();
+    assert!(sql.contains(r#""issues"."id" + 1"#), "got: {sql}");
+}

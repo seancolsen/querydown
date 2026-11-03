@@ -14,7 +14,7 @@ use crate::{
 use super::{
     constants::LINKED_RECORD_COMPARISON_NAME,
     paths::{clarify_path, ClarifiedPathTail},
-    scope::Scope,
+    scope::{Expansion, Scope},
     temporal::{now_operand, reconcile, TemporalZone},
     typing::infer_type,
 };
@@ -401,6 +401,10 @@ fn convert_custom_comparison(
     right: ComparisonSide,
     scope: &mut Scope,
 ) -> Result<SqlExpr, String> {
+    let _guard = scope.enter_expansion(Expansion::CustomComparison {
+        table: def.table.clone(),
+        name: def.name.clone(),
+    })?;
     let body = switched_body(&def, call_operator)?;
     match right {
         ComparisonSide::Expr(value) => {

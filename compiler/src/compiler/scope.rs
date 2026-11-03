@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use querydown_parser::ast::{
     ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, PathPart,
@@ -26,6 +28,122 @@ use super::{
     paths::{build_cte_select, AggregateExprTemplate, ValueViaCte},
 };
 
+/// A user definition whose body is being expanded (inlined). Expanding a definition from within its
+/// own expansion — directly or via other definitions — would recurse forever, so the scope tracks
+/// which definitions are being expanded in order to report such cycles as errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expansion {
+    Function(String),
+    ComputedColumn { table: String, column: String },
+    CustomComparison { table: String, name: String },
+}
+
+impl Expansion {
+    fn code(&self) -> String {
+        match self {
+            Expansion::Function(name) => format!("`{name}`"),
+            Expansion::ComputedColumn { table, column } => format!("`{table}.{column}`"),
+            Expansion::CustomComparison { table, name } => format!("`{table}.{name}`"),
+        }
+    }
+
+    /// The error message for a cycle, given the chain of expansions that leads back to `self`
+    /// (starting with `self`).
+    fn cycle_message(&self, chain: &[Expansion]) -> String {
+        let mut message = match self {
+            Expansion::Function(name) => {
+                format!("The function `{name}` calls itself, but functions can't be recursive.")
+            }
+            Expansion::ComputedColumn { table, column } => format!(
+                "The computed column `{column}` on the table `{table}` is defined in terms of \
+                 itself."
+            ),
+            Expansion::CustomComparison { table, name }
+                if name == DEFAULT_TEXT_SEARCH_COMPARISON_NAME =>
+            {
+                format!(
+                    "The default text search for the table `{table}` is defined in terms of itself. \
+                     Note that within the definition of `{name}`, a bare word (or any value \
+                     without a column to compare it to) is itself a default text search."
+                )
+            }
+            Expansion::CustomComparison { table, name } => format!(
+                "The custom comparison `{name}` on the table `{table}` is defined in terms of \
+                 itself."
+            ),
+        };
+        if chain.len() > 1 {
+            let path: Vec<String> = chain
+                .iter()
+                .chain(std::iter::once(self))
+                .map(Expansion::code)
+                .collect();
+            message.push_str(&format!(" (The cycle is {}.)", path.join(" → ")));
+        }
+        message
+    }
+}
+
+/// How a variable binding was introduced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingKind {
+    /// A constant defined before the query, e.g. `@user_id = 1234`.
+    Constant,
+    /// A function parameter, a function's local assignment, or a custom comparison's parameter.
+    Local,
+}
+
+#[derive(Debug, Clone)]
+struct Binding {
+    id: usize,
+    kind: BindingKind,
+    expr: Expr,
+}
+
+/// The result of looking up a variable with [`Scope::lookup_variable`].
+pub enum VariableLookup {
+    /// The variable's bound expression, and the ID with which to [hide](Scope::hide_binding) the
+    /// binding while that expression is being expanded.
+    Found(Expr, usize),
+    /// The variable is bound, but only by bindings that are currently being expanded — i.e. it is
+    /// being referenced from within its own definition.
+    OnlyHidden(BindingKind),
+    NotFound,
+}
+
+/// Expansion bookkeeping shared by a scope and every scope spawned from it, since a definition can
+/// be expanded across scopes (e.g. a constant referenced within `++#comments{ ... }`).
+#[derive(Default)]
+struct ExpansionState {
+    /// Definitions currently being expanded, outermost first.
+    stack: Vec<Expansion>,
+    /// IDs of variable bindings currently being expanded. While a binding's expression is being
+    /// inlined, references to its name resolve to whatever binding it shadows instead (if any). This
+    /// keeps substitution hygienic — e.g. a function parameter `@x` bound to an argument that is
+    /// itself `@x` (referring to an outer `@x`) — and prevents infinite expansion.
+    hidden_bindings: Vec<usize>,
+    next_binding_id: usize,
+}
+
+/// Marks a definition or variable binding as being expanded, until dropped. See
+/// [`Scope::enter_expansion`] and [`Scope::hide_binding`].
+#[must_use]
+pub struct ExpansionGuard {
+    state: Rc<RefCell<ExpansionState>>,
+    is_binding: bool,
+}
+
+impl Drop for ExpansionGuard {
+    fn drop(&mut self) {
+        let mut state = self.state.borrow_mut();
+        if self.is_binding {
+            state.hidden_bindings.pop();
+        } else {
+            state.stack.pop();
+        }
+    }
+}
+
 pub struct Scope<'a, 'b> {
     parent: Option<&'b Scope<'a, 'b>>,
     pub options: &'a Options,
@@ -43,8 +161,10 @@ pub struct Scope<'a, 'b> {
     /// Variable bindings keyed by name (without the `@` sigil). This holds user-defined constants
     /// (registered before the query) as well as function parameters and local assignments (bound
     /// temporarily while a user-defined function is being applied). Each binding maps to an AST
-    /// expression which is inlined wherever the variable is referenced.
-    variables: HashMap<String, Expr>,
+    /// expression which is inlined wherever the variable is referenced. A name may have several
+    /// bindings, the last of which shadows the others.
+    variables: HashMap<String, Vec<Binding>>,
+    expansion_state: Rc<RefCell<ExpansionState>>,
     /// User-defined scalar functions, keyed by name, registered before the query.
     user_functions: HashMap<String, FunctionDef>,
     /// Custom comparisons, defined before the query and keyed by `(canonical table name, comparison
@@ -74,6 +194,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             aggregate_functions: get_standard_aggregate_functions(),
             computed_columns: HashMap::new(),
             variables: HashMap::new(),
+            expansion_state: Rc::default(),
             user_functions: HashMap::new(),
             custom_comparisons: HashMap::new(),
         }
@@ -84,15 +205,70 @@ impl<'a, 'b> Scope<'a, 'b> {
     /// order does not matter.
     pub fn register_constants(&mut self, constants: Vec<ConstantDef>) {
         for constant in constants {
-            self.variables.insert(constant.name, constant.expr);
+            self.push_binding(constant.name, BindingKind::Constant, constant.expr);
         }
     }
 
-    /// Looks up a variable binding by name (without the `@` sigil), falling back to parent scopes.
-    pub fn get_variable(&self, name: &str) -> Option<&Expr> {
+    fn push_binding(&mut self, name: String, kind: BindingKind, expr: Expr) {
+        let id = {
+            let mut state = self.expansion_state.borrow_mut();
+            state.next_binding_id += 1;
+            state.next_binding_id
+        };
         self.variables
-            .get(name)
-            .or_else(|| self.parent.and_then(|parent| parent.get_variable(name)))
+            .entry(name)
+            .or_default()
+            .push(Binding { id, kind, expr });
+    }
+
+    /// Looks up a variable binding by name (without the `@` sigil), falling back to parent scopes.
+    /// Bindings that are currently being expanded are skipped (see [`Scope::hide_binding`]).
+    pub fn lookup_variable(&self, name: &str) -> VariableLookup {
+        let mut hidden_kind: Option<BindingKind> = None;
+        let mut scope = Some(self);
+        while let Some(s) = scope {
+            if let Some(bindings) = s.variables.get(name) {
+                let state = self.expansion_state.borrow();
+                for binding in bindings.iter().rev() {
+                    if state.hidden_bindings.contains(&binding.id) {
+                        hidden_kind.get_or_insert(binding.kind);
+                    } else {
+                        return VariableLookup::Found(binding.expr.clone(), binding.id);
+                    }
+                }
+            }
+            scope = s.parent;
+        }
+        match hidden_kind {
+            Some(kind) => VariableLookup::OnlyHidden(kind),
+            None => VariableLookup::NotFound,
+        }
+    }
+
+    /// Hides the variable binding with the given ID (from [`Scope::lookup_variable`]) until the
+    /// returned guard is dropped. Call this while expanding the binding's expression, so that
+    /// references within it can't resolve to the binding itself.
+    pub fn hide_binding(&self, id: usize) -> ExpansionGuard {
+        self.expansion_state.borrow_mut().hidden_bindings.push(id);
+        ExpansionGuard {
+            state: Rc::clone(&self.expansion_state),
+            is_binding: true,
+        }
+    }
+
+    /// Records that `expansion` is being expanded, until the returned guard is dropped. Fails with a
+    /// descriptive error if it is already being expanded, which would mean the definition refers to
+    /// itself (directly or indirectly) and would otherwise expand forever.
+    pub fn enter_expansion(&self, expansion: Expansion) -> Result<ExpansionGuard, String> {
+        let mut state = self.expansion_state.borrow_mut();
+        if let Some(index) = state.stack.iter().position(|e| *e == expansion) {
+            return Err(expansion.cycle_message(&state.stack[index..]));
+        }
+        state.stack.push(expansion);
+        Ok(ExpansionGuard {
+            state: Rc::clone(&self.expansion_state),
+            is_binding: false,
+        })
     }
 
     /// Records the query's user-defined function definitions. Their bodies are resolved lazily (when
@@ -111,27 +287,23 @@ impl<'a, 'b> Scope<'a, 'b> {
         })
     }
 
-    /// Evaluates `f` with additional variable bindings temporarily in scope, restoring the previous
-    /// bindings afterward. Used to bind a user-defined function's parameters and local assignments
-    /// while its body is being compiled.
+    /// Evaluates `f` with additional variable bindings temporarily in scope, removing them
+    /// afterward. Used to bind a user-defined function's parameters and local assignments while its
+    /// body is being compiled.
     pub fn with_variable_bindings<T>(
         &mut self,
         bindings: Vec<(String, Expr)>,
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
-        let mut saved: Vec<(String, Option<Expr>)> = Vec::with_capacity(bindings.len());
+        let names: Vec<String> = bindings.iter().map(|(name, _)| name.clone()).collect();
         for (name, expr) in bindings {
-            let previous = self.variables.insert(name.clone(), expr);
-            saved.push((name, previous));
+            self.push_binding(name, BindingKind::Local, expr);
         }
         let result = f(self);
-        // Restore in reverse so that duplicate names are returned to their original state.
-        for (name, previous) in saved.into_iter().rev() {
-            match previous {
-                Some(expr) => {
-                    self.variables.insert(name, expr);
-                }
-                None => {
+        for name in names.into_iter().rev() {
+            if let Some(stack) = self.variables.get_mut(&name) {
+                stack.pop();
+                if stack.is_empty() {
                     self.variables.remove(&name);
                 }
             }
@@ -249,6 +421,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             aggregate_functions: HashMap::new(),
             computed_columns: HashMap::new(),
             variables: HashMap::new(),
+            expansion_state: Rc::clone(&self.expansion_state),
             user_functions: HashMap::new(),
             custom_comparisons: HashMap::new(),
         }
