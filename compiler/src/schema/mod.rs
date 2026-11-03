@@ -10,7 +10,6 @@ use std::collections::{
 use crate::errors::msg;
 
 use self::{
-    chain::{Chain, ChainIntersecting},
     links::{
         ForeignKey, ForwardLinkToOne, Link, LinkToOne, MultiLink, Reference, ReverseLinkToMany,
         ReverseLinkToOne,
@@ -67,50 +66,6 @@ impl Schema {
         let table = self.tables.get(&reference.table_id).unwrap();
         let column = table.columns.get(&reference.column_id).unwrap();
         column.name.clone()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ChainSearchBase {
-    Chain(Chain<MultiLink>),
-    TableId(TableId),
-}
-
-impl ChainSearchBase {
-    pub fn len(&self) -> usize {
-        match self {
-            ChainSearchBase::Chain(chain) => chain.len(),
-            ChainSearchBase::TableId(_) => 0,
-        }
-    }
-
-    pub fn get_base_table_id(&self) -> TableId {
-        match self {
-            Self::Chain(chain) => chain.get_ending_table_id(),
-            Self::TableId(id) => *id,
-        }
-    }
-
-    pub fn get_ending_table_id(&self) -> Option<usize> {
-        match self {
-            Self::Chain(chain) => Some(chain.get_ending_table_id()),
-            Self::TableId(_) => None,
-        }
-    }
-
-    pub fn try_append_into_chain(self, link: MultiLink) -> Result<Chain<MultiLink>, &'static str> {
-        match self {
-            Self::Chain(mut chain) => {
-                chain.try_append(link)?;
-                Ok(chain)
-            }
-            Self::TableId(table_id) => {
-                if table_id != link.get_start().table_id {
-                    return Err("Link does not connect to starting table");
-                }
-                Chain::try_new(link, ChainIntersecting::Disallowed)
-            }
-        }
     }
 }
 

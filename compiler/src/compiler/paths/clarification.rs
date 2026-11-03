@@ -1,4 +1,4 @@
-use itertools::Itertools;
+use std::collections::HashSet;
 
 use querydown_parser::ast::{ConditionSet, PathPart, TableWithMany};
 
@@ -8,7 +8,7 @@ use crate::{
     schema::{
         chain::{Chain, ChainIntersecting},
         links::{FilteredLink, Link, LinkToOne, MultiLink, Reference},
-        ChainSearchBase, Table, TableId,
+        Table, TableId,
     },
 };
 
@@ -161,10 +161,9 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                 return Err(msg::table_with_one_path_unsupported(&table_name));
             }
             PathPart::TableWithMany(mut table_with_many) => {
-                let base = ChainSearchBase::TableId(current_table.id);
                 let condition_set = std::mem::take(&mut table_with_many.condition_set);
                 let mut new_chain =
-                    get_chain_to_table_with_many(base, &table_with_many, None, scope)?;
+                    get_chain_to_table_with_many(current_table, &table_with_many, scope)?;
                 new_chain.set_final_condition_set(condition_set);
                 new_chain.allow_intersecting();
                 if first_to_many_end_table_id.is_none() {
@@ -189,88 +188,131 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
     })
 }
 
+/// Finds the route that a `#table` path part takes from `start`: the shortest series of links that
+/// ends at the named table. When the path part names a linking column (as in `#blocks(blocker)`),
+/// the route's final link must follow that foreign key column.
+///
+/// A route never visits a table twice, with one exception: its final link may be a self-referencing
+/// link from the named table back to itself (e.g. `issues.duplicate_of`). That is how a path part
+/// like `#issues` can lead from `issues` to other `issues` records.
+///
+/// If more than one route ties for being the shortest, the path part is ambiguous.
 fn get_chain_to_table_with_many(
-    base: ChainSearchBase,
+    start: &Table,
     target: &TableWithMany,
-    max_chain_length: Option<usize>,
     scope: &Scope,
 ) -> Result<Chain<FilteredLink>, String> {
-    let max_chain_len = max_chain_length.unwrap_or(usize::MAX);
-    if base.len() >= max_chain_len {
-        // I don't think this should never happen, but I put it here just in case
-        return Err("Chain search base already too long before searching.".to_string());
-    }
+    let schema = scope.schema;
     let target_table = scope
         .get_table_by_name(&target.table)
         .ok_or_else(|| msg::table_not_found(&target.table))?;
-
-    // Success case where the base is already at the target
-    if base.get_ending_table_id() == Some(target_table.id) {
-        if let ChainSearchBase::Chain(multi_link_chain) = base {
-            return Ok(Chain::<FilteredLink>::from(multi_link_chain));
-        }
-    }
-
-    let base_table = scope
-        .schema
-        .tables
-        .get(&base.get_base_table_id())
-        .ok_or_else(|| "Base table not found.".to_string())?;
-
-    // Success case where we can directly find the target from the base
-    if let Some(links) = base_table.reverse_links_to_many.get(&target_table.id) {
-        if let Ok(link) = links.iter().exactly_one() {
-            let multi_link = MultiLink::ReverseLinkToMany(*link);
-            if let Ok(multi_link_chain) = base.clone().try_append_into_chain(multi_link) {
-                return Ok(Chain::<FilteredLink>::from(multi_link_chain));
-            }
-        }
-    }
-
-    if base.len() + 1 >= max_chain_len {
-        return Err("Max chain length reached.".to_string());
-    }
-
-    let get_transitive_chain = |link: MultiLink, max: usize| {
-        let chain = base.clone().try_append_into_chain(link)?;
-        get_chain_to_table_with_many(ChainSearchBase::Chain(chain), target, Some(max), scope)
-    };
-    enum ChainSearchResult {
-        Winner(Chain<FilteredLink>),
-        Tie(usize),
-        NoneFound,
-    }
-    let get_max_len = |result: &ChainSearchResult| match result {
-        ChainSearchResult::Winner(chain) => chain.len(),
-        ChainSearchResult::Tie(len) => *len,
-        ChainSearchResult::NoneFound => max_chain_len,
-    };
-
-    // Recursive case
-    let mut result = ChainSearchResult::NoneFound;
-    for link in base_table.get_links() {
-        let max_len = get_max_len(&result);
-        let Ok(chain) = get_transitive_chain(link, max_len) else {
-            continue;
+    let uses_linking_column = |link: &MultiLink| -> bool {
+        let Some(column_name) = &target.linking_column else {
+            return true;
         };
-        if let ChainSearchResult::Winner(winner) = &result {
-            if chain.len() == winner.len() {
-                result = ChainSearchResult::Tie(chain.len());
-            } else if chain.len() < winner.len() {
-                result = ChainSearchResult::Winner(chain);
+        let column = link.get_foreign_key_column();
+        let table = schema.tables.get(&column.table_id).unwrap();
+        scope
+            .options
+            .resolve_identifier(&table.column_lookup, column_name)
+            == Some(&column.column_id)
+    };
+    let extend = |prefix: &Option<Chain<MultiLink>>, link: MultiLink, intersecting| match prefix {
+        None => Chain::try_new(link, intersecting).ok(),
+        Some(chain) => {
+            let mut chain = chain.clone();
+            if intersecting == ChainIntersecting::Allowed {
+                chain.allow_intersecting();
             }
-        } else {
-            result = ChainSearchResult::Winner(chain);
+            chain.try_append(link).ok().map(|()| chain)
         }
+    };
+
+    // Search outward from `start` one link at a time, so that the first routes found are the
+    // shortest. Each prefix is a route (empty at first) along with the table it ends at.
+    let mut prefixes: Vec<(Option<Chain<MultiLink>>, TableId)> = vec![(None, start.id)];
+    // Tables reached at an earlier step. A route that reaches one of these later can't be shortest.
+    let mut visited = HashSet::from([start.id]);
+    while !prefixes.is_empty() {
+        let mut routes: Vec<Chain<MultiLink>> = vec![];
+        let mut next_prefixes = vec![];
+        let mut reached = HashSet::new();
+        for (prefix, end_table_id) in &prefixes {
+            let table = schema.tables.get(end_table_id).unwrap();
+            for link in table.get_links() {
+                let link_end_table_id = link.get_end().table_id;
+                if link_end_table_id == *end_table_id {
+                    // A self-referencing link can only end a route, and only when followed from the
+                    // referenced record to the many records that reference it.
+                    let is_route = link_end_table_id == target_table.id
+                        && matches!(link, MultiLink::ReverseLinkToMany(_))
+                        && uses_linking_column(&link);
+                    if is_route {
+                        routes.extend(extend(prefix, link, ChainIntersecting::Allowed));
+                    }
+                    continue;
+                }
+                if visited.contains(&link_end_table_id) {
+                    continue;
+                }
+                let Some(chain) = extend(prefix, link, ChainIntersecting::Disallowed) else {
+                    continue;
+                };
+                if link_end_table_id == target_table.id && uses_linking_column(&link) {
+                    routes.push(chain.clone());
+                }
+                // A route that reached the target via some other column may still continue along a
+                // self-referencing link that uses the right one.
+                reached.insert(link_end_table_id);
+                next_prefixes.push((Some(chain), link_end_table_id));
+            }
+        }
+        match routes.len() {
+            0 => {}
+            1 => return Ok(Chain::from(routes.pop().unwrap())),
+            _ => return Err(ambiguous_route_error(&routes, start, target, scope)),
+        }
+        visited.extend(reached);
+        prefixes = next_prefixes;
     }
-    match result {
-        ChainSearchResult::Winner(chain) => Ok(chain),
-        // Only the outermost search's error reaches the user: the recursive searches' errors are
-        // swallowed above, since they merely rule out one candidate chain.
-        ChainSearchResult::Tie(_) => Err(msg::ambiguous_path_to_table(
-            &base_table.name,
-            &target.table,
-        )),
-        ChainSearchResult::NoneFound => Err(msg::no_path_to_table(&base_table.name, &target.table)),
-    }
+    Err(match &target.linking_column {
+        Some(column) => msg::no_path_to_table_via_column(&start.name, &target_table.name, column),
+        None if start.id == target_table.id => msg::no_path_from_table_to_itself(&start.name),
+        None => msg::no_path_to_table(&start.name, &target.table),
+    })
+}
+
+/// Explains why a `#table` path part is ambiguous. When the tied routes differ only in which
+/// foreign key their final link follows, the error suggests naming that column.
+fn ambiguous_route_error(
+    routes: &[Chain<MultiLink>],
+    start: &Table,
+    target: &TableWithMany,
+    scope: &Scope,
+) -> String {
+    let route_up_to_final_link = |route: &Chain<MultiLink>| -> Vec<(Reference, Reference)> {
+        let links = route.get_links();
+        links[..links.len() - 1]
+            .iter()
+            .map(|link| (link.get_start(), link.get_end()))
+            .collect()
+    };
+    let first_route = route_up_to_final_link(&routes[0]);
+    let differ_only_in_final_link = target.linking_column.is_none()
+        && routes
+            .iter()
+            .all(|route| route_up_to_final_link(route) == first_route);
+    let column_names: Vec<String> = if differ_only_in_final_link {
+        routes
+            .iter()
+            .map(|route| {
+                let final_link = route.get_links().last().unwrap();
+                let column = final_link.get_foreign_key_column();
+                scope.schema.get_referenced_column_name(&column)
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    msg::ambiguous_path_to_table(&start.name, &target.table, &column_names)
 }

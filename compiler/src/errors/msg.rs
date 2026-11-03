@@ -17,11 +17,43 @@ pub fn no_path_to_table(from_table: &str, to_table: &str) -> String {
     )
 }
 
-pub fn ambiguous_path_to_table(from_table: &str, to_table: &str) -> String {
+pub fn no_path_from_table_to_itself(table: &str) -> String {
     format!(
+        "The table `{table}` has no foreign key that refers to `{table}` itself, so `#{table}` \
+         can't be used here. To reach other `{table}` records through a related table, name that \
+         table first, as in `#other_table.#{table}`."
+    )
+}
+
+pub fn no_path_to_table_via_column(from_table: &str, to_table: &str, column: &str) -> String {
+    format!(
+        "The table `{to_table}` is not related to the table `{from_table}` via a foreign key \
+         column named `{column}`, so `#{to_table}({column})` can't be used here."
+    )
+}
+
+/// `linking_columns` lists the foreign key columns that would each pick one of the tied routes,
+/// when naming a column is enough to resolve the ambiguity. Otherwise it's empty.
+pub fn ambiguous_path_to_table(
+    from_table: &str,
+    to_table: &str,
+    linking_columns: &[String],
+) -> String {
+    let mut message = format!(
         "The table `{to_table}` is related to the table `{from_table}` in more than one equally \
          direct way, so `#{to_table}` is ambiguous here."
-    )
+    );
+    if !linking_columns.is_empty() {
+        let options = linking_columns
+            .iter()
+            .map(|column| format!("`#{to_table}({column})`"))
+            .collect::<Vec<_>>()
+            .join(" or ");
+        message.push_str(&format!(
+            " Name the linking column to use, as in {options}."
+        ));
+    }
+    message
 }
 
 pub fn table_with_one_path_unsupported(table_name: &str) -> String {

@@ -29,11 +29,6 @@ pub struct Chain<L: Link> {
 }
 
 impl<L: Link> Chain<L> {
-    // The number of links in the chain
-    pub fn len(&self) -> usize {
-        self.links.len()
-    }
-
     fn validate_link(link: &L, intersecting: &ChainIntersecting) -> Result<(), &'static str> {
         if *intersecting == ChainIntersecting::Allowed {
             return Ok(());

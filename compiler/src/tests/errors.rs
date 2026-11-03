@@ -170,6 +170,39 @@ fn ambiguous_path_to_table() {
 }
 
 #[test]
+fn ambiguous_linking_column_suggests_naming_it() {
+    // `blocks` refers to `issues` via both `blocker` and `blocking`. This used to silently pick one.
+    let err = compile_error("#issues --#blocks");
+    assert_eq!(
+        err.message,
+        "The table `blocks` is related to the table `issues` in more than one equally direct way, \
+         so `#blocks` is ambiguous here. Name the linking column to use, as in `#blocks(blocker)` \
+         or `#blocks(blocking)`."
+    );
+}
+
+#[test]
+fn path_via_unknown_linking_column() {
+    let err = compile_error("#issues $#blocks(nope)");
+    assert_eq!(
+        err.message,
+        "The table `blocks` is not related to the table `issues` via a foreign key column named \
+         `nope`, so `#blocks(nope)` can't be used here."
+    );
+}
+
+#[test]
+fn path_from_table_to_itself_without_self_reference() {
+    let err = compile_error("#users $#users");
+    assert_eq!(
+        err.message,
+        "The table `users` has no foreign key that refers to `users` itself, so `#users` can't be \
+         used here. To reach other `users` records through a related table, name that table \
+         first, as in `#other_table.#users`."
+    );
+}
+
+#[test]
 fn table_with_one_path_is_an_error_rather_than_a_crash() {
     // This syntax parses, but isn't implemented by the compiler. It used to panic (via `todo!()`),
     // which in the WebAssembly build aborts the whole module.

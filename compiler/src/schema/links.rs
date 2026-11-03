@@ -141,6 +141,18 @@ pub enum MultiLink {
     ReverseLinkToMany(ReverseLinkToMany),
 }
 
+impl MultiLink {
+    /// The foreign key column this link follows, whichever direction it goes. This is the column a
+    /// path part like `#blocks(blocker)` names.
+    pub fn get_foreign_key_column(&self) -> Reference {
+        match self {
+            MultiLink::ForwardLinkToOne(link) => link.base,
+            MultiLink::ReverseLinkToOne(link) => link.base,
+            MultiLink::ReverseLinkToMany(link) => link.base,
+        }
+    }
+}
+
 impl Link for MultiLink {
     fn get_start(&self) -> Reference {
         match self {

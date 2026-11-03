@@ -2408,6 +2408,145 @@ WHERE
   "cte1"."pk" IS NOT NULL;
 ```
 
+## Linking columns
+
+### Linking column for a reverse link
+
+> Issues that are not blocking any other issues. `blocks` refers to `issues` twice, so the
+> linking column chooses which foreign key to follow.
+
+```qd
+#issues --#blocks(blocker) $id->id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "blocks"."blocker" AS "pk"
+    FROM "blocks"
+    GROUP BY "blocks"."blocker"
+  )
+SELECT
+  "issues"."id" AS "id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
+```
+
+### The other linking column
+
+> Issues that are not blocked by any other issues
+
+```qd
+#issues --#blocks(blocking) $id->id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "blocks"."blocking" AS "pk"
+    FROM "blocks"
+    GROUP BY "blocks"."blocking"
+  )
+SELECT
+  "issues"."id" AS "id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
+```
+
+### Self-referencing link
+
+> Issues, showing how many other issues are marked as duplicates of each one
+
+```qd
+#issues $id->id $#issues(duplicate_of)->duplicates
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."duplicate_of" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."duplicate_of"
+  )
+SELECT
+  "issues"."id" AS "id",
+  COALESCE("cte0"."v1", 0) AS "duplicates"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Self-referencing link without a linking column
+
+> `issues.duplicate_of` is the only foreign key from `issues` to itself, so it's the shortest
+> unambiguous route from `issues` back to `issues`, even without naming it.
+
+```qd
+#issues $id->id $#issues->duplicates
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."duplicate_of" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."duplicate_of"
+  )
+SELECT
+  "issues"."id" AS "id",
+  COALESCE("cte0"."v1", 0) AS "duplicates"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Self-referencing link at the end of a longer route
+
+> Issues, listing the titles of issues that are duplicates of issues sharing a label with each
+> issue. The route reaches `issues` via `issue_labels.issue`, which isn't the named linking column,
+> and then follows `duplicate_of` back to `issues`.
+
+```qd
+#issues $id->id $#labels.#issues(duplicate_of).title%list->v
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg(DISTINCT "issues_1"."title") AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    JOIN "issue_labels" AS "issue_labels_1" ON
+      "labels"."id" = "issue_labels_1"."label"
+    JOIN "issues" ON
+      "issue_labels_1"."issue" = "issues"."id"
+    JOIN "issues" AS "issues_1" ON
+      "issues"."id" = "issues_1"."duplicate_of"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id" AS "id",
+  "cte0"."v1" AS "v"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
 ## "Has" conditions
 
 ### Basic has some

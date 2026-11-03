@@ -1184,32 +1184,57 @@ Column name chains can loop back too:
 
 This path goes from `issues` to `users`, then to `comments`, and then back to `issues`.
 
-When Querydown finds the route for a single `#` part, it never visits the same table twice. So a `#` part can't lead from a table back to that same table:
+When Querydown finds the route for a single `#` part, it never visits the same table twice, with one exception: the route may end by following a foreign key that refers to its own table. In our schema, `issues.duplicate_of` refers to `issues`, so a `#issues` part can lead from an issue to the issues marked as duplicates of it:
 
-> Attempt to show, for each issue, the most recent creation date among "related" issues
+> Issues, showing the most recent creation date among the issues marked as duplicates of each issue
 
 ```qd
-#issues $* $#issues.created_at%max // ERROR!
+#issues $* $#issues.created_at%max
 ```
 
-There are many ways to get from one issue to other issues: through shared labels, the same author, the same project, and so on. Name a table in between to say which one you mean, as in the examples above.
+`duplicate_of` is the only foreign key from `issues` to itself, so it's the shortest unambiguous route and you don't need to name it. You can still name it, as in `#issues(duplicate_of)` (see [Specifying the linking column](#specifying-the-linking-column)).
+
+A table without such a foreign key can't lead back to itself this way:
+
+> Attempt to show, for each user, the number of "related" users
+
+```qd
+#users $* $#users // ERROR!
+```
+
+There are many ways to get from one user to other users: the same team, the same issues, and so on. Name a table in between to say which one you mean:
+
+> Users, showing the number of users on each user's team
+
+```qd
+#users $* $team.#users
+```
 
 ### Specifying the linking column
 
-If one table directly links to another table multiple times, then parentheses must be used to specify which linking column to use.
+If a table refers to another table through more than one foreign key, then a `#` part leading to it is ambiguous. Put the foreign key column in parentheses to say which one to follow.
 
 > Issues that are not blocking any other issues
 
-```
+```qd
 #issues --#blocks(blocker)
 ```
 
 > Issues that are not blocked by any other issues
 
-```
+```qd
 #issues --#blocks(blocking)
 ```
 
+The linking column applies to the last link of the route. Querydown still finds the shortest route, but only among routes that end by following that foreign key:
+
+> Issues, listing the titles of issues marked as duplicates of issues that share a label with each issue
+
+```qd
+#issues $* $#labels.#issues(duplicate_of).title%list
+```
+
+Without `(duplicate_of)`, `#labels.#issues` would end at the issues that share a label, reached via `issue_labels.issue`. Naming `duplicate_of` adds one more hop, from those issues to the issues marked as their duplicates.
 
 ## Pipeline of multiple queries
 
