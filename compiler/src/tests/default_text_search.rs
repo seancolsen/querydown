@@ -128,3 +128,46 @@ fn backtick_quoting_negates_a_column_reference_rather_than_a_search() {
     assert!(sql.contains(r#"NOT "projects"."is_active""#), "got: {sql}");
     assert!(!sql.contains("strpos"), "got: {sql}");
 }
+
+#[test]
+fn search_term_before_a_has_quantity_condition() {
+    // A has-quantity prefix (`++`/`--`) begins with the same character as an arithmetic operator,
+    // but it starts a separate condition. A bare word before it is still a search term, so the order
+    // of the two conditions doesn't matter.
+    let expected = compile("#issues ++#comments{body:bar} foo $id").unwrap();
+    assert!(expected.contains("'foo'"), "got: {expected}");
+    for input in [
+        "#issues foo ++#comments{body:bar} $id",
+        "#issues foo  ++ #comments{body:bar} $id",
+        "#issues foo++#comments{body:bar} $id",
+    ] {
+        let sql = compile(input).unwrap();
+        assert!(sql.contains("'foo'"), "{input} got: {sql}");
+        assert!(sql.contains("'bar'"), "{input} got: {sql}");
+        assert!(
+            sql.contains(r#""cte0"."pk" IS NOT NULL"#),
+            "{input} got: {sql}"
+        );
+    }
+    let sql = compile("#issues foo --#comments $id").unwrap();
+    assert!(sql.contains("'foo'"), "got: {sql}");
+    assert!(sql.contains(r#""cte0"."pk" IS NULL"#), "got: {sql}");
+}
+
+#[test]
+fn search_operands_before_a_has_quantity_condition() {
+    // The same holds for the comma "OR" shorthand and a negated search term.
+    let sql = compile("#issues foo,bar ++#comments $id").unwrap();
+    assert!(sql.contains("'foo'") && sql.contains("'bar'"), "got: {sql}");
+    let sql = compile("#issues !foo ++#comments $id").unwrap();
+    assert!(sql.contains("NOT ("), "got: {sql}");
+    assert!(sql.contains("'foo'"), "got: {sql}");
+}
+
+#[test]
+fn double_minus_before_a_number_is_still_arithmetic() {
+    // `--` followed by a number is not a has-quantity prefix (a path can't begin with a digit), so
+    // `id --1` remains `id - -1`.
+    let sql = compile("#issues id --1 $id").unwrap();
+    assert!(sql.contains(r#""issues"."id" - -1"#), "got: {sql}");
+}

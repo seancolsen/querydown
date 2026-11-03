@@ -4,6 +4,8 @@ use crate::ast::*;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
+use super::path::path_to_one;
+
 /// Characters that, when one immediately follows a bare word, mean the word is the start of a larger
 /// expression (a path, pipe, aggregate, arithmetic operator, or comparison operator) or part of a
 /// longer identifier — rather than a standalone search term. All comparison operators begin with
@@ -85,7 +87,23 @@ fn bare_word<'src>(continuation_chars: &'static str) -> impl Psr<'src, String> {
         )
         .to_slice()
         .map(|s: &str| s.to_string());
-    let continuation = any().filter(move |c: &char| continuation_chars.contains(*c));
+    // A has-quantity prefix (`++#comments`, `--#labels`) begins with `+`/`-`, the same characters as
+    // the arithmetic operators, but it starts a *separate* condition rather than continuing the word
+    // into a sum or difference. It is recognized by the path that follows it: the right operand of a
+    // `+`/`-` can never begin with a second `+` or `-` followed by a path, so this is unambiguous —
+    // whereas e.g. `foo --1` (i.e. `foo - -1`) remains arithmetic.
+    let has_quantity_prefix = choice((
+        exactly(HAS_QUANTITY_AT_LEAST_ONE),
+        exactly(HAS_QUANTITY_ZERO),
+    ))
+    .then(pad())
+    .then(choice((
+        just(TABLE_SIGIL).ignored(),
+        path_to_one().ignored(),
+    )));
+    let continuation = any()
+        .filter(move |c: &char| continuation_chars.contains(*c))
+        .and_is(has_quantity_prefix.not());
     // A condition-set brace *immediately* following the word (no space) marks a scoped comparison
     // (`issue{...}` / `issue[...]`, see `scoped_comparison`), so the word is not a lone search term
     // but the head of a larger expression. Unlike the `continuation` check, this deliberately does
