@@ -35,7 +35,12 @@ schema = "library"
 ```
 
 ```sql
-SELECT "Patrons".* FROM "Patrons";
+SELECT
+  "Patrons"."id",
+  "Patrons"."First Name",
+  "Patrons"."Last Name",
+  "Patrons"."Email"
+FROM "Patrons";
 ```
 
 ## Flexible identifiers
@@ -54,7 +59,12 @@ schema = "library"
 
 ```sql
 SELECT
-  "Checkouts".*
+  "Checkouts"."id",
+  "Checkouts"."Item",
+  "Checkouts"."Patron",
+  "Checkouts"."Checkout Time",
+  "Checkouts"."Due Date",
+  "Checkouts"."Check In Time"
 FROM "Checkouts";
 ```
 
@@ -68,7 +78,12 @@ FROM "Checkouts";
 
 ```sql
 SELECT
-  "Checkouts".*
+  "Checkouts"."id",
+  "Checkouts"."Item",
+  "Checkouts"."Patron",
+  "Checkouts"."Checkout Time",
+  "Checkouts"."Due Date",
+  "Checkouts"."Check In Time"
 FROM "Checkouts"
 WHERE
   "Checkouts"."Check In Time" IS NULL AND
@@ -85,7 +100,12 @@ WHERE
 
 ```sql
 SELECT
-  "Checkouts".*
+  "Checkouts"."id",
+  "Checkouts"."Item",
+  "Checkouts"."Patron",
+  "Checkouts"."Checkout Time",
+  "Checkouts"."Due Date",
+  "Checkouts"."Check In Time"
 FROM "Checkouts"
 WHERE
   "Checkouts"."Check In Time" IS NULL AND
@@ -114,7 +134,11 @@ WITH
     GROUP BY "Checkouts"."Item"
   )
 SELECT
-  "Items".*
+  "Items"."id",
+  "Items"."Barcode",
+  "Items"."Acquisition Date",
+  "Items"."Acquisition Price",
+  "Items"."Book"
 FROM "Items"
 LEFT JOIN "cte0" ON
   "Items"."id" = "cte0"."pk"
@@ -137,7 +161,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."created_at" >= DATE '2023-01-01';
@@ -151,7 +183,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."created_at" > NOW() - make_interval(years => 6);
@@ -167,7 +207,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."created_at" > NOW() - make_interval(years => 6);
@@ -186,7 +234,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(months => 6));
@@ -203,7 +259,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(months => 6));
@@ -219,7 +283,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) > EXTRACT(epoch FROM make_interval(months => 6));
@@ -237,7 +309,15 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at")) < EXTRACT(epoch FROM to_months(6));
@@ -263,7 +343,15 @@ WITH
     GROUP BY "comments"."issue"
   )
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
@@ -282,7 +370,12 @@ WHERE
 
 ```sql
 SELECT
-  "users".*
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "users"
 WHERE
   "users"."last_seen" < NOW();
@@ -304,7 +397,12 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "users".*
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "users"
 WHERE
   CAST("users"."last_seen" AS TIMESTAMP) < CAST(NOW() AS TIMESTAMP);
@@ -321,7 +419,12 @@ WHERE
 
 ```sql
 SELECT
-  "users".*
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "users"
 WHERE
   "users"."last_seen" > DATE '2023-03-04';
@@ -343,7 +446,12 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "users".*
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "users"
 WHERE
   CAST("users"."last_seen" AS TIMESTAMP) > DATE '2023-03-04';
@@ -359,7 +467,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   NOT lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C");
@@ -389,13 +505,19 @@ FROM "projects";
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
-  NOT (
-    lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") AND
-    lower("issues"."status" COLLATE "C") = lower('high' COLLATE "C")
-  );
+  NOT (lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") AND
+  lower("issues"."status" COLLATE "C") = lower('high' COLLATE "C"));
 ```
 
 ### Regex
@@ -408,7 +530,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."title" ~* 'foo';
@@ -425,7 +555,15 @@ The expansion set is on the right-hand side of the comparison, so its bare words
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   ("issues"."title" ~* 'color' OR "issues"."title" ~* 'colour');
@@ -442,7 +580,15 @@ right-hand expansion `[color colour]` holds string literals (it is on the right)
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   ("issues"."title" ~* 'color' OR "issues"."title" ~* 'colour') AND
@@ -460,7 +606,11 @@ each entry. This finds projects that are neither active nor pro-bono.
 
 ```sql
 SELECT
-  "projects".*
+  "projects"."id",
+  "projects"."name",
+  "projects"."product",
+  "projects"."is_active",
+  "projects"."is_pro_bono"
 FROM "projects"
 WHERE
   "projects"."is_pro_bono" = FALSE AND
@@ -478,10 +628,15 @@ functions instead of a condition set. This produces different results from the e
 
 ```sql
 SELECT
-  "projects".*
+  "projects"."id",
+  "projects"."name",
+  "projects"."product",
+  "projects"."is_active",
+  "projects"."is_pro_bono"
 FROM "projects"
 WHERE
-  ("projects"."is_pro_bono" AND "projects"."is_active") = FALSE;
+  ("projects"."is_pro_bono" AND
+  "projects"."is_active") = FALSE;
 ```
 
 ### Regex (DuckDB)
@@ -498,7 +653,15 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   regexp_matches("issues"."title", 'foo', 'i');
@@ -518,7 +681,15 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."created_at" > CAST(NOW() AS TIMESTAMP) - to_years(6);
@@ -538,7 +709,15 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."created_at" > CAST(NOW() AS TIMESTAMP) - (to_years(1) + to_days(2));
@@ -558,7 +737,15 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   lower(strip_accents("issues"."title")) = lower(strip_accents('can''t'));
@@ -574,7 +761,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."id" < CAST('infinity' AS double precision);
@@ -588,7 +783,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."id" >= 50 AND
@@ -603,7 +806,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."created_at" > DATE '2000-01-01' AND
@@ -618,7 +829,15 @@ WHERE
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."created_at" >= NOW() - make_interval(years => 2) AND
@@ -633,16 +852,18 @@ WHERE
 
 ```sql
 SELECT
-  "comments".*
+  "comments"."id",
+  "comments"."issue",
+  "comments"."user",
+  "comments"."body",
+  "comments"."created_at"
 FROM "comments"
 LEFT JOIN "issues" ON
   "comments"."issue" = "issues"."id"
 WHERE
-  (
-    "comments"."created_at" >= DATE '2000-01-01' AND "comments"."created_at" < DATE '2000-02-01'
-    OR
-    "issues"."created_at" >= DATE '2000-01-01' AND "issues"."created_at" < DATE '2000-02-01'
-  );
+  ("comments"."created_at" >= DATE '2000-01-01' AND
+  "comments"."created_at" < DATE '2000-02-01' OR "issues"."created_at" >= DATE '2000-01-01' AND
+  "issues"."created_at" < DATE '2000-02-01');
 ```
 
 
@@ -660,7 +881,15 @@ The `:` operator does a case-insensitive "contains" match when the left-hand sid
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('performance' COLLATE "C")) > 0, FALSE);
@@ -680,7 +909,15 @@ identifier can be quoted with backticks or written as a multi-part path.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('performance' COLLATE "C")) > 0, FALSE);
@@ -700,7 +937,15 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   COALESCE(contains(lower(strip_accents("issues"."title")), lower(strip_accents('performance'))), FALSE);
@@ -720,7 +965,15 @@ description, the same as the explicit `description:==""`.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."description" = '';
@@ -740,7 +993,15 @@ title of "Performance" but not "performance issues".
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   lower("issues"."title" COLLATE "C") = lower('performance' COLLATE "C");
@@ -758,7 +1019,15 @@ The `:==` operator forces exact, case-sensitive equality, even for text columns.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."title" = 'performance';
@@ -781,7 +1050,15 @@ normalization.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   lower(strip_accents("issues"."title")) = lower(strip_accents('performance'));
@@ -799,7 +1076,15 @@ When the left-hand side is not text, `:` behaves as exact equality.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."id" = 50;
@@ -818,7 +1103,15 @@ text, since case sensitivity is meaningless there.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."id" = 50;
@@ -836,7 +1129,15 @@ A null comparison is an `IS NULL` check regardless of the column type, so text c
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."title" IS NULL;
@@ -859,7 +1160,15 @@ least one of those columns.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('accessibility' COLLATE "C")) > 0, FALSE)) AND
@@ -880,7 +1189,15 @@ bare condition, quote it with backticks (`` `title` ``).
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('title' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('title' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('title' COLLATE "C")) > 0, FALSE));
@@ -898,7 +1215,15 @@ Quoting the search term lets it contain characters (like `:`) that a bare word m
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('localhost:3000' COLLATE "C")) > 0, FALSE));
@@ -917,7 +1242,15 @@ text search. This finds issues matching either term.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE));
@@ -936,7 +1269,15 @@ finds issues that do _not_ contain the term in any of their text columns.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('backend' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('backend' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('backend' COLLATE "C")) > 0, FALSE));
@@ -955,7 +1296,15 @@ remains an ordinary (positive) search.
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)));
@@ -994,7 +1343,15 @@ dialect = "duckdb"
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   (COALESCE(contains(lower(strip_accents("issues"."title")), lower(strip_accents('accessibility'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."description")), lower(strip_accents('accessibility'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."status")), lower(strip_accents('accessibility'))), FALSE));
@@ -1028,7 +1385,15 @@ WITH
     GROUP BY "comments"."issue"
   )
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
@@ -1156,7 +1521,15 @@ WITH
     GROUP BY "comments"."issue"
   )
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
@@ -1178,7 +1551,15 @@ The comma is shorthand for an "OR" condition set, equivalent to wrapping the con
 
 ```sql
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   (lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") OR "issues"."created_at" > DATE '2023-03-04');
@@ -1203,7 +1584,11 @@ write as a top-level condition on that table works inside the braces — includi
 
 ```sql
 SELECT
-  "comments".*
+  "comments"."id",
+  "comments"."issue",
+  "comments"."user",
+  "comments"."body",
+  "comments"."created_at"
 FROM "comments"
 LEFT JOIN "issues" ON
   "comments"."issue" = "issues"."id"
@@ -1222,7 +1607,11 @@ WHERE
 
 ```sql
 SELECT
-  "comments".*
+  "comments"."id",
+  "comments"."issue",
+  "comments"."user",
+  "comments"."body",
+  "comments"."created_at"
 FROM "comments"
 LEFT JOIN "issues" ON
   "comments"."issue" = "issues"."id"
@@ -1242,7 +1631,11 @@ WHERE
 
 ```sql
 SELECT
-  "comments".*
+  "comments"."id",
+  "comments"."issue",
+  "comments"."user",
+  "comments"."body",
+  "comments"."created_at"
 FROM "comments"
 LEFT JOIN "issues" ON
   "comments"."issue" = "issues"."id"
@@ -1265,7 +1658,11 @@ runs across every text column of `issues`.
 
 ```sql
 SELECT
-  "comments".*
+  "comments"."id",
+  "comments"."issue",
+  "comments"."user",
+  "comments"."body",
+  "comments"."created_at"
 FROM "comments"
 LEFT JOIN "issues" ON
   "comments"."issue" = "issues"."id"
@@ -1301,7 +1698,15 @@ WHERE
 
 ```sql
 SELECT
- "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 WHERE
   "issues"."author" IS NULL;
@@ -1707,7 +2112,15 @@ WITH
     GROUP BY "assignments"."issue"
   )
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
@@ -1737,7 +2150,15 @@ WITH
     GROUP BY "comments"."issue"
   )
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
@@ -1762,7 +2183,12 @@ WITH
     GROUP BY "issues"."author"
   )
 SELECT
-  "users".*
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -1789,7 +2215,12 @@ WITH
     GROUP BY "issues"."author"
   )
 SELECT
-  "users".*
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -1816,7 +2247,12 @@ WITH
     GROUP BY "issues"."author"
   )
 SELECT
-  "users".*
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -1846,7 +2282,12 @@ WITH
     GROUP BY "issues"."author"
   )
 SELECT
-  "users".*
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -1969,7 +2410,8 @@ WITH
     GROUP BY "products"."client"
   )
 SELECT
-  "clients".*
+  "clients"."id",
+  "clients"."name"
 FROM "clients"
 LEFT JOIN "cte0" ON
   "clients"."id" = "cte0"."pk"
@@ -2010,7 +2452,15 @@ WITH
     GROUP BY "issue_labels"."issue"
   )
 SELECT
-  "issues".*
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
@@ -3317,7 +3767,8 @@ WITH
     GROUP BY "issues"."project"
   )
 SELECT
-  "pipe0".*
+  "pipe0"."project",
+  "pipe0"."issue_count"
 FROM "pipe0"
 WHERE
   "pipe0"."issue_count" >= 2;
@@ -3407,7 +3858,8 @@ WITH
       "pipe0"."issue_count" >= 2
   )
 SELECT
-  "pipe1".*
+  "pipe1"."project",
+  "pipe1"."issue_count"
 FROM "pipe1"
 WHERE
   "pipe1"."issue_count" < 100;
@@ -3661,6 +4113,45 @@ WITH
 SELECT
   "qdwin_src"."id" AS "id",
   "qdwin_src"."project" AS "project"
+FROM "qdwin_src"
+WHERE
+  "qdwin_src"."qdwin0" = 1;
+```
+
+### Filtering on a window function with an empty display section
+
+> With no result columns, every column of the base table is listed explicitly in both the inner and outer queries.
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title",
+      "issues"."description" AS "description",
+      "issues"."created_at" AS "created_at",
+      "issues"."author" AS "author",
+      "issues"."status" AS "status",
+      "issues"."project" AS "project",
+      "issues"."duplicate_of" AS "duplicate_of",
+      "issues"."due_date" AS "due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "qdwin_src"."id" AS "id",
+  "qdwin_src"."title" AS "title",
+  "qdwin_src"."description" AS "description",
+  "qdwin_src"."created_at" AS "created_at",
+  "qdwin_src"."author" AS "author",
+  "qdwin_src"."status" AS "status",
+  "qdwin_src"."project" AS "project",
+  "qdwin_src"."duplicate_of" AS "duplicate_of",
+  "qdwin_src"."due_date" AS "due_date"
 FROM "qdwin_src"
 WHERE
   "qdwin_src"."qdwin0" = 1;

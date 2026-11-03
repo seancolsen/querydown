@@ -279,9 +279,18 @@ fn compile_stage(
         mut columns,
         sorting: column_sorting,
         grouping,
-        column_annotations,
-        output_names,
+        mut column_annotations,
+        mut output_names,
     } = convert_result_columns(transformation.result_columns, &mut scope)?;
+    if columns.is_empty() {
+        // With no explicit result columns, the stage emits every column of its base table. We list
+        // them explicitly rather than emitting `SELECT *` so that the result set is exactly the
+        // set of columns Querydown knows about, in a deterministic order.
+        let (expanded, names) = expand_base_table_columns(base_table, &scope);
+        column_annotations = vec![None; expanded.len()];
+        columns = expanded;
+        output_names = names;
+    }
 
     select.grouping = grouping;
     // Standalone `\\` sorts take precedence over column `\s` sorts, hence they come first.
@@ -292,18 +301,11 @@ fn compile_stage(
 
     if is_wrapped {
         // Give every real result column an explicit, unique alias so the wrapping query can
-        // reference it by name. With no explicit result columns, expand the base table's columns.
-        let real_output_names = if columns.is_empty() {
-            let (expanded, names) = expand_base_table_columns(base_table, &scope);
-            columns = expanded;
-            names
-        } else {
-            let names = dedupe_names(output_names);
-            for (column, name) in columns.iter_mut().zip(names.iter()) {
-                column.alias = Some(name.clone());
-            }
-            names
-        };
+        // reference it by name.
+        let real_output_names = dedupe_names(output_names);
+        for (column, name) in columns.iter_mut().zip(real_output_names.iter()) {
+            column.alias = Some(name.clone());
+        }
         select.columns = columns;
         return wrap_stage_for_windows(
             options,
@@ -319,16 +321,7 @@ fn compile_stage(
         );
     }
 
-    let output_names = if columns.is_empty() {
-        // With no explicit result columns, the stage emits every column of its base table.
-        let mut names: Vec<(usize, String)> = base_table
-            .columns
-            .values()
-            .map(|c| (c.id, c.name.clone()))
-            .collect();
-        names.sort_by_key(|(id, _)| *id);
-        names.into_iter().map(|(_, name)| name).collect()
-    } else if is_last {
+    let output_names = if is_last {
         output_names
     } else {
         // Force an explicit, unique alias on every column of a non-final stage so that the CTE
@@ -414,9 +407,9 @@ fn wrap_stage_for_windows(
     })
 }
 
-/// Builds an explicit [`Column`] for every column of `base_table` (aliased to the column name),
-/// returning the columns together with their names. Used when a wrapped stage has no explicit result
-/// columns and must still expose each base-table column by name to the wrapping query.
+/// Builds an explicit, unaliased [`Column`] for every column of `base_table` (in column-id order),
+/// returning the columns together with their names. Used when a stage has no explicit result
+/// columns, so that it lists every known column rather than selecting `*`.
 fn expand_base_table_columns(base_table: &Table, scope: &Scope) -> (Vec<Column>, Vec<String>) {
     let mut entries: Vec<(usize, String)> = base_table
         .columns
@@ -428,7 +421,7 @@ fn expand_base_table_columns(base_table: &Table, scope: &Scope) -> (Vec<Column>,
     let mut names = Vec::with_capacity(entries.len());
     for (_, name) in entries {
         let expr = scope.table_column_expr(&base_table.name, &name);
-        columns.push(Column::new(expr, Some(name.clone())));
+        columns.push(Column::new(expr, None));
         names.push(name);
     }
     (columns, names)
