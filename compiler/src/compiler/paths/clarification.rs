@@ -137,8 +137,8 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                     final_column_name = Some(column.name.clone());
                 }
             }
-            PathPart::TableWithOne(_) => {
-                todo!()
+            PathPart::TableWithOne(table_name) => {
+                return Err(msg::table_with_one_path_unsupported(&table_name));
             }
             PathPart::TableWithMany(mut table_with_many) => {
                 let base = ChainSearchBase::TableId(current_table.id);

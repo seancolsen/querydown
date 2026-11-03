@@ -168,3 +168,14 @@ fn ambiguous_path_to_table() {
          is ambiguous here."
     );
 }
+
+#[test]
+fn table_with_one_path_is_an_error_rather_than_a_crash() {
+    // This syntax parses, but isn't implemented by the compiler. It used to panic (via `todo!()`),
+    // which in the WebAssembly build aborts the whole module.
+    let err = compile_error("#issues $author.>>users");
+    assert_eq!(
+        err.message,
+        "Paths to a single related record via `>>` (as in `>>users`) are not yet supported."
+    );
+}

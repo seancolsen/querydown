@@ -24,6 +24,12 @@ pub fn ambiguous_path_to_table(from_table: &str, to_table: &str) -> String {
     )
 }
 
+pub fn table_with_one_path_unsupported(table_name: &str) -> String {
+    format!(
+        "Paths to a single related record via `>>` (as in `>>{table_name}`) are not yet supported."
+    )
+}
+
 pub fn no_path_parts() -> String {
     "Cannot build a ClarifiedPath without any path parts".to_string()
 }
