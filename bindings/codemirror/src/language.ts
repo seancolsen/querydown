@@ -16,6 +16,7 @@ import {
 } from "@lezer/common";
 import { styleTags, tags, type Tag } from "@lezer/highlight";
 
+import { querydownCompletionSource, type QuerydownCompletionConfig } from "./completion.js";
 import { querydownHighlighting } from "./highlight.js";
 import { querydownTags, standardTags } from "./tags.js";
 import { TOKEN_KINDS, type Grammar, type Token, type TokenKind, type Tokenize } from "./tokens.js";
@@ -207,23 +208,38 @@ export interface QuerydownConfig extends QuerydownLanguageConfig {
    * own.
    */
   highlighting?: Extension | false;
+  /**
+   * Autocompletion of tables, columns, functions, variables and (optionally) column annotations.
+   * Takes effect with CodeMirror's `autocompletion()` extension (part of `basicSetup`).
+   */
+  completion?: QuerydownCompletionConfig;
 }
 
 /**
  * Querydown language support for CodeMirror: the language plus, by default, syntax highlighting
- * that follows the editor's light or dark theme.
+ * that follows the editor's light or dark theme, and optionally autocompletion.
  *
  * ```ts
- * import init, { tokenize } from "querydown-js";
+ * import init, { QuerydownCompleter, tokenize } from "querydown-js";
  * import { querydown } from "querydown-codemirror";
  *
  * await init(wasmUrl);
- * new EditorView({ extensions: [querydown({ tokenize })], parent });
+ * const completer = new QuerydownCompleter(schemaJson);
+ * new EditorView({
+ *   extensions: [basicSetup, querydown({ tokenize, completion: { completer } })],
+ *   parent,
+ * });
  * ```
  */
 export function querydown(config: QuerydownConfig): LanguageSupport {
   // The default highlighting is shared, so that editors don't each define the same styles.
   defaultHighlighting ??= querydownHighlighting();
-  const { highlighting = defaultHighlighting } = config;
-  return new LanguageSupport(querydownLanguage(config), highlighting === false ? [] : [highlighting]);
+  const { highlighting = defaultHighlighting, completion, grammar } = config;
+  const language = querydownLanguage(config);
+  const support: Extension[] = highlighting === false ? [] : [highlighting];
+  if (completion) {
+    const autocomplete = querydownCompletionSource({ ...completion, grammar: grammar ?? "query" });
+    support.push(language.data.of({ autocomplete }));
+  }
+  return new LanguageSupport(language, support);
 }

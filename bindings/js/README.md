@@ -119,6 +119,56 @@ for an unknown `grammar`.
 For CodeMirror 6, [`querydown-codemirror`](../codemirror/README.md) builds a complete language with
 light and dark highlighting on top of this function.
 
+### `new QuerydownCompleter(schemaJson: string)`
+
+Creates an **autocompletion** engine for the database described by `schemaJson` (the same JSON as
+for `compile`). The schema is parsed once, here, so create one completer per schema and reuse it.
+Throws a [`QuerydownError`](#errors) of kind `"schema"` if the schema is invalid. (Call `free()` to
+release its memory early; otherwise it's released when garbage collected.)
+
+### `completer.complete(source: string, cursor: number, options?: QuerydownCompletionOptions): QuerydownCompletions`
+
+Lists what could be typed at `cursor` (a UTF-16 offset) in `source`: tables after `#`, the columns
+of the table in scope after `$` or `.` or in a condition, functions after `|`, `%` or `@@`, variables
+after `@`, and so on. The source is read with Querydown's own parser, so, for example, the columns
+offered in `#comments issue{…}` are those of `issues`, and in a later pipeline stage, those output by
+the previous one. Never throws on invalid Querydown (source being edited is usually invalid); throws
+a `QuerydownError` of kind `"argument"` for an unknown grammar.
+
+```ts
+const completer = new QuerydownCompleter(schemaJson);
+completer.complete("#issues $author.us", 18);
+// { from: 16, to: 18, annotation: null, items: [
+//   { label: "id", kind: "column", detail: "integer", insert: null, info: null, boost: 0 },
+//   { label: "username", kind: "column", detail: "text", insert: null, info: null, boost: 0 },
+//   … ] }
+```
+
+`options` (all optional):
+
+| Option        | Meaning |
+| ------------- | ------- |
+| `grammar`     | How to read `source`, as for [`tokenize`](#tokenizesource-string-grammar-querydowngrammar-querydowntoken): `"query"` (the default) or a section name |
+| `baseTable`   | For a section other than `"definitions"`: the query's base table, whose columns are offered |
+| `definitions` | For a section other than `"definitions"`: the definitions section's text, so that what it defines is offered |
+
+The result:
+
+- `from`/`to`: the UTF-16 range the items would replace — the word being typed, up to the cursor.
+- `items`: what could be typed there, **not** filtered by what has been typed so far (leave that to
+  your editor). Each has a `label`, a `kind` (`"table"`, `"column"`, `"computed-column"`,
+  `"custom-comparison"`, `"function"`, `"aggregate-function"`, `"window-function"`, `"constant"`,
+  or `"variable"`), and possibly an `insert` text differing from the label (e.g. a name quoted with
+  backticks), a `detail` (e.g. a column's type), an `info` (e.g. what a function does), and a
+  `boost` that ranks it above (or below) equally good matches.
+- `annotation`: set when the cursor is within a [column annotation](../../docs/language.md#column-level-annotations),
+  whose keys and values only your application knows. It gives the `path` of keys and indices to the
+  object or array the cursor is in, the `slot` being typed (`"key"` or `"value"`), and the `keys`
+  the object already has. There are no items then.
+
+For CodeMirror 6, [`querydown-codemirror`](../codemirror/README.md#autocompletion) turns this into
+autocompletion, including completion of annotations from a JSON Schema.
+
 ### `is_querydown_error(value: unknown): value is QuerydownError`
 
 Returns `true` if `value` is an error thrown by this package. A TypeScript type guard; see

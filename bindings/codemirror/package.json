@@ -1,7 +1,7 @@
 {
   "name": "querydown-codemirror",
   "version": "0.0.1",
-  "description": "CodeMirror 6 language support (syntax highlighting) for Querydown",
+  "description": "CodeMirror 6 language support (syntax highlighting and autocompletion) for Querydown",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -30,6 +30,7 @@
     "test:visual:serve": "vite --config test/vite.config.ts"
   },
   "peerDependencies": {
+    "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/language": "^6.10.0",
     "@codemirror/state": "^6.4.0",
     "@codemirror/view": "^6.26.0",
@@ -37,6 +38,7 @@
     "@lezer/highlight": "^1.2.0"
   },
   "devDependencies": {
+    "@codemirror/autocomplete": "^6.20.4",
     "@codemirror/language": "^6.13.1",
     "@codemirror/state": "^6.7.6",
     "@codemirror/theme-one-dark": "^6.1.3",

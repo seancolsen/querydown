@@ -1,5 +1,5 @@
 mod corpus;
-mod corpus_loader;
+pub(crate) mod corpus_loader;
 #[cfg(feature = "db-tests")]
 mod db_corpus;
 #[cfg(feature = "db-tests")]

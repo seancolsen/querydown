@@ -12,7 +12,7 @@ mod sql;
 mod tests;
 mod utils;
 
-pub use compiler::{CompileResult, Compiler};
+pub use compiler::{completion, CompileResult, Compiler};
 // The error type is defined in the parser crate so that parsing and compilation share it; see the
 // `error` module documentation for an overview of how errors are reported.
 pub use options::{IdentifierResolution, Options};

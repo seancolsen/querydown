@@ -1,5 +1,6 @@
 mod aggregate_sorting;
 mod comparisons;
+pub mod completion;
 mod constants;
 mod expr;
 mod functions;
@@ -16,7 +17,7 @@ use std::collections::HashMap;
 
 use querydown_parser::ast::{
     AnnotationValue, ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, Query,
-    Transformation,
+    TableDef, Transformation,
 };
 use querydown_parser::parse;
 use serde::Serialize;
@@ -103,32 +104,7 @@ impl Compiler {
     }
 
     fn compile_query_inner(&self, query: Query) -> Result<CompileResult, String> {
-        // Each user-defined table (`#name = #( ... )`) is compiled into a CTE plus a synthetic
-        // `Table` (named after the definition) representing its output columns. The synthetic tables
-        // accumulate so that a later user-defined table — and ultimately the main query — can use an
-        // earlier one as its base table.
-        let mut udt_ctes: Vec<Cte> = Vec::new();
-        let mut udt_tables: Vec<Table> = Vec::new();
-        for table_def in &query.definitions.tables {
-            let stage = compile_pipeline(
-                &self.options,
-                &self.schema,
-                table_def.query.clone(),
-                &udt_tables,
-                true,
-            )?;
-            udt_tables.push(build_pipeline_table(
-                table_def.name.clone(),
-                &stage.output_names,
-            ));
-            udt_ctes.push(Cte {
-                alias: table_def.name.clone(),
-                select: stage.select,
-                // User-defined-table CTEs are used as a base table (via `FROM`), not joined, so this
-                // field is never consulted.
-                join_column_name: String::new(),
-            });
-        }
+        let (udt_ctes, udt_tables) = self.compile_user_tables(&query.definitions.tables)?;
 
         let mut final_stage =
             compile_pipeline(&self.options, &self.schema, query, &udt_tables, false)?;
@@ -154,6 +130,44 @@ impl Compiler {
             sql: format!("{};", final_stage.select.render(&mut render_scope)),
             column_annotations: final_stage.column_annotations,
         })
+    }
+
+    /// Compiles each user-defined table (`#name = #( ... )`) into a CTE plus a synthetic `Table`
+    /// (named after the definition) representing its output columns. The synthetic tables
+    /// accumulate so that a later user-defined table — and ultimately the main query — can use an
+    /// earlier one as its base table.
+    fn compile_user_tables(&self, defs: &[TableDef]) -> Result<(Vec<Cte>, Vec<Table>), String> {
+        let mut udt_ctes: Vec<Cte> = Vec::new();
+        let mut udt_tables: Vec<Table> = Vec::new();
+        for table_def in defs {
+            let stage = compile_pipeline(
+                &self.options,
+                &self.schema,
+                table_def.query.clone(),
+                &udt_tables,
+                true,
+            )?;
+            udt_tables.push(build_pipeline_table(
+                table_def.name.clone(),
+                &stage.output_names,
+            ));
+            udt_ctes.push(Cte {
+                alias: table_def.name.clone(),
+                select: stage.select,
+                // User-defined-table CTEs are used as a base table (via `FROM`), not joined, so this
+                // field is never consulted.
+                join_column_name: String::new(),
+            });
+        }
+        Ok((udt_ctes, udt_tables))
+    }
+
+    /// The names of the columns that `query` outputs, which are the columns available to a later
+    /// pipeline stage (or to a query using it as a user-defined table). Used by autocompletion.
+    pub(crate) fn output_column_names(&self, query: Query) -> Result<Vec<String>, String> {
+        let (_, udt_tables) = self.compile_user_tables(&query.definitions.tables)?;
+        let stage = compile_pipeline(&self.options, &self.schema, query, &udt_tables, true)?;
+        Ok(stage.output_names)
     }
 }
 
@@ -440,6 +454,7 @@ fn build_pipeline_table(name: String, column_names: &[String]) -> Table {
                 id,
                 name: column_name.clone(),
                 r#type: ValueType::Unknown,
+                type_name: None,
             },
         );
         column_lookup.insert(column_name.clone(), id);

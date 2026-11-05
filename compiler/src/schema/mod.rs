@@ -187,6 +187,8 @@ pub struct Column {
     pub id: ColumnId,
     pub name: ColumnName,
     pub r#type: ValueType,
+    /// The column's data type exactly as the schema gives it (e.g. `"timestamptz"`), for display.
+    pub type_name: Option<String>,
 }
 
 fn make_table(id: TableId, primitive_table: PrimitiveTable) -> Table {
@@ -198,6 +200,7 @@ fn make_table(id: TableId, primitive_table: PrimitiveTable) -> Table {
             id: max_column_id,
             name: primitive_column.name,
             r#type: ValueType::from_opt(&primitive_column.r#type),
+            type_name: primitive_column.r#type,
         };
         columns.insert(max_column_id, column);
     }

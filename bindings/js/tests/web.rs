@@ -4,7 +4,7 @@
 //! only works on `wasm32`, so the whole module is gated to that target.
 #![cfg(target_arch = "wasm32")]
 
-use querydown_js::{compile, compile_sections, tokenize};
+use querydown_js::{compile, compile_sections, tokenize, Completer as QuerydownCompleter};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::*;
 
@@ -251,5 +251,78 @@ fn tokenize_tolerates_invalid_source_but_not_an_unknown_grammar() {
     let tokens = js_sys::Array::from(&tokenize("name:)", "conditions").expect("tokenizes"));
     assert_eq!(tokens.length(), 3);
     let err = thrown(tokenize("", "nope"));
+    assert_eq!(get_str(&err, "kind"), "argument");
+}
+
+fn completer() -> QuerydownCompleter {
+    QuerydownCompleter::new(SCHEMA).expect("the schema is valid")
+}
+
+/// The labels of the items in a value returned by `complete`.
+fn item_labels(completions: &JsValue) -> Vec<String> {
+    js_sys::Array::from(&get(completions, "items"))
+        .iter()
+        .map(|item| get_str(&item, "label"))
+        .collect()
+}
+
+/// A JS object with the given string properties.
+fn object(properties: &[(&str, &str)]) -> querydown_js::JsCompletionOptionsObject {
+    let object = js_sys::Object::new();
+    for (key, value) in properties {
+        js_sys::Reflect::set(&object, &(*key).into(), &(*value).into()).unwrap();
+    }
+    JsValue::from(object).unchecked_into()
+}
+
+#[wasm_bindgen_test]
+fn completer_offers_columns_with_utf16_offsets() {
+    // `😀` is 2 UTF-16 code units, so the word `na` starts at offset 14 (not 16, as in bytes).
+    let source = "#t name:'😀' $na";
+    let utf16_len = source.encode_utf16().count();
+    let completions = completer()
+        .complete(source, utf16_len, None)
+        .expect("completes");
+    assert_eq!(get_num(&completions, "from"), 14.0);
+    assert_eq!(get_num(&completions, "to"), 16.0);
+    assert_eq!(item_labels(&completions), ["id", "name"]);
+    let item = js_sys::Array::from(&get(&completions, "items")).get(1);
+    assert_eq!(get_str(&item, "kind"), "column");
+    assert_eq!(get_str(&item, "detail"), "text");
+    // Absent values are `null`, not `undefined`, to match the TypeScript declarations.
+    assert!(get(&item, "insert").is_null());
+    assert!(get(&completions, "annotation").is_null());
+}
+
+#[wasm_bindgen_test]
+fn completer_accepts_section_options() {
+    let options = object(&[
+        ("grammar", "display"),
+        ("baseTable", "t"),
+        ("definitions", "#t.upper_name = name|uppercase"),
+    ]);
+    let completions = completer()
+        .complete("$", 1, Some(options))
+        .expect("completes");
+    assert_eq!(item_labels(&completions), ["id", "name", "upper_name"]);
+}
+
+#[wasm_bindgen_test]
+fn completer_reports_annotation_positions() {
+    let source = "#t $id @{width:100 ";
+    let completions = completer()
+        .complete(source, source.len(), None)
+        .expect("completes");
+    assert_eq!(item_labels(&completions), Vec::<String>::new());
+    assert_eq!(get_str(&completions, "annotation.slot"), "key");
+    let keys = js_sys::Array::from(&get(&completions, "annotation.keys"));
+    assert_eq!(keys.get(0).as_string().as_deref(), Some("width"));
+}
+
+#[wasm_bindgen_test]
+fn completer_errors() {
+    let err = thrown(QuerydownCompleter::new("{"));
+    assert_eq!(get_str(&err, "kind"), "schema");
+    let err = thrown(completer().complete("", 0, Some(object(&[("grammar", "nope")]))));
     assert_eq!(get_str(&err, "kind"), "argument");
 }

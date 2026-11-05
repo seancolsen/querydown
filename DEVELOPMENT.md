@@ -76,7 +76,7 @@ compiles fine but the runner silently reports "no tests to run".
 
 The dev server binds inside the container; add a port mapping to `docker-compose.yml` (e.g. `ports: ["5173:5173"]`) and run Vite with `--host` if you want to reach it from the host browser.
 
-### Syntax highlighting and its visual tests
+### Syntax highlighting, autocompletion, and their tests
 
 Syntax highlighting starts in the parser crate's [`highlight`](parser/src/highlight/mod.rs) module,
 which classifies source into tokens using the parser itself (with a lexer as a fallback for source
@@ -84,15 +84,27 @@ that doesn't parse). The JS bindings expose it as `tokenize`, and
 [bindings/codemirror](bindings/codemirror/README.md) turns it into a CodeMirror 6 language with light
 and dark highlighting.
 
-When you change the grammar, think about highlighting: a new construct that introduces a new role for
-some text needs a `mark(...)` in the parser (and maybe a new `TokenKind`), or it will be highlighted
-only by the lexer's guess.
+Autocompletion lives in the compiler crate's [`completion`](compiler/src/compiler/completion/mod.rs)
+module, since it needs the schema. It parses the source with a sentinel identifier in place of the
+word being typed, finds the sentinel in the syntax tree, and works out from its surroundings what it
+is and which table is in scope. The JS bindings expose it as `QuerydownCompleter`, and the CodeMirror
+package turns that into a completion source (completing column annotations from a JSON Schema
+itself). Its Rust tests mark the cursor with `‸` in each source and run with `cargo test`.
 
-The CodeMirror package has Playwright visual tests that render sample queries in light and dark
-editors and compare them against committed screenshots in
-[bindings/codemirror/test/snapshots](bindings/codemirror/test/snapshots). Run them inside the
-container, which provides the headless Chromium they need (screenshots taken elsewhere won't match
-pixel for pixel):
+When you change the grammar, think about both:
+
+- **Highlighting:** a new construct that introduces a new role for some text needs a `mark(...)` in
+  the parser (and maybe a new `TokenKind`), or it will be highlighted only by the lexer's guess.
+- **Completion:** a new construct that contains names, or changes which table is in scope, needs
+  handling in the completion module's syntax-tree walk (`locate.rs`). Likewise, a new built-in
+  function needs a description in `catalog.rs` (a test fails until it has one).
+
+The CodeMirror package has Playwright tests that render sample queries in light and dark editors and
+compare them against committed screenshots in
+[bindings/codemirror/test/snapshots](bindings/codemirror/test/snapshots), and that type into an
+editor to check what it completes (with a couple of screenshots of the completion popup). Run them
+inside the container, which provides the headless Chromium they need (screenshots taken elsewhere
+won't match pixel for pixel):
 
 ```sh
 cd bindings/codemirror
@@ -100,7 +112,8 @@ npm install
 npm run build:wasm          # builds the bindings into test/wasm; rerun after changing Rust code
 npm run test:visual         # compares against the committed screenshots
 npm run test:visual:update  # rewrites the screenshots after an intended change; review the PNGs!
-npm run test:visual:serve   # serves the samples on port 4183 to look at directly (?theme=dark)
+npm run test:visual:serve   # serves the samples on port 4183 to look at directly (?theme=dark),
+                            # and an editor to try completion in at /completion.html
 ```
 
 The comparison is strict (any changed pixel fails), so a failure is a real change in rendering. Open

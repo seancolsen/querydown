@@ -1,6 +1,6 @@
 use querydown::ast::Query;
 use querydown::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -205,6 +205,96 @@ export interface QuerydownToken {
  * kind `"argument"` for an unknown `grammar`.
  */
 export function tokenize(source: string, grammar: QuerydownGrammar): QuerydownToken[];
+
+/** Options for {@link QuerydownCompleter.complete}. */
+export interface QuerydownCompletionOptions {
+  /**
+   * How to read the source: `"query"` (the default) for a whole query, or the name of a section
+   * for the text of one section of a sectioned query.
+   */
+  grammar?: QuerydownGrammar;
+  /**
+   * For a section other than `"definitions"`: the query's base table (which a sectioned query
+   * supplies separately). Columns are offered from it.
+   */
+  baseTable?: string;
+  /**
+   * For a section other than `"definitions"`: the text of the definitions section, so that the
+   * constants, functions, computed columns and custom comparisons it defines are offered.
+   */
+  definitions?: string;
+}
+
+/**
+ * What a {@link QuerydownCompletionItem} names:
+ *
+ * - `"table"`: a table from the schema, or a user-defined table
+ * - `"column"`: a column (including one output by an earlier pipeline stage)
+ * - `"computed-column"`: a computed column defined in the query, e.g. `#users.age = …`
+ * - `"custom-comparison"`: a custom comparison defined in the query, e.g. `#issues.comment:@x = …`
+ * - `"function"`: a scalar function, built-in or user-defined
+ * - `"aggregate-function"`: an aggregate function, applied with `%`
+ * - `"window-function"`: a window function, applied after `%%( … )`
+ * - `"constant"`: a built-in constant, e.g. `now` (written `@now`)
+ * - `"variable"`: a user-defined constant, function parameter or local assignment
+ *
+ * More kinds may be added in the future, so handle unknown kinds gracefully.
+ */
+export type QuerydownCompletionKind =
+  | "table"
+  | "column"
+  | "computed-column"
+  | "custom-comparison"
+  | "function"
+  | "aggregate-function"
+  | "window-function"
+  | "constant"
+  | "variable";
+
+/** Something that could be typed at the cursor. */
+export interface QuerydownCompletionItem {
+  /** The name, as shown and matched against what has been typed so far, e.g. `due date`. */
+  label: string;
+  kind: QuerydownCompletionKind;
+  /** The text to insert, when it differs from `label`, e.g. `` `due date` `` (quoted). */
+  insert: string | null;
+  /** A short note to show beside the label, e.g. a column's type or a function's usage. */
+  detail: string | null;
+  /** A longer description, e.g. what a function does. */
+  info: string | null;
+  /** Ranks the item above (positive) or below (negative) others that match equally well. */
+  boost: number;
+}
+
+/**
+ * Where the cursor is within a column annotation (`@{…}`). Querydown doesn't know which
+ * annotations an application accepts, so it leaves completing them to the application.
+ */
+export interface QuerydownAnnotationPosition {
+  /**
+   * The keys and array indices leading from the top-level annotation object to the object or array
+   * the cursor is in. When a value is being typed, the last element is its key or index.
+   */
+  path: (string | number)[];
+  /** Whether a key or a value is being typed. */
+  slot: "key" | "value";
+  /** When a key is being typed, the keys its object already has (before the cursor). */
+  keys: string[];
+}
+
+/** What could be typed at the cursor. */
+export interface QuerydownCompletions {
+  /**
+   * Where the text the items would replace begins, as a UTF-16 offset: typically the start of the
+   * word being typed. (Items aren't filtered by what has been typed so far.)
+   */
+  from: number;
+  /** Where the text the items would replace ends: the cursor. */
+  to: number;
+  items: QuerydownCompletionItem[];
+  /** Set when the cursor is within a column annotation, in which case there are no items. */
+  annotation: QuerydownAnnotationPosition | null;
+}
 "#;
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -216,6 +306,10 @@ extern "C" {
     /// `serde_wasm_bindgen`; the `typescript_type` gives it an accurate `.d.ts` signature.
     #[wasm_bindgen(typescript_type = "CompileResult")]
     pub type JsCompileResult;
+
+    /// The options object passed to `QuerydownCompleter.complete`.
+    #[wasm_bindgen(typescript_type = "QuerydownCompletionOptions")]
+    pub type JsCompletionOptionsObject;
 }
 
 /// The `name` given to every error thrown by this package.
@@ -509,6 +603,97 @@ pub fn tokenize(source: &str, grammar: &str) -> Result<JsValue, JsValue> {
         .map_err(|e| JsError::new(&e.to_string()).into())
 }
 
+/// Autocompletion for Querydown source against a schema. The schema is parsed once, when the
+/// completer is created, so create one per schema and reuse it.
+#[wasm_bindgen(js_name = QuerydownCompleter)]
+pub struct Completer {
+    compiler: Compiler,
+}
+
+/// The options accepted by [`Completer::complete`]; see `QuerydownCompletionOptions` in the
+/// TypeScript declarations above.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct JsCompletionOptions {
+    grammar: Option<String>,
+    base_table: Option<String>,
+    definitions: Option<String>,
+}
+
+/// The completions returned by [`Completer::complete`], with UTF-16 offsets; see
+/// `QuerydownCompletions` in the TypeScript declarations above.
+#[derive(Serialize)]
+struct JsCompletions<'a> {
+    from: usize,
+    to: usize,
+    items: &'a [completion::CompletionItem],
+    annotation: &'a Option<completion::AnnotationPosition>,
+}
+
+#[wasm_bindgen(js_class = QuerydownCompleter)]
+impl Completer {
+    /// Creates a completer for the database described by `schemaJson` (as for `compile`). Throws a
+    /// `QuerydownError` of kind `"schema"` if the schema is invalid.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        #[wasm_bindgen(js_name = schemaJson)] schema_json: &str,
+    ) -> Result<Completer, JsValue> {
+        // The dialect doesn't affect completion.
+        let compiler = make_compiler(schema_json, "postgres")?;
+        Ok(Completer { compiler })
+    }
+
+    /// Lists what could be typed at `cursor` (a UTF-16 offset) in `source`. Never throws on invalid
+    /// Querydown, which is what source being edited usually is; throws a `QuerydownError` of kind
+    /// `"argument"` for an unknown grammar.
+    #[wasm_bindgen(unchecked_return_type = "QuerydownCompletions")]
+    pub fn complete(
+        &self,
+        source: &str,
+        cursor: usize,
+        options: Option<JsCompletionOptionsObject>,
+    ) -> Result<JsValue, JsValue> {
+        let options: JsCompletionOptions = match options.map(JsValue::from) {
+            Some(value) if !value.is_undefined() && !value.is_null() => {
+                serde_wasm_bindgen::from_value(value)
+                    .map_err(|e| argument_error(format!("Invalid completion options: {e}")))?
+            }
+            _ => JsCompletionOptions::default(),
+        };
+        let grammar = parse_grammar(options.grammar.as_deref().unwrap_or("query"))?;
+        let completions = self.compiler.complete(&completion::CompletionRequest {
+            source,
+            cursor: utf16_to_byte_offset(source, cursor),
+            grammar,
+            base_table: options.base_table.as_deref(),
+            definitions: options.definitions.as_deref(),
+        });
+        let utf16 = |byte: usize| source[..byte].encode_utf16().count();
+        let result = JsCompletions {
+            from: utf16(completions.from),
+            to: utf16(completions.to),
+            items: &completions.items,
+            annotation: &completions.annotation,
+        };
+        result
+            .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+            .map_err(|e| JsError::new(&e.to_string()).into())
+    }
+}
+
+/// The byte offset in `source` of the UTF-16 `offset`, clamped to `source`. An offset within a
+/// character (between the two halves of a surrogate pair) is rounded down to its start.
+fn utf16_to_byte_offset(source: &str, offset: usize) -> usize {
+    let mut utf16 = 0;
+    for (byte, c) in source.char_indices() {
+        utf16 += c.len_utf16();
+        if utf16 > offset {
+            return byte;
+        }
+    }
+    source.len()
+}
+
 /// Returns true if `value` is a `QuerydownError` thrown by this package. (Its TypeScript signature,
 /// a type guard, is declared in the custom section above.)
 #[wasm_bindgen(skip_typescript)]
@@ -532,6 +717,26 @@ mod tests {
                 "`QuerydownTokenKind` is missing {member}"
             );
         }
+    }
+
+    /// Every completion kind is declared in the TypeScript `QuerydownCompletionKind` union.
+    #[test]
+    fn test_typescript_declares_every_completion_kind() {
+        for kind in completion::CompletionKind::ALL {
+            let member = format!("| \"{}\"", kind.as_str());
+            assert!(
+                TS_DECLARATIONS.contains(&member),
+                "`QuerydownCompletionKind` is missing {member}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_utf16_to_byte_offset() {
+        // `é` is 2 bytes and 1 UTF-16 unit; `😀` is 4 bytes and 2 units.
+        let source = "é😀x";
+        let offsets: Vec<usize> = (0..6).map(|i| utf16_to_byte_offset(source, i)).collect();
+        assert_eq!(offsets, [0, 2, 2, 6, 7, 7]);
     }
 
     #[test]

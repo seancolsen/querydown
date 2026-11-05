@@ -5,6 +5,21 @@ export {
   type QuerydownLanguageConfig,
 } from "./language.js";
 export {
+  annotationOptions,
+  COMPLETION_KINDS,
+  querydownCompletionSource,
+  type AnnotationCompleter,
+  type AnnotationPosition,
+  type AnnotationSchema,
+  type Completer,
+  type CompleterOptions,
+  type CompletionItem,
+  type CompletionKind,
+  type Completions,
+  type Dynamic,
+  type QuerydownCompletionConfig,
+} from "./completion.js";
+export {
   darkPalette,
   lightPalette,
   querydownHighlighting,

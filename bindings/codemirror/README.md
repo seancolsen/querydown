@@ -1,8 +1,9 @@
 # Querydown for CodeMirror 6
 
-Syntax highlighting for [Querydown](https://github.com/seancolsen/querydown) in
-[CodeMirror 6](https://codemirror.net/), with light and dark palettes that follow the editor's theme
-and can be customized.
+Syntax highlighting and autocompletion for [Querydown](https://github.com/seancolsen/querydown) in
+[CodeMirror 6](https://codemirror.net/). The highlighting has light and dark palettes that follow the
+editor's theme and can be customized. Autocompletion offers your database's tables and columns,
+functions, variables, and (if you describe them) your application's column annotations.
 
 | Light | Dark |
 | -- | -- |
@@ -30,8 +31,9 @@ cd bindings/codemirror && npm install && npm run build
 ```
 
 Point your app's dependency at `bindings/codemirror` (or copy its `package.json` and `dist/`). The
-package's peer dependencies are `@codemirror/language`, `@codemirror/state`, `@codemirror/view`,
-`@lezer/common`, and `@lezer/highlight`, which a CodeMirror app already has.
+package's peer dependencies are `@codemirror/autocomplete`, `@codemirror/language`,
+`@codemirror/state`, `@codemirror/view`, `@lezer/common`, and `@lezer/highlight`, which a CodeMirror
+app already has.
 
 ## Usage
 
@@ -144,6 +146,141 @@ const style = HighlightStyle.define([
 ]);
 ```
 
+## Autocompletion
+
+Create a `QuerydownCompleter` from the bindings with your database's schema (the same JSON you pass
+to `compile`), and pass it to `querydown()` as `completion`. Completion also needs CodeMirror's
+`autocompletion()` extension, which `basicSetup` includes.
+
+```ts
+import { autocompletion } from "@codemirror/autocomplete";
+import init, { QuerydownCompleter, tokenize } from "querydown-js";
+import { querydown } from "querydown-codemirror";
+
+await init(wasmUrl);
+const completer = new QuerydownCompleter(schemaJson); // once per schema
+
+new EditorView({
+  extensions: [autocompletion(), querydown({ tokenize, completion: { completer } })],
+  parent: document.body,
+});
+```
+
+| Light | Dark |
+| -- | -- |
+| ![Completing the columns of a related table in a light editor](test/snapshots/completion-columns-light.png) | ![The same in a dark editor](test/snapshots/completion-columns-dark.png) |
+| ![Completing a function, with its description, in a light editor](test/snapshots/completion-functions-light.png) | ![The same in a dark editor](test/snapshots/completion-functions-dark.png) |
+
+### What's completed
+
+The completer reads the query with Querydown's own parser, so it knows what the word being typed is
+and, for a column, which table it belongs to:
+
+| Where | Offered |
+| -- | -- |
+| `#` at the start of a query | The schema's tables, and user-defined tables |
+| `#` within a query, e.g. `$#comments` | The schema's tables, those linked directly to the current table first |
+| `$`, `\\`, a condition, or after `.` | The columns of the table in scope, with their types (and where links lead), plus computed columns and, in conditions, custom comparisons |
+| `\|`, `@@` | Scalar functions, built-in and user-defined, with their usage and a description |
+| `%` | Aggregate functions, or window functions after a `%%( … )` window definition |
+| `@` | Built-in constants, constants defined in the query, and the parameters and local assignments of the function the cursor is in |
+| `#table(` | The foreign keys of `table` that could link it |
+| `@{` | Your application's annotation keys and values, if you [describe them](#annotations) |
+
+The table in scope follows the language's rules: paths (`author.team.`), scoped conditions
+(`issue{…}`), filters on related records (`#comments{…}`), sorting within an aggregate
+(`#labels.name%list(\\…)`), column globs and nesting groups (`$issue.( … )`), the tables of
+computed column and custom comparison definitions, subqueries, user-defined tables, and pipeline
+stages (where the columns are those output by the previous stage).
+
+Completion starts by itself after something completable has been typed: a letter, or one of
+`#` `.` `$` `\` `|` `%` `@`. Press <kbd>Ctrl</kbd>-<kbd>Space</kbd> to ask for it anywhere else.
+Nothing is offered within strings, comments, numbers, or flags, nor for a bare word on the right
+of a comparison (which is a string, as in `status:open`). Source that doesn't parse, as source being
+edited often doesn't, is still completed: the completer closes any open brackets, and failing that,
+offers the base table's columns.
+
+A name that isn't a plain identifier is inserted with backticks, e.g. `` `Due Date` ``.
+
+### Completing sections of a query
+
+An editor holding one section of a query (see [above](#editors-for-sections-of-a-query)) needs the
+query's base table and its definitions, which live elsewhere in your UI. Pass them as values, or as
+functions to read them when completing:
+
+```ts
+querydown({
+  tokenize,
+  grammar: "conditions",
+  completion: {
+    completer,
+    baseTable: () => baseTableSelect.value,
+    definitions: () => definitionsEditor.state.doc.toString(),
+  },
+});
+```
+
+### Annotations
+
+Querydown passes [column annotations](../../docs/language.md#column-level-annotations) through
+without knowing what they mean, so it can't complete them by itself. Your application knows which
+annotations it accepts: describe them with a [JSON Schema](https://json-schema.org/), and their keys
+and values are completed too.
+
+```ts
+querydown({
+  tokenize,
+  completion: {
+    completer,
+    annotations: {
+      type: "object",
+      properties: {
+        width: { type: "number", description: "The column's width, in pixels." },
+        align: { enum: ["left", "center", "right"] },
+        hidden: { type: "boolean" },
+        rules: {
+          type: "array",
+          items: { type: "object", properties: { gte: { type: "number" }, bg: { $ref: "#/$defs/color" } } },
+        },
+      },
+      $defs: { color: { enum: ["#fbc9ff", "#d5d2ff"] } },
+    },
+  },
+});
+```
+
+Keys are offered from `properties` (except those the object already has), and accepting one inserts
+its `:` and offers its values. Values are offered from `enum` and `const`, and as `@true`/`@false`
+for `boolean` and `@null` for `null`. Strings are quoted when they aren't identifiers. The schema may
+nest objects and arrays (`properties`, `additionalProperties`, `items`, `prefixItems`), list
+alternatives (`anyOf`, `oneOf`, `allOf`), and refer to `$defs` with `$ref`. Descriptions are shown
+alongside the options.
+
+For anything a schema can't express, pass a function instead. It's called with where the cursor is
+in the annotation and returns the CodeMirror completions to offer:
+
+```ts
+annotations: ({ path, slot, keys }) =>
+  slot === "value" && path.at(-1) === "formatter" ? formatters.map((label) => ({ label })) : null,
+```
+
+`path` is the keys and array indices leading to the object or array the cursor is in (the last of
+them being the value's own key or index, when typing a value), `slot` is `"key"` or `"value"`, and
+`keys` lists the keys the object already has.
+
+### Styling the options
+
+Each option's type gives it one of CodeMirror's standard icons (`class` for tables, `property` for
+columns, `function`, `variable`, and so on) and also names its Querydown kind, so you can style
+particular kinds with CSS, e.g. `.cm-completionIcon-computed-column` or
+`.cm-completionIcon-aggregate-function`. The kinds are listed in `COMPLETION_KINDS`.
+
+### Other ways to use it
+
+`querydownCompletionSource(config)` returns the completion source on its own, e.g. to combine it
+with other sources via `autocompletion({ override: [...] })`. `annotationOptions(schema, position)`
+returns the options a JSON Schema offers at a position within an annotation.
+
 ## Kinds of token
 
 | Kind | Examples |
@@ -182,6 +319,7 @@ const style = HighlightStyle.define([
 
 ## Development
 
-The package has Playwright visual tests that render a set of sample queries in light and dark editors
-and compare them with the screenshots in [test/snapshots](test/snapshots). See "Syntax highlighting
-and its visual tests" in [DEVELOPMENT.md](../../DEVELOPMENT.md).
+The package has Playwright tests that render a set of sample queries in light and dark editors and
+compare them with the screenshots in [test/snapshots](test/snapshots), and that type into an editor
+to check what is completed. See "Syntax highlighting, autocompletion, and their tests" in
+[DEVELOPMENT.md](../../DEVELOPMENT.md).
