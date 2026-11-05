@@ -35,3 +35,23 @@ pub const VAR_NOW: &str = "now";
 pub const VAR_TRUE: &str = "true";
 pub const VAR_FALSE: &str = "false";
 pub const VAR_NULL: &str = "null";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// The parser highlights built-in constants differently from user-defined ones, so its list must
+    /// match ours.
+    #[test]
+    fn test_builtin_constants_match_highlighting() {
+        // Every name `@name` can refer to without a user definition.
+        let ours: HashSet<_> = [VAR_INFINITY, VAR_NOW, VAR_TRUE, VAR_FALSE, VAR_NULL]
+            .into_iter()
+            .collect();
+        let highlighted: HashSet<_> = querydown_parser::highlight::BUILTIN_CONSTANTS
+            .into_iter()
+            .collect();
+        assert_eq!(ours, highlighted);
+    }
+}

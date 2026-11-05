@@ -4,7 +4,7 @@
 //! only works on `wasm32`, so the whole module is gated to that target.
 #![cfg(target_arch = "wasm32")]
 
-use querydown_js::{compile, compile_sections};
+use querydown_js::{compile, compile_sections, tokenize};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::*;
 
@@ -217,4 +217,39 @@ fn is_querydown_error_rejects_other_values() {
         "QuerydownError"
     )));
     assert!(!querydown_js::is_querydown_error(&JsValue::NULL));
+}
+
+#[wasm_bindgen_test]
+fn tokenize_returns_tokens_with_utf16_offsets() {
+    let source = "#t name:'😀' $id";
+    let tokens = js_sys::Array::from(&tokenize(source, "query").expect("tokenizes"));
+    let utf16: Vec<u16> = source.encode_utf16().collect();
+    let rendered: Vec<String> = tokens
+        .iter()
+        .map(|token| {
+            let from = get_num(&token, "from") as usize;
+            let to = get_num(&token, "to") as usize;
+            let text = String::from_utf16(&utf16[from..to]).unwrap();
+            format!("{text}:{}", get_str(&token, "kind"))
+        })
+        .collect();
+    assert_eq!(
+        rendered,
+        [
+            "#t:base-table",
+            "name:column",
+            "::comparison-operator",
+            "'😀':string",
+            "$:result-column",
+            "id:column",
+        ]
+    );
+}
+
+#[wasm_bindgen_test]
+fn tokenize_tolerates_invalid_source_but_not_an_unknown_grammar() {
+    let tokens = js_sys::Array::from(&tokenize("name:)", "conditions").expect("tokenizes"));
+    assert_eq!(tokens.length(), 3);
+    let err = thrown(tokenize("", "nope"));
+    assert_eq!(get_str(&err, "kind"), "argument");
 }

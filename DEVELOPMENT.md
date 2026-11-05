@@ -76,6 +76,37 @@ compiles fine but the runner silently reports "no tests to run".
 
 The dev server binds inside the container; add a port mapping to `docker-compose.yml` (e.g. `ports: ["5173:5173"]`) and run Vite with `--host` if you want to reach it from the host browser.
 
+### Syntax highlighting and its visual tests
+
+Syntax highlighting starts in the parser crate's [`highlight`](parser/src/highlight/mod.rs) module,
+which classifies source into tokens using the parser itself (with a lexer as a fallback for source
+that doesn't parse). The JS bindings expose it as `tokenize`, and
+[bindings/codemirror](bindings/codemirror/README.md) turns it into a CodeMirror 6 language with light
+and dark highlighting.
+
+When you change the grammar, think about highlighting: a new construct that introduces a new role for
+some text needs a `mark(...)` in the parser (and maybe a new `TokenKind`), or it will be highlighted
+only by the lexer's guess.
+
+The CodeMirror package has Playwright visual tests that render sample queries in light and dark
+editors and compare them against committed screenshots in
+[bindings/codemirror/test/snapshots](bindings/codemirror/test/snapshots). Run them inside the
+container, which provides the headless Chromium they need (screenshots taken elsewhere won't match
+pixel for pixel):
+
+```sh
+cd bindings/codemirror
+npm install
+npm run build:wasm          # builds the bindings into test/wasm; rerun after changing Rust code
+npm run test:visual         # compares against the committed screenshots
+npm run test:visual:update  # rewrites the screenshots after an intended change; review the PNGs!
+npm run test:visual:serve   # serves the samples on port 4183 to look at directly (?theme=dark)
+```
+
+The comparison is strict (any changed pixel fails), so a failure is a real change in rendering. Open
+the `-diff.png` under `test-results/` to see what changed. To cover a new construct, add source that
+uses it to [the samples](bindings/codemirror/test/harness/samples.ts).
+
 ## Database tests (`db-tests` feature)
 
 The corpus tests in [compiler/src/tests/corpus.md](../compiler/src/tests/corpus.md) normally just assert

@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::labels;
 use crate::tokens::*;
 
@@ -32,9 +33,11 @@ pub fn query<'src>() -> impl Psr<'src, Query> {
 /// subqueries). The recursive handle is threaded into the definition parsers that accept subqueries.
 fn query_body<'src>() -> impl Psr<'src, Query> {
     recursive(|query| {
-        let base_table = just(TABLE_SIGIL)
-            .ignore_then(db_identifier().labelled(labels::TABLE_NAME))
-            .labelled(labels::BASE_TABLE);
+        let base_table = mark(
+            TokenKind::BaseTable,
+            just(TABLE_SIGIL).ignore_then(db_identifier().labelled(labels::TABLE_NAME)),
+        )
+        .labelled(labels::BASE_TABLE);
         let transformations = transformation()
             .separated_by(
                 pad()

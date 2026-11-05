@@ -1,0 +1,24 @@
+:root {
+  font-family: system-ui, sans-serif;
+  --custom-table: #be123c;
+}
+:root[data-theme="dark"] {
+  color: #e6edf3;
+  background: #010409;
+  --custom-table: #fda4af;
+}
+body {
+  margin: 0;
+  padding: 16px;
+}
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 760px;
+}
+h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}

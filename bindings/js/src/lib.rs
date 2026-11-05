@@ -9,8 +9,12 @@ use wasm_bindgen::JsCast;
 /// than `any`, and so that consumers can work with thrown `QuerydownError`s in a typed way.
 /// `columnAnnotations` mirrors the compiler's `Vec<Option<AnnotationValue>>`: one entry per output
 /// column, in order, `null` for a column that carries no annotation.
-#[wasm_bindgen(typescript_custom_section)]
-const TS_APPEND_CONTENT: &'static str = r#"
+///
+/// These are held in their own constant, rather than written directly into the custom section
+/// below, so that a test can check them. (`wasm_bindgen` reads the constant in a way that the
+/// dead-code lint doesn't see, hence the `allow`.)
+#[allow(dead_code)]
+const TS_DECLARATIONS: &str = r#"
 /**
  * A value in Querydown's JSON-like annotation sub-language, carrying arbitrary
  * application-defined annotations for result columns.
@@ -110,7 +114,101 @@ export interface QuerydownError extends Error {
 
 /** Returns true if `value` is a {@link QuerydownError} thrown by this package. */
 export function is_querydown_error(value: unknown): value is QuerydownError;
+
+/**
+ * Which grammar {@link tokenize} reads source with: a whole query (as passed to `compile`), or one
+ * section of a sectioned query (as passed to `compile_sections`).
+ */
+export type QuerydownGrammar = "query" | QuerydownSection;
+
+/**
+ * The role a {@link QuerydownToken} plays, for syntax highlighting:
+ *
+ * - `"comment"`: `// ...` or `/* ... *\/`
+ * - `"string"`: a quoted string, or a bare word on the right of a comparison (`title:performance`)
+ * - `"string-escape"`: an escape sequence within a string, e.g. `\n`
+ * - `"search-term"`: a bare word standing alone as a condition, e.g. `#issues backend`
+ * - `"number"`, `"duration"` (`3d`), `"date"` (`@2024-01-31`)
+ * - `"constant"`: a built-in constant, e.g. `@true` or `@now`
+ * - `"variable"`: a user-defined constant or function parameter, e.g. `@user_id`
+ * - `"base-table"`: the query's base table; `"table"`: any other table, e.g. `#comments`
+ * - `"column"`: a column reference
+ * - `"function"`: a scalar function name, e.g. `upper` in `|upper` or `@@max`
+ * - `"aggregate-function"`: an aggregate or window function name, e.g. `count` in `%count`
+ * - `"pipe"`: `|`, `%`, or `%%`
+ * - `"comparison-operator"`: e.g. `:`, `:=`, `:>=`
+ * - `"operator"`: `+ - * /`, `!`, `,`, a range (`..`, `<`), or the alias arrow `->`
+ * - `"has-quantity"`: `++` or `--`
+ * - `"glob"`: the `*` in `$*`
+ * - `"case"`: `?`, `~`, `~~`
+ * - `"path-separator"`: `.` or `>>`
+ * - `"result-column"`: `$`; `"sort"`: `\\`; `"flag"`: e.g. `\sd`
+ * - `"alias"`: e.g. `total` in `-> total`
+ * - `"annotation"`: the `@` of `@{...}`; `"annotation-key"`: e.g. `width` in `@{width:100}`
+ * - `"pipeline"`: `~~~`
+ * - `"definition"`: `=` and `=>` in definitions
+ * - `"bracket"`: `( ) [ ] { }`
+ * - `"punctuation"`: e.g. the `:` in an annotation entry
+ * - `"invalid"`: a character that can't begin any valid syntax
+ *
+ * More kinds may be added in the future, so handle unknown kinds gracefully.
+ */
+export type QuerydownTokenKind =
+  | "comment"
+  | "string"
+  | "string-escape"
+  | "search-term"
+  | "number"
+  | "duration"
+  | "date"
+  | "constant"
+  | "variable"
+  | "base-table"
+  | "table"
+  | "column"
+  | "function"
+  | "aggregate-function"
+  | "pipe"
+  | "comparison-operator"
+  | "operator"
+  | "has-quantity"
+  | "glob"
+  | "case"
+  | "path-separator"
+  | "result-column"
+  | "sort"
+  | "flag"
+  | "alias"
+  | "annotation"
+  | "annotation-key"
+  | "pipeline"
+  | "definition"
+  | "bracket"
+  | "punctuation"
+  | "invalid";
+
+/**
+ * A classified span of source. `from` (inclusive) and `to` (exclusive) are offsets in UTF-16 code
+ * units, like JavaScript string indices, so `source.slice(token.from, token.to)` is its text.
+ */
+export interface QuerydownToken {
+  from: number;
+  to: number;
+  kind: QuerydownTokenKind;
+}
+
+/**
+ * Classifies `source` for syntax highlighting, reading it with the given `grammar`. The tokens are
+ * in order, don't overlap, and cover every character except whitespace. Never throws on invalid
+ * Querydown: source that doesn't parse is still fully tokenized, falling back from the parser's
+ * understanding to a lexical one past the point where parsing failed. Throws a `QuerydownError` of
+ * kind `"argument"` for an unknown `grammar`.
+ */
+export function tokenize(source: string, grammar: QuerydownGrammar): QuerydownToken[];
 "#;
+
+#[wasm_bindgen(typescript_custom_section)]
+const TS_APPEND_CONTENT: &'static str = TS_DECLARATIONS;
 
 #[wasm_bindgen]
 extern "C" {
@@ -358,6 +456,59 @@ pub fn compile_sections(
     to_js_result(&result)
 }
 
+/// One token returned by [`tokenize`]; see `QuerydownToken` in the TypeScript declarations above.
+#[derive(Serialize)]
+struct JsToken {
+    from: usize,
+    to: usize,
+    kind: &'static str,
+}
+
+fn parse_grammar(grammar: &str) -> Result<highlight::Grammar, JsValue> {
+    use highlight::Grammar as G;
+    match grammar {
+        "query" => Ok(G::Query),
+        "definitions" => Ok(G::Definitions),
+        "conditions" => Ok(G::Conditions),
+        "sorting" => Ok(G::Sorting),
+        "display" => Ok(G::Display),
+        _ => Err(argument_error(format!(
+            "Invalid grammar `{grammar}`. Expected \"query\", \"definitions\", \"conditions\", \
+             \"sorting\", or \"display\"."
+        ))),
+    }
+}
+
+/// Converts tokens' byte spans into UTF-16 `from`/`to` offsets. Relies on the tokens being in order
+/// and non-overlapping, so that a single pass over `source` suffices.
+fn to_js_tokens(source: &str, tokens: Vec<highlight::Token>) -> Vec<JsToken> {
+    let mut byte = 0;
+    let mut utf16 = 0;
+    let mut advance = |to: usize| {
+        utf16 += source[byte..to].encode_utf16().count();
+        byte = to;
+        utf16
+    };
+    tokens
+        .into_iter()
+        .map(|token| JsToken {
+            from: advance(token.span.start),
+            to: advance(token.span.end),
+            kind: token.kind.as_str(),
+        })
+        .collect()
+}
+
+/// Classifies `source` for syntax highlighting, reading it with the given grammar (`"query"` or a
+/// section name). Returns an array of `{ from, to, kind }` tokens with UTF-16 offsets. Never throws
+/// for invalid Querydown; throws a `QuerydownError` of kind `"argument"` for an unknown grammar.
+#[wasm_bindgen(skip_typescript)]
+pub fn tokenize(source: &str, grammar: &str) -> Result<JsValue, JsValue> {
+    let tokens = highlight::tokenize(source, parse_grammar(grammar)?);
+    serde_wasm_bindgen::to_value(&to_js_tokens(source, tokens))
+        .map_err(|e| JsError::new(&e.to_string()).into())
+}
+
 /// Returns true if `value` is a `QuerydownError` thrown by this package. (Its TypeScript signature,
 /// a type guard, is declared in the custom section above.)
 #[wasm_bindgen(skip_typescript)]
@@ -365,4 +516,41 @@ pub fn is_querydown_error(value: &JsValue) -> bool {
     value
         .dyn_ref::<js_sys::Error>()
         .map_or(false, |error| error.name() == ERROR_NAME)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every token kind is declared in the TypeScript `QuerydownTokenKind` union.
+    #[test]
+    fn test_typescript_declares_every_token_kind() {
+        for kind in highlight::TokenKind::ALL {
+            let member = format!("| \"{}\"", kind.as_str());
+            assert!(
+                TS_DECLARATIONS.contains(&member),
+                "`QuerydownTokenKind` is missing {member}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_token_offsets_are_utf16() {
+        // `😀` is 4 bytes in UTF-8 but 2 code units in UTF-16.
+        let source = "a:'😀' b";
+        let tokens = highlight::tokenize(source, highlight::Grammar::Conditions);
+        let offsets: Vec<_> = to_js_tokens(source, tokens)
+            .into_iter()
+            .map(|t| (t.from, t.to, t.kind))
+            .collect();
+        assert_eq!(
+            offsets,
+            [
+                (0, 1, "column"),
+                (1, 2, "comparison-operator"),
+                (2, 6, "string"),
+                (7, 8, "search-term"),
+            ]
+        );
+    }
 }

@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::labels;
 use crate::tokens::*;
 
@@ -15,7 +16,7 @@ use super::utils::*;
 ///
 /// The top level must be an object. Nested objects do not take the `@` sigil.
 pub fn annotation<'src>() -> impl Psr<'src, AnnotationValue> {
-    just(CONST_SIGIL).ignore_then(object(value()))
+    mark(TokenKind::Annotation, just(CONST_SIGIL)).ignore_then(object(value()))
 }
 
 /// A recursive parser for any annotation value (object, array, number, string, or `@`-constant).
@@ -30,12 +31,15 @@ fn value<'src>() -> impl Psr<'src, AnnotationValue> {
             exactly(LITERAL_NULL).to(AnnotationValue::Null),
         )));
 
-        let number = just('-')
-            .or_not()
-            .then(int(10))
-            .then(just('.').then(digits(10)).or_not())
-            .to_slice()
-            .map(|s: &str| AnnotationValue::Number(s.to_string()));
+        let number = mark(
+            TokenKind::Number,
+            just('-')
+                .or_not()
+                .then(int(10))
+                .then(just('.').then(digits(10)).or_not())
+                .to_slice(),
+        )
+        .map(|s: &str| AnnotationValue::Number(s.to_string()));
 
         let quoted_string = quoted(STRING_QUOTE_SINGLE)
             .or(quoted(STRING_QUOTE_DOUBLE))
@@ -43,7 +47,8 @@ fn value<'src>() -> impl Psr<'src, AnnotationValue> {
 
         // An unquoted identifier is treated as a string. This is also why bare `true`/`false`/
         // `null` (without the `@` sigil) parse as the strings `"true"`/`"false"`/`"null"`.
-        let ident_string = ident().map(|s: &str| AnnotationValue::String(s.to_string()));
+        let ident_string =
+            mark(TokenKind::String, ident()).map(|s: &str| AnnotationValue::String(s.to_string()));
 
         let array = value
             .clone()
@@ -71,15 +76,17 @@ fn value<'src>() -> impl Psr<'src, AnnotationValue> {
 /// Parses an annotation object `{ key:value ... }` given a parser for its values. Used both for the
 /// top-level object and for nested objects.
 fn object<'src>(value: impl Psr<'src, AnnotationValue>) -> impl Psr<'src, AnnotationValue> {
-    let key = ident()
-        .map(|s: &str| s.to_string())
-        .or(quoted(STRING_QUOTE_SINGLE))
-        .or(quoted(STRING_QUOTE_DOUBLE))
-        .labelled(labels::ANNOTATION_KEY);
+    let key = mark(
+        TokenKind::AnnotationKey,
+        ident()
+            .map(|s: &str| s.to_string())
+            .or(quoted(STRING_QUOTE_SINGLE))
+            .or(quoted(STRING_QUOTE_DOUBLE)),
+    )
+    .labelled(labels::ANNOTATION_KEY);
 
-    let entry = key
-        .then_ignore(just(ANNOTATION_KEY_VALUE_SEPARATOR).padded_by(pad()))
-        .then(value);
+    let separator = mark(TokenKind::Punctuation, just(ANNOTATION_KEY_VALUE_SEPARATOR));
+    let entry = key.then_ignore(separator.padded_by(pad())).then(value);
 
     entry
         .padded_by(pad())

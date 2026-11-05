@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::parser::utils::*;
 
 /// Parses a duration literal, e.g. `2y6m3d8h9min34.89s`.
@@ -53,17 +54,18 @@ pub fn duration<'src>() -> impl Psr<'src, Duration> {
         .then(unit)
         .map(|(value, kind)| Part { kind, value });
 
-    part.repeated()
-        .at_least(1)
-        .collect::<Vec<Part>>()
-        // `validate` (rather than `try_map`) reports an invalid duration like `1y2y` as such,
-        // instead of backtracking and parsing it as something else entirely.
-        .validate(|parts, extra, emitter| {
-            assemble(parts).unwrap_or_else(|message| {
-                emitter.emit(Rich::custom(extra.span(), message));
-                Duration::default()
-            })
+    mark(
+        TokenKind::Duration,
+        part.repeated().at_least(1).collect::<Vec<Part>>(),
+    )
+    // `validate` (rather than `try_map`) reports an invalid duration like `1y2y` as such,
+    // instead of backtracking and parsing it as something else entirely.
+    .validate(|parts, extra, emitter| {
+        assemble(parts).unwrap_or_else(|message| {
+            emitter.emit(Rich::custom(extra.span(), message));
+            Duration::default()
         })
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -1,6 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::labels;
 use crate::tokens::*;
 
@@ -129,12 +130,15 @@ fn fold_sort_flags(flags: Vec<SortFlag>) -> (SortDirection, NullsSort) {
 /// (descending) and `n` (nulls first) are accepted — `s` is implied by the `\\` prefix. Flags may
 /// be combined within a single backslash group, e.g. `\dn`.
 pub(crate) fn sort_flags<'src>() -> impl Psr<'src, (SortDirection, NullsSort)> {
-    just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(
-        sort_flag()
-            .repeated()
-            .at_least(1)
-            .collect::<Vec<SortFlag>>()
-            .map(fold_sort_flags),
+    mark(
+        TokenKind::Flag,
+        just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(
+            sort_flag()
+                .repeated()
+                .at_least(1)
+                .collect::<Vec<SortFlag>>()
+                .map(fold_sort_flags),
+        ),
     )
 }
 
@@ -142,14 +146,17 @@ pub(crate) fn sort_flags<'src>() -> impl Psr<'src, (SortDirection, NullsSort)> {
 /// parentheses, where they sort by the value being aggregated (e.g. `%list(\sd)`). As with result
 /// column flags, the `s` means "sort" and may be followed by `d` and/or `n`.
 pub(crate) fn value_sort_flags<'src>() -> impl Psr<'src, (SortDirection, NullsSort)> {
-    just(COLUMN_CONTROL_FLAGS_PREFIX)
-        .then(just(COLUMN_CONTROL_FLAG_SORT))
-        .ignore_then(
-            sort_flag()
-                .repeated()
-                .collect::<Vec<SortFlag>>()
-                .map(fold_sort_flags),
-        )
+    mark(
+        TokenKind::Flag,
+        just(COLUMN_CONTROL_FLAGS_PREFIX)
+            .then(just(COLUMN_CONTROL_FLAG_SORT))
+            .ignore_then(
+                sort_flag()
+                    .repeated()
+                    .collect::<Vec<SortFlag>>()
+                    .map(fold_sort_flags),
+            ),
+    )
 }
 
 #[cfg(test)]

@@ -89,6 +89,36 @@ than silently changing the result set. This mirrors a multi-input query-builder 
 the section it occurred in (`err.section`, plus a prefix such as `"Sort section: "` on
 `err.message`), and its `span` is relative to that section's text.
 
+### `tokenize(source: string, grammar: QuerydownGrammar): QuerydownToken[]`
+
+Classifies `source` for **syntax highlighting**. `grammar` says how to read it: `"query"` for a whole
+query (as passed to `compile`), or `"definitions"`, `"conditions"`, `"sorting"`, or `"display"` for
+one section (as passed to `compile_sections`). The grammar matters because the same text can play
+different roles in different places.
+
+Returns `{ from, to, kind }` tokens, in order and without overlap, covering every character except
+whitespace. `from`/`to` are UTF-16 offsets, like JS string indices. `kind` is a
+`QuerydownTokenKind`: `"column"`, `"string"`, `"search-term"`, `"base-table"`, `"function"`,
+`"comparison-operator"`, and so on. The full list, with what each kind means, is in the generated
+`querydown_js.d.ts`.
+
+```ts
+tokenize("#issues title:performance backend", "query");
+// [ { from: 0, to: 7, kind: "base-table" }, { from: 8, to: 13, kind: "column" },
+//   { from: 13, to: 14, kind: "comparison-operator" }, { from: 14, to: 25, kind: "string" },
+//   { from: 26, to: 33, kind: "search-term" } ]
+```
+
+The tokens come from Querydown's own parser, so they follow the language's rules exactly — e.g.
+`performance` above is a string because it's on the right-hand side of a comparison, and `backend`
+is a default text search term because it stands alone. `tokenize` **never throws on invalid
+Querydown**: source being edited is often invalid, so past the point where parsing fails, tokens fall
+back to a lexical classification. It throws a [`QuerydownError`](#errors) of kind `"argument"` only
+for an unknown `grammar`.
+
+For CodeMirror 6, [`querydown-codemirror`](../codemirror/README.md) builds a complete language with
+light and dark highlighting on top of this function.
+
 ### `is_querydown_error(value: unknown): value is QuerydownError`
 
 Returns `true` if `value` is an error thrown by this package. A TypeScript type guard; see

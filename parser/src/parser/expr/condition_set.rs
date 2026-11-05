@@ -1,6 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
@@ -41,16 +42,19 @@ pub fn expansion_set<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Conditi
 /// "OR" shorthand to handle (see the `or_condition_set` parser), which keeps each of its operands
 /// search-aware.
 pub fn condition_entry<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
-    choice((bare_word(ENTRY_CONTINUATION_CHARS).map(Expr::String), expr))
+    choice((
+        mark(TokenKind::SearchTerm, bare_word(ENTRY_CONTINUATION_CHARS)).map(Expr::String),
+        expr,
+    ))
 }
 
-/// Parses a bare word used as an operand of the comma "OR" shorthand, returning the raw word. Unlike
-/// [`condition_entry`]'s search term, a trailing comma does _not_ disqualify it — the comma is the
-/// operand separator. Whether the word becomes a search term or a column reference is decided by the
-/// caller, depending on whether it stands alone or is part of a multi-operand `OR` (see
-/// `or_condition_set`).
-pub fn bare_search_operand<'src>() -> impl Psr<'src, String> {
-    bare_word(OPERAND_CONTINUATION_CHARS)
+/// Parses a bare word used as an operand of the comma "OR" shorthand, returning the raw word and its
+/// span. Unlike [`condition_entry`]'s search term, a trailing comma does _not_ disqualify it — the
+/// comma is the operand separator. Whether the word becomes a search term or a column reference is
+/// decided by the caller, depending on whether it stands alone or is part of a multi-operand `OR`
+/// (see `or_condition_set`), so the caller also records its highlighting mark.
+pub fn bare_search_operand<'src>() -> impl Psr<'src, (String, SimpleSpan)> {
+    bare_word(OPERAND_CONTINUATION_CHARS).map_with(|word, extra| (word, extra.span()))
 }
 
 /// Parses a `!`-prefixed bare word as a *negated* default text search term, e.g. `!backend` finds
@@ -68,7 +72,7 @@ pub fn negated_search_operand<'src>() -> impl Psr<'src, Expr> {
         .repeated()
         .at_least(1)
         .foldr(
-            bare_word(OPERAND_CONTINUATION_CHARS).map(Expr::String),
+            mark(TokenKind::SearchTerm, bare_word(OPERAND_CONTINUATION_CHARS)).map(Expr::String),
             |_, e| Expr::Not(Box::new(e)),
         )
 }

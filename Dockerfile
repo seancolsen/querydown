@@ -43,6 +43,15 @@ RUN rustup component add clippy rustfmt \
 # Claude Code CLI and doctoc (regenerates the docs tables of contents — see DEVELOPMENT.md).
 RUN npm install -g @anthropic-ai/claude-code doctoc
 
+# Playwright drives headless Chromium for the CodeMirror package's visual tests
+# (bindings/codemirror; see DEVELOPMENT.md). Keep this in step with the exact `@playwright/test`
+# version in bindings/codemirror/package.json, since each Playwright release expects a particular
+# browser build. Chromium's system libraries are installed here, as root; the browser itself is
+# installed for the dev user below.
+ARG PLAYWRIGHT_VERSION=1.64.1
+RUN npx -y playwright@${PLAYWRIGHT_VERSION} install-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
+
 # Ensure cargo is on PATH for login shells too (the base image's ENV PATH is
 # otherwise reset by /etc/profile in a `bash -l` context).
 RUN echo 'export PATH=/usr/local/cargo/bin:$PATH' > /etc/profile.d/cargo.sh
@@ -66,6 +75,9 @@ RUN printf '#!/bin/sh\necho "$(date \047+%%Y-%%m-%%d %%H:%%M:%%S\047)" >> ~/.cla
 
 USER ${USERNAME}
 WORKDIR /workspace
+
+# The browser for the visual tests (into ~/.cache/ms-playwright); see PLAYWRIGHT_VERSION above.
+RUN npx -y playwright@${PLAYWRIGHT_VERSION} install chromium
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash"]

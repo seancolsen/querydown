@@ -10,12 +10,13 @@ mod render;
 
 pub mod ast;
 pub mod error;
+pub mod highlight;
 pub mod tokens;
 
 pub use error::{Error, ErrorKind, Label, Position, Span};
 
 use chumsky::prelude::*;
-use parser::{conditions, definitions, pad, query, result_columns, sorting, Psr};
+use parser::{conditions, definitions, pad, query, result_columns, sorting, Marks, Psr};
 
 /// Parses a complete Querydown query — definitions, base table, and transformations — into an
 /// [`ast::Query`].
@@ -59,17 +60,42 @@ pub fn parse_display(input: &str) -> Result<Vec<ast::ResultColumnStatement>, Err
     run(result_columns(), input)
 }
 
-/// Runs a parser over the whole of `input`, allowing surrounding whitespace/comments and requiring
-/// that the entire input is consumed. A failure is reported as an [`ErrorKind::Syntax`] [`Error`]
-/// locating the problem within `input`.
-fn run<'src, T>(parser: impl Psr<'src, T>, input: &'src str) -> Result<T, Error> {
+/// Wraps a parser so that it reads the whole of its input, allowing surrounding whitespace/comments.
+fn whole<'src, T>(parser: impl Psr<'src, T>) -> impl Psr<'src, T> {
     pad()
         .ignore_then(parser)
         .then_ignore(pad())
         .then_ignore(end())
+}
+
+/// Runs a parser over the whole of `input`, allowing surrounding whitespace/comments and requiring
+/// that the entire input is consumed. A failure is reported as an [`ErrorKind::Syntax`] [`Error`]
+/// locating the problem within `input`.
+fn run<'src, T>(parser: impl Psr<'src, T>, input: &'src str) -> Result<T, Error> {
+    whole(parser)
         .parse(input)
         .into_result()
         .map_err(|errors| diagnose::diagnose(input, errors))
+}
+
+/// Parses `input` with the given grammar, returning the highlighting marks the parser recorded
+/// (see the [`highlight`] module). When the parse fails, these are the marks of the constructs it
+/// completed before failing.
+fn record_marks(input: &str, grammar: highlight::Grammar) -> Vec<highlight::Token> {
+    fn record<'src, T>(parser: impl Psr<'src, T>, input: &'src str) -> Vec<highlight::Token> {
+        let mut marks = Marks::default();
+        // Only the marks matter here, not whether the parse succeeded.
+        let _ = whole(parser).parse_with_state(input, &mut marks);
+        marks.0
+    }
+    use highlight::Grammar as G;
+    match grammar {
+        G::Query => record(query(), input),
+        G::Definitions => record(definitions(), input),
+        G::Conditions => record(conditions(), input),
+        G::Sorting => record(sorting(), input),
+        G::Display => record(result_columns(), input),
+    }
 }
 
 #[cfg(test)]

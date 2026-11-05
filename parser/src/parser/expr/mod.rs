@@ -17,6 +17,7 @@ pub use path::{path, path_to_one};
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::highlight::{Token, TokenKind};
 use crate::labels;
 use crate::parser::utils::*;
 use crate::tokens::*;
@@ -190,7 +191,7 @@ fn negation<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
 /// is held as a string so it can be resolved differently depending on whether it stands alone (a
 /// column reference) or is part of a multi-operand `OR` (a default text search term).
 enum OrOperand {
-    Bare(String),
+    Bare(String, SimpleSpan),
     Expr(Expr),
 }
 
@@ -200,7 +201,7 @@ impl OrOperand {
     /// column `$foo` or a sort expression `\\foo` — a column reference rather than a search term.
     fn into_lone_expr(self) -> Expr {
         match self {
-            OrOperand::Bare(word) => Expr::Path(vec![PathPart::Column(word)]),
+            OrOperand::Bare(word, _) => Expr::Path(vec![PathPart::Column(word)]),
             OrOperand::Expr(expr) => expr,
         }
     }
@@ -210,7 +211,7 @@ impl OrOperand {
     /// condition.
     fn into_or_entry(self) -> Expr {
         match self {
-            OrOperand::Bare(word) => Expr::String(word),
+            OrOperand::Bare(word, _) => Expr::String(word),
             OrOperand::Expr(expr) => expr,
         }
     }
@@ -226,7 +227,7 @@ impl OrOperand {
 /// column `$foo`.
 fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     let operand = choice((
-        condition_set::bare_search_operand().map(OrOperand::Bare),
+        condition_set::bare_search_operand().map(|(word, span)| OrOperand::Bare(word, span)),
         // A `!`-prefixed bare word is an unambiguous negated search term, so it resolves the same
         // way whether it stands alone (`!backend`) or is one of several comma operands
         // (`foo,!bar`). It is tried before the general `e` rule, which would otherwise read the bare
@@ -243,8 +244,23 @@ fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
                 .repeated()
                 .collect::<Vec<OrOperand>>(),
         )
-        .map(|(first, rest)| {
-            if rest.is_empty() {
+        // `try_map_with` (rather than `map`) so that the bare words' marks are recorded even where
+        // the output is discarded; see `mark`.
+        .try_map_with(|(first, rest), extra| {
+            // Only now is it known how each bare word resolves, so only now can it be marked.
+            let kind = match rest.is_empty() {
+                true => TokenKind::Column,
+                false => TokenKind::SearchTerm,
+            };
+            for operand in std::iter::once(&first).chain(&rest) {
+                if let OrOperand::Bare(_, span) = operand {
+                    extra.state().0.push(Token {
+                        kind,
+                        span: span.into_range(),
+                    });
+                }
+            }
+            Ok(if rest.is_empty() {
                 first.into_lone_expr()
             } else {
                 let entries = std::iter::once(first)
@@ -252,7 +268,7 @@ fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
                     .map(OrOperand::into_or_entry)
                     .collect();
                 Expr::ConditionSet(ConditionSet::via_or(entries))
-            }
+            })
         })
 }
 
@@ -284,7 +300,9 @@ fn operator<'src>(
     c: char,
     expr_enum_constructor: fn(Box<Expr>, Box<Expr>) -> Expr,
 ) -> impl Psr<'src, fn(Box<Expr>, Box<Expr>) -> Expr> {
-    just(c).padded_by(pad()).to(expr_enum_constructor)
+    mark(TokenKind::Operator, just(c))
+        .padded_by(pad())
+        .to(expr_enum_constructor)
 }
 
 fn variable<'src>() -> impl Psr<'src, String> {
@@ -309,11 +327,12 @@ fn function_call<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> 
             just(COMPOSITION_ARGUMENT_BRACE_R),
         );
     exactly(FUNCTION_SIGIL)
-        .ignore_then(
+        .ignore_then(mark(
+            TokenKind::Function,
             ident()
                 .map(|s: &str| s.to_string())
                 .labelled(labels::FUNCTION_NAME),
-        )
+        ))
         .then(args)
         .map(|(name, args)| {
             Expr::Call(Call {
@@ -345,7 +364,7 @@ fn string<'src>() -> impl Psr<'src, String> {
 /// A bare word is treated as a string only when it stands alone. If it is the head of a longer path
 /// (e.g. `foo.bar`), the whole path is parsed as a column reference instead.
 fn comparison_rhs_value<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
-    let bare_string = ident()
+    let bare_string = mark(TokenKind::String, ident())
         .then_ignore(pad().then(just(PATH_SEPARATOR)).not())
         .map(|s: &str| Expr::String(s.to_string()));
     choice((bare_string, path(expr).map(Expr::Path)))

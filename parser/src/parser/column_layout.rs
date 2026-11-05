@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::labels;
 use crate::tokens::*;
 
@@ -109,7 +110,7 @@ fn column_glob<'src>() -> impl Psr<'src, ColumnGlob> {
         .or_not()
         .map(|a| a.unwrap_or_default());
 
-    head.then_ignore(just(COLUMN_GLOB))
+    head.then_ignore(mark(TokenKind::Glob, just(COLUMN_GLOB)))
         .then(specs)
         .map(|(head, specs)| ColumnGlob { head, specs })
 }
@@ -120,7 +121,10 @@ fn column_spec<'src>() -> impl Psr<'src, ColumnSpec> {
             pad()
                 .then(just(COLUMN_ALIAS_PREFIX))
                 .then(pad())
-                .ignore_then(db_identifier().labelled(labels::ALIAS))
+                .ignore_then(mark(
+                    TokenKind::Alias,
+                    db_identifier().labelled(labels::ALIAS),
+                ))
                 .or_not(),
         )
         .then(
@@ -169,7 +173,7 @@ pub(crate) fn column_control<'src>() -> impl Psr<'src, ColumnControl> {
         just(COLUMN_CONTROL_FLAG_HIDE).to(Flag::Hide),
         just(COLUMN_CONTROL_FLAG_PARTITION).to(Flag::Partition),
     ));
-    just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(
+    let flags = just(COLUMN_CONTROL_FLAGS_PREFIX).ignore_then(
         flag.labelled(labels::COLUMN_CONTROL_FLAG)
             .repeated()
             .at_least(1)
@@ -227,7 +231,8 @@ pub(crate) fn column_control<'src>() -> impl Psr<'src, ColumnControl> {
                     is_hidden: hide,
                 }
             }),
-    )
+    );
+    mark(TokenKind::Flag, flags)
 }
 
 #[cfg(test)]

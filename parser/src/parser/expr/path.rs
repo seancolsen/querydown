@@ -1,6 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::labels;
 use crate::parser::utils::*;
 use crate::tokens::*;
@@ -41,7 +42,7 @@ pub fn path_to_one<'src>() -> impl Psr<'src, Vec<PathPart>> {
 
 fn path_part<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, PathPart> {
     choice((
-        db_identifier().map(PathPart::Column),
+        mark(TokenKind::Column, db_identifier()).map(PathPart::Column),
         table_with_many(expr).map(PathPart::TableWithMany),
         table_with_one().map(PathPart::TableWithOne),
     ))
@@ -49,31 +50,35 @@ fn path_part<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, PathPart> {
 
 fn path_part_to_one<'src>() -> impl Psr<'src, PathPart> {
     choice((
-        db_identifier().map(PathPart::Column),
+        mark(TokenKind::Column, db_identifier()).map(PathPart::Column),
         table_with_one().map(PathPart::TableWithOne),
     ))
 }
 
 fn table_with_one<'src>() -> impl Psr<'src, String> {
-    exactly(PATH_TO_TABLE_WITH_ONE_PREFIX).ignore_then(db_identifier().labelled(labels::TABLE_NAME))
+    exactly(PATH_TO_TABLE_WITH_ONE_PREFIX).ignore_then(mark(
+        TokenKind::Table,
+        db_identifier().labelled(labels::TABLE_NAME),
+    ))
 }
 
 fn table_with_many<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, TableWithMany> {
-    let column = db_identifier().delimited_by(
+    let column = mark(TokenKind::Column, db_identifier()).delimited_by(
         just(TABLE_WITH_MANY_COLUMN_BRACE_L).then(pad()),
         pad().then(just(TABLE_WITH_MANY_COLUMN_BRACE_R)),
     );
-    just(TABLE_SIGIL).ignore_then(
-        db_identifier()
-            .labelled(labels::TABLE_NAME)
-            .then(column.or_not())
-            .then(condition_set(expr).or_not())
-            .map(|((table, column), cs)| TableWithMany {
-                table,
-                condition_set: cs.unwrap_or_default(),
-                linking_column: column,
-            }),
-    )
+    let table = mark(
+        TokenKind::Table,
+        just(TABLE_SIGIL).ignore_then(db_identifier().labelled(labels::TABLE_NAME)),
+    );
+    table
+        .then(column.or_not())
+        .then(condition_set(expr).or_not())
+        .map(|((table, column), cs)| TableWithMany {
+            table,
+            condition_set: cs.unwrap_or_default(),
+            linking_column: column,
+        })
 }
 
 #[cfg(test)]

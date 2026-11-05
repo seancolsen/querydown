@@ -1,6 +1,38 @@
-use chumsky::{prelude::*, text::*};
+use chumsky::{
+    input::{Checkpoint, Cursor},
+    inspector::Inspector,
+    prelude::*,
+    text::*,
+};
 
+use crate::highlight::{Token, TokenKind};
 use crate::tokens::*;
+
+/// The parser state: the highlighting marks recorded so far (see [`mark`]).
+///
+/// Chumsky notifies this [`Inspector`] whenever the parser saves its position and whenever it
+/// rewinds to a saved position, i.e. backtracks. Rewinding truncates the marks to those recorded
+/// before the save, discarding the marks of the abandoned alternative. (This is Chumsky's
+/// `TruncateState`, which we can't use directly because it requires `Token: Default`.)
+#[derive(Debug, Default)]
+pub struct Marks(pub Vec<Token>);
+
+impl<'src, I: Input<'src>> Inspector<'src, I> for Marks {
+    type Checkpoint = usize;
+
+    fn on_token(&mut self, _: &I::Token) {}
+
+    fn on_save<'parse>(&self, _: &Cursor<'src, 'parse, I>) -> usize {
+        self.0.len()
+    }
+
+    fn on_rewind<'parse>(&mut self, checkpoint: &Checkpoint<'src, 'parse, I, usize>) {
+        self.0.truncate(*checkpoint.inspector());
+    }
+}
+
+/// The "extra" type parameter shared by all of our parsers: rich errors, plus the [`Marks`] state.
+pub type Extra<'src> = extra::Full<Rich<'src, char>, Marks, ()>;
 
 /// `Psr` is an abbreviation for "Parser". This is abbreviated because it is used in many places,
 /// and we don't want it to conflict with Chumsky's `Parser` trait.
@@ -9,16 +41,34 @@ use crate::tokens::*;
 /// follows:
 ///
 /// ```rs
-/// pub type Psr<'src, T> = Parser<'src, &'src str, T, extra::Err<Rich<'src, char>>> + Clone;
+/// pub type Psr<'src, T> = Parser<'src, &'src str, T, Extra<'src>> + Clone;
 /// ```
 ///
 /// However, we can't do that without [trait aliases][1].
 ///
 /// [1]: https://github.com/rust-lang/rust/issues/41517
-pub trait Psr<'src, T>: Parser<'src, &'src str, T, extra::Err<Rich<'src, char>>> + Clone {}
-impl<'src, S, T> Psr<'src, T> for S where
-    S: Parser<'src, &'src str, T, extra::Err<Rich<'src, char>>> + Clone
-{
+pub trait Psr<'src, T>: Parser<'src, &'src str, T, Extra<'src>> + Clone {}
+impl<'src, S, T> Psr<'src, T> for S where S: Parser<'src, &'src str, T, Extra<'src>> + Clone {}
+
+/// Records the span matched by `parser` as a `kind` token for syntax highlighting (see the
+/// [`highlight`](crate::highlight) module). This is otherwise transparent: it yields `parser`'s
+/// output and fails wherever `parser` fails.
+///
+/// Mark the narrowest parser that covers the token — e.g. the name in `|upper`, not the pipe too —
+/// since a mark recolors every non-comment character within its span.
+///
+/// This uses `try_map_with` rather than `map_with` because Chumsky skips `map_with` closures for
+/// parsers whose output is discarded (e.g. inside `ignore_then` or `not`), whereas `try_map_with`
+/// always runs.
+pub fn mark<'src, T>(kind: TokenKind, parser: impl Psr<'src, T>) -> impl Psr<'src, T> {
+    parser.try_map_with(move |output, extra| {
+        let span: SimpleSpan = extra.span();
+        extra.state().0.push(Token {
+            kind,
+            span: span.into_range(),
+        });
+        Ok(output)
+    })
 }
 
 pub fn exactly<'src>(s: &str) -> impl Psr<'src, String> {

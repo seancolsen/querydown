@@ -1,6 +1,7 @@
 use chumsky::{prelude::*, text::*};
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::labels;
 use crate::parser::sorting::{sort_flags, value_sort_flags};
 use crate::parser::utils::*;
@@ -120,7 +121,10 @@ pub fn pipe<'src>(
 
     let scalar_call = just(COMPOSITION_PIPE_SCALAR)
         .padded_by(pad())
-        .ignore_then(ident().labelled(labels::FUNCTION_NAME))
+        .ignore_then(mark(
+            TokenKind::Function,
+            ident().labelled(labels::FUNCTION_NAME),
+        ))
         .then(scalar_args.or_not())
         .map(|(name, extra_args)| PipeStep::Call {
             dimension: FunctionDimension::Scalar,
@@ -129,9 +133,15 @@ pub fn pipe<'src>(
             order_by: vec![],
         });
 
+    let aggregate_name = || {
+        mark(
+            TokenKind::AggregateFunction,
+            ident().labelled(labels::AGGREGATE_FUNCTION_NAME),
+        )
+    };
     let aggregate_call = just(COMPOSITION_PIPE_AGGREGATE)
         .padded_by(pad())
-        .ignore_then(ident().labelled(labels::AGGREGATE_FUNCTION_NAME))
+        .ignore_then(aggregate_name())
         .then(aggregate_order_by(extra_args_expr.clone()).or_not())
         .map(|(name, order_by)| PipeStep::Call {
             dimension: FunctionDimension::Aggregate,
@@ -145,7 +155,7 @@ pub fn pipe<'src>(
     // from a piped aggregate like `created_at%max` whose `args` contains the piped-in expression.
     let leading_aggregate = just(COMPOSITION_PIPE_AGGREGATE)
         .padded_by(pad())
-        .ignore_then(ident().labelled(labels::AGGREGATE_FUNCTION_NAME))
+        .ignore_then(aggregate_name())
         .then(aggregate_order_by(extra_args_expr).or_not())
         .map(|(name, order_by)| {
             Expr::Call(Call {
