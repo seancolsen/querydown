@@ -25,14 +25,19 @@ fn value<'src>() -> impl Psr<'src, AnnotationValue> {
         // `@true`, `@false`, and `@null`. Note that only these three constants are permitted here
         // — unlike elsewhere in the language, `@`-prefixed dates, durations, and other constants
         // are intentionally not accepted, because annotations must be JSON-representable.
-        let constant = just(CONST_SIGIL).ignore_then(choice((
-            exactly(LITERAL_TRUE).to(AnnotationValue::Bool(true)),
-            exactly(LITERAL_FALSE).to(AnnotationValue::Bool(false)),
-            exactly(LITERAL_NULL).to(AnnotationValue::Null),
-        )));
+        // Scalars are all marked as annotation values, so that annotations read as muted metadata
+        // rather than as query literals.
+        let constant = mark(
+            TokenKind::AnnotationValue,
+            just(CONST_SIGIL).ignore_then(choice((
+                exactly(LITERAL_TRUE).to(AnnotationValue::Bool(true)),
+                exactly(LITERAL_FALSE).to(AnnotationValue::Bool(false)),
+                exactly(LITERAL_NULL).to(AnnotationValue::Null),
+            ))),
+        );
 
         let number = mark(
-            TokenKind::Number,
+            TokenKind::AnnotationValue,
             just('-')
                 .or_not()
                 .then(int(10))
@@ -41,14 +46,16 @@ fn value<'src>() -> impl Psr<'src, AnnotationValue> {
         )
         .map(|s: &str| AnnotationValue::Number(s.to_string()));
 
-        let quoted_string = quoted(STRING_QUOTE_SINGLE)
-            .or(quoted(STRING_QUOTE_DOUBLE))
-            .map(AnnotationValue::String);
+        let quoted_string = mark(
+            TokenKind::AnnotationValue,
+            quoted(STRING_QUOTE_SINGLE).or(quoted(STRING_QUOTE_DOUBLE)),
+        )
+        .map(AnnotationValue::String);
 
         // An unquoted identifier is treated as a string. This is also why bare `true`/`false`/
         // `null` (without the `@` sigil) parse as the strings `"true"`/`"false"`/`"null"`.
-        let ident_string =
-            mark(TokenKind::String, ident()).map(|s: &str| AnnotationValue::String(s.to_string()));
+        let ident_string = mark(TokenKind::AnnotationValue, ident())
+            .map(|s: &str| AnnotationValue::String(s.to_string()));
 
         let array = value
             .clone()
@@ -56,8 +63,8 @@ fn value<'src>() -> impl Psr<'src, AnnotationValue> {
             .repeated()
             .collect::<Vec<AnnotationValue>>()
             .delimited_by(
-                just(CONDITION_SET_OR_BRACE_L),
-                just(CONDITION_SET_OR_BRACE_R),
+                mark(TokenKind::AnnotationBracket, just(CONDITION_SET_OR_BRACE_L)),
+                mark(TokenKind::AnnotationBracket, just(CONDITION_SET_OR_BRACE_R)),
             )
             .map(AnnotationValue::Array);
 
@@ -93,8 +100,14 @@ fn object<'src>(value: impl Psr<'src, AnnotationValue>) -> impl Psr<'src, Annota
         .repeated()
         .collect::<Vec<(String, AnnotationValue)>>()
         .delimited_by(
-            just(CONDITION_SET_AND_BRACE_L),
-            just(CONDITION_SET_AND_BRACE_R),
+            mark(
+                TokenKind::AnnotationBracket,
+                just(CONDITION_SET_AND_BRACE_L),
+            ),
+            mark(
+                TokenKind::AnnotationBracket,
+                just(CONDITION_SET_AND_BRACE_R),
+            ),
         )
         .map(AnnotationValue::Object)
 }

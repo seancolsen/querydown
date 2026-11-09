@@ -309,6 +309,8 @@ returns the options a JSON Schema offers at a position within an annotation.
 | `flag` | `\sd`, `\g` |
 | `alias` | `total` in `-> total` |
 | `annotation`, `annotation-key` | the `@` and the `width` in `@{width:100}` |
+| `annotation-value` | the `100` in `@{width:100}`, including strings and `@true` |
+| `annotation-bracket` | the brackets in `@{tags:[a b]}` |
 | `pipeline` | `~~~` |
 | `definition` | `=`, `=>` in definitions |
 | `bracket` | `( ) [ ] { }` |

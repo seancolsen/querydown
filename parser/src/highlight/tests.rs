@@ -148,9 +148,11 @@ fn test_result_columns() {
          $author.( $name )",
         "$:result-column author:column .:path-separator *:glob $:result-column *:glob \
          (:bracket id:column \\h:flag ):bracket $:result-column %:pipe count:aggregate-function \
-         ->:operator total:alias \\s2d:flag @:annotation {:bracket width:annotation-key \
-         ::punctuation 100:number tags:annotation-key ::punctuation [:bracket a:string \
-         b:string ]:bracket ok:annotation-key ::punctuation @true:constant }:bracket \
+         ->:operator total:alias \\s2d:flag @:annotation {:annotation-bracket \
+         width:annotation-key ::punctuation 100:annotation-value tags:annotation-key \
+         ::punctuation [:annotation-bracket a:annotation-value b:annotation-value \
+         ]:annotation-bracket ok:annotation-key ::punctuation @true:annotation-value \
+         }:annotation-bracket \
          $:result-column author:column .:path-separator (:bracket $:result-column name:column \
          ):bracket",
     );

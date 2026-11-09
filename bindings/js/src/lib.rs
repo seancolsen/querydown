@@ -152,6 +152,7 @@ export type QuerydownGrammar = "query" | QuerydownSection;
  * - `"result-column"`: `$`; `"sort"`: `\\`; `"flag"`: e.g. `\sd`
  * - `"alias"`: e.g. `total` in `-> total`
  * - `"annotation"`: the `@` of `@{...}`; `"annotation-key"`: e.g. `width` in `@{width:100}`
+ * - `"annotation-value"`: a scalar in an annotation, e.g. `100`; `"annotation-bracket"`: its `{ } [ ]`
  * - `"pipeline"`: `~~~`
  * - `"definition"`: `=` and `=>` in definitions
  * - `"bracket"`: `( ) [ ] { }`
@@ -188,6 +189,8 @@ export type QuerydownTokenKind =
   | "alias"
   | "annotation"
   | "annotation-key"
+  | "annotation-value"
+  | "annotation-bracket"
   | "pipeline"
   | "definition"
   | "bracket"

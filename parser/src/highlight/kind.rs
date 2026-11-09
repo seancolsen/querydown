@@ -71,6 +71,10 @@ pub enum TokenKind {
     Annotation,
     /// The key of an annotation object entry, e.g. `width` in `@{width:100}`.
     AnnotationKey,
+    /// A scalar value within an annotation, e.g. `100` in `@{width:100}`.
+    AnnotationValue,
+    /// A bracket within an annotation: the `{ }` and `[ ]` of `@{tags:[a b]}`.
+    AnnotationBracket,
     /// The `~~~` that separates the stages of a query pipeline.
     Pipeline,
     /// The `=` and `=>` within definitions, e.g. `@@plus_one = @x => @x + 1`.
@@ -85,7 +89,7 @@ pub enum TokenKind {
 
 impl TokenKind {
     /// Every kind, in declaration order.
-    pub const ALL: [TokenKind; 32] = [
+    pub const ALL: [TokenKind; 34] = [
         TokenKind::Comment,
         TokenKind::String,
         TokenKind::StringEscape,
@@ -113,6 +117,8 @@ impl TokenKind {
         TokenKind::Alias,
         TokenKind::Annotation,
         TokenKind::AnnotationKey,
+        TokenKind::AnnotationValue,
+        TokenKind::AnnotationBracket,
         TokenKind::Pipeline,
         TokenKind::Definition,
         TokenKind::Bracket,
@@ -150,6 +156,8 @@ impl TokenKind {
             TokenKind::Alias => "alias",
             TokenKind::Annotation => "annotation",
             TokenKind::AnnotationKey => "annotation-key",
+            TokenKind::AnnotationValue => "annotation-value",
+            TokenKind::AnnotationBracket => "annotation-bracket",
             TokenKind::Pipeline => "pipeline",
             TokenKind::Definition => "definition",
             TokenKind::Bracket => "bracket",
