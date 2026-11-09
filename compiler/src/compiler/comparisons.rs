@@ -26,12 +26,7 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, S
     // comparison. When one matches, its body is expanded in place of the whole comparison.
     if scope.has_custom_comparisons() {
         if let ComparisonSide::Expr(Expr::Path(parts)) = &c.left {
-            let prefixed: Vec<PathPart> = scope
-                .path_prefix
-                .iter()
-                .cloned()
-                .chain(parts.iter().cloned())
-                .collect();
+            let prefixed = scope.prefixed(parts);
             if let Some((head_parts, def)) = resolve_custom_comparison(&prefixed, scope)? {
                 return convert_custom_comparison(def, head_parts, c.operator, c.right, scope);
             }
@@ -309,7 +304,11 @@ fn convert_expression_vs_zero(
     let Expr::Path(path_parts) = &expr else {
         return fallback(scope);
     };
-    let Ok(clarified_path) = clarify_path(path_parts.to_owned(), scope) else {
+    // Resolve the path from the scope's current table, as `convert_path` does, so that an existence
+    // check inside a scoped condition set (`author{++#comments}`) starts from the scoped table
+    // rather than the base table.
+    let prefixed_parts = scope.prefixed(path_parts);
+    let Ok(clarified_path) = clarify_path(prefixed_parts, scope) else {
         return fallback(scope);
     };
     let Some(ClarifiedPathTail::ChainToMany((chain, None, _))) = clarified_path.tail else {

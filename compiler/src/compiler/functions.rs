@@ -363,6 +363,10 @@ fn agg_1(
     let Expr::Path(path_parts) = arg0 else {
         return Err(msg::aggregate_fn_applied_to_a_non_path());
     };
+    // Resolve the path from the scope's current table, as `convert_path` does, so that an aggregate
+    // inside a scoped condition set (`author{#comments.id%max:>5}`) starts from the scoped table
+    // rather than the base table.
+    let path_parts = scope.prefixed(&path_parts);
     // Sorting expressions are evaluated from the context of the first `#` table in the path (or
     // the current table, when there is none), so this is the aggregated value's path from there.
     let value_path = match path_parts

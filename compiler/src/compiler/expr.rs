@@ -96,7 +96,7 @@ fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, String
 }
 
 fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, String> {
-    let prefixed_parts: Vec<PathPart> = scope.path_prefix.iter().cloned().chain(parts).collect();
+    let prefixed_parts = scope.prefixed(&parts);
     // If the path names a computed column, substitute its definition, evaluated relative to the
     // table that hosts it (the head of the path).
     if let Some((head_parts, expr, expansion)) = resolve_computed_column(&prefixed_parts, scope)? {
@@ -202,12 +202,7 @@ fn convert_scoped_condition_set(
     scoped: ScopedConditionSet,
     scope: &mut Scope,
 ) -> Result<SqlExpr, String> {
-    let extended_prefix: Vec<PathPart> = scope
-        .path_prefix
-        .iter()
-        .cloned()
-        .chain(scoped.path)
-        .collect();
+    let extended_prefix = scope.prefixed(&scoped.path);
     convert_expr_with_path_prefix(
         Expr::ConditionSet(scoped.condition_set),
         extended_prefix,

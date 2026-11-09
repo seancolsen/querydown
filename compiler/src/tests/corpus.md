@@ -1670,6 +1670,97 @@ WHERE
   (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('dashboard' COLLATE "C")) > 0, FALSE));
 ```
 
+### Scoped "has" condition
+
+A ["has" condition](#has-conditions) inside the scope looks for records related to the _scoped_
+record, not to the base record. Equivalent to `#issues ++author.#comments{id:5}`.
+
+> Issues whose author wrote comment 5
+
+```qd
+#issues author{++#comments{id:5}} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk"
+    FROM "comments"
+    WHERE
+      "comments"."id" = 5
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Scoped "has none" condition
+
+> Issues whose author has written no comments. Equivalent to `#issues --author.#comments`.
+
+```qd
+#issues author{--#comments} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
+```
+
+### Scoped "has" condition through several hops
+
+> Comments on any issue in the same project as issue 42 (not just comments on issue 42). Equivalent
+> to `#comments ++issue.project.#issues{id:42}`.
+
+```qd
+#comments issue.project{++#issues{id:42}} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    WHERE
+      "issues"."id" = 42
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
 ## Paths to one
 
 ### Joined column in related table

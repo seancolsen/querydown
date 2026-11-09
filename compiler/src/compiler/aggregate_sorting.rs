@@ -55,8 +55,10 @@ pub fn resolve_aggregate_sorting(
         .map(|entry| {
             let key = match entry.key {
                 AggregateSortKey::Value => SortKey::Value,
+                // `value_path` already carries the scope's path prefix (which is empty inside the
+                // CTE that aggregates a `#` path), so the sort path needs it too to compare alike.
                 AggregateSortKey::Expr(Expr::Path(parts))
-                    if paths_resolve_alike(parts.clone(), value_path.to_vec(), scope) =>
+                    if paths_resolve_alike(scope.prefixed(&parts), value_path.to_vec(), scope) =>
                 {
                     SortKey::Value
                 }

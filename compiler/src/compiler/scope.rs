@@ -528,6 +528,14 @@ impl<'a, 'b> Scope<'a, 'b> {
         self.aliases.extend(aliases);
     }
 
+    /// `parts` prepended with the scope's current `path_prefix`, i.e. the path as seen from the base
+    /// table. A path written inside a scoped condition set (`author{…}`) is relative to the scoped
+    /// table, so it must be prefixed this way before it is clarified; clarifying the bare parts would
+    /// resolve them from the base table instead.
+    pub fn prefixed(&self, parts: &[PathPart]) -> Vec<PathPart> {
+        self.path_prefix.iter().chain(parts).cloned().collect()
+    }
+
     pub fn with_path_prefix<T>(
         &mut self,
         path_prefix: Vec<PathPart>,

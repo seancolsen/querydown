@@ -92,12 +92,7 @@ fn infer_variable(name: &str, scope: &mut Scope) -> ValueType {
 fn infer_path(parts: &[PathPart], scope: &mut Scope) -> ValueType {
     // Mirror `convert_path`: apply the scope's path prefix, then resolve a computed column (whose
     // definition is an arbitrary expression) before falling back to clarifying the path to a column.
-    let prefixed_parts: Vec<PathPart> = scope
-        .path_prefix
-        .iter()
-        .cloned()
-        .chain(parts.iter().cloned())
-        .collect();
+    let prefixed_parts = scope.prefixed(parts);
     match resolve_computed_column(&prefixed_parts, scope) {
         Ok(Some((head_parts, expr, expansion))) => {
             // A self-referential computed column is reported as an error by compilation; here,
