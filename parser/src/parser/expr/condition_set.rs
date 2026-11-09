@@ -43,23 +43,37 @@ pub fn expansion_set<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Conditi
 /// search-aware.
 pub fn condition_entry<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     choice((
-        mark(TokenKind::SearchTerm, bare_word(ENTRY_CONTINUATION_CHARS)).map(Expr::String),
+        located(
+            mark(TokenKind::SearchTerm, bare_word(ENTRY_CONTINUATION_CHARS)).map(ExprKind::String),
+        ),
         expr,
     ))
 }
 
+/// A bare word parsed by [`bare_search_operand`], whose meaning is decided by the caller.
+pub struct BareWord {
+    pub word: String,
+    /// The word's span, with which the caller records its highlighting mark.
+    pub span: SimpleSpan,
+    pub loc: Loc,
+}
+
 /// Parses a bare word used as an operand of the comma "OR" shorthand, returning the raw word and its
-/// span. Unlike [`condition_entry`]'s search term, a trailing comma does _not_ disqualify it — the
+/// location. Unlike [`condition_entry`]'s search term, a trailing comma does _not_ disqualify it — the
 /// comma is the operand separator. Whether the word becomes a search term or a column reference is
 /// decided by the caller, depending on whether it stands alone or is part of a multi-operand `OR`
 /// (see `or_condition_set`), so the caller also records its highlighting mark.
-pub fn bare_search_operand<'src>() -> impl Psr<'src, (String, SimpleSpan)> {
-    bare_word(OPERAND_CONTINUATION_CHARS).map_with(|word, extra| (word, extra.span()))
+pub fn bare_search_operand<'src>() -> impl Psr<'src, BareWord> {
+    bare_word(OPERAND_CONTINUATION_CHARS).map_with(|word, extra| BareWord {
+        word,
+        span: extra.span(),
+        loc: loc(extra),
+    })
 }
 
 /// Parses a `!`-prefixed bare word as a *negated* default text search term, e.g. `!backend` finds
 /// records that do _not_ contain "backend". The `!` prefix may be repeated (`!!backend`), each layer
-/// wrapping the term in another [`Expr::Not`].
+/// wrapping the term in another [`ExprKind::Not`].
 ///
 /// Unlike [`bare_search_operand`], the negation makes the intent unambiguous — a `!`-prefixed word is
 /// always a search term, never a column reference — so this yields a fully resolved [`Expr`] rather
@@ -67,14 +81,17 @@ pub fn bare_search_operand<'src>() -> impl Psr<'src, (String, SimpleSpan)> {
 /// it: `` !`is_blocked` ``.) A word immediately followed by a continuation character (e.g. `!foo:2`)
 /// is not matched here; it is left for the general negation rule, which negates the larger expression.
 pub fn negated_search_operand<'src>() -> impl Psr<'src, Expr> {
-    just(NEGATE)
+    let term = located(
+        mark(TokenKind::SearchTerm, bare_word(OPERAND_CONTINUATION_CHARS)).map(ExprKind::String),
+    );
+    with_loc(just(NEGATE))
         .then_ignore(pad())
         .repeated()
         .at_least(1)
-        .foldr(
-            mark(TokenKind::SearchTerm, bare_word(OPERAND_CONTINUATION_CHARS)).map(Expr::String),
-            |_, e| Expr::Not(Box::new(e)),
-        )
+        .foldr(term, |(_, bang), e| {
+            let loc = bang.to(e.loc);
+            Expr::new(ExprKind::Not(Box::new(e)), loc)
+        })
 }
 
 /// A bare word — an unquoted, letter-initial, strictly-alphanumeric identifier — that stands alone,

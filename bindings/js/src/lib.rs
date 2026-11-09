@@ -42,7 +42,9 @@ export interface CompileResult {
  *
  * - `"syntax"`: the Querydown source is not syntactically valid. Always has a `span`.
  * - `"compile"`: the source is valid Querydown but can't be compiled against the schema (e.g. it
- *   refers to a column that doesn't exist). Has no `span` (yet).
+ *   refers to a column that doesn't exist). Has a `span` locating the construct at fault (e.g. the
+ *   reference to the missing column), except when that construct wasn't written in the source: the
+ *   `baseTable` passed to `compile_sections` has no location.
  * - `"schema"`: the schema JSON is invalid. Has no `span`.
  * - `"argument"`: some other argument is invalid (e.g. an unknown dialect). Has no `span`.
  *
@@ -95,11 +97,16 @@ export interface QuerydownError extends Error {
   kind: QuerydownErrorKind;
   /** The description of the problem alone, without the section or location. */
   reason: string;
-  /** For `compile_sections`, the section whose text the error (and its `span`) refers to. */
+  /**
+   * For `compile_sections`, the section whose text the error's `span` (and its labels' spans)
+   * refers to. A compile error may be in a different section from where the construct at fault
+   * is used: e.g. an unknown column within a constant's definition is reported in the definitions
+   * section, wherever the constant is used. `null` when there is no `span`.
+   */
   section: QuerydownSection | null;
   /**
    * Where in the source the problem is. Relative to the whole query for `compile`, or to the
-   * section's text for `compile_sections`.
+   * `section`'s text for `compile_sections`.
    */
   span: SourceSpan | null;
   /** Secondary locations relevant to the problem, each with a note. */
@@ -315,31 +322,42 @@ extern "C" {
 /// The `name` given to every error thrown by this package.
 const ERROR_NAME: &str = "QuerydownError";
 
-/// A section of a sectioned query, used to attribute an error to the input it came from.
-#[derive(Clone, Copy)]
-enum Section {
-    Definitions,
-    Conditions,
-    Sorting,
-    Display,
+/// The `QuerydownSection` naming a section of a sectioned query.
+fn section_id(section: Section) -> &'static str {
+    match section {
+        Section::Definitions => "definitions",
+        Section::Conditions => "conditions",
+        Section::Sorting => "sorting",
+        Section::Display => "display",
+    }
 }
 
-impl Section {
-    fn id(self) -> &'static str {
-        match self {
-            Section::Definitions => "definitions",
-            Section::Conditions => "conditions",
-            Section::Sorting => "sorting",
-            Section::Display => "display",
-        }
+/// How a section is named at the start of an error message.
+fn section_title(section: Section) -> &'static str {
+    match section {
+        Section::Definitions => "Definitions",
+        Section::Conditions => "Conditions",
+        Section::Sorting => "Sort",
+        Section::Display => "Display",
     }
+}
 
-    fn title(self) -> &'static str {
-        match self {
-            Section::Definitions => "Definitions",
-            Section::Conditions => "Conditions",
-            Section::Sorting => "Sort",
-            Section::Display => "Display",
+/// The source text of each section of a sectioned query, to which the locations of errors in it
+/// refer.
+struct SectionSources<'a> {
+    definitions: &'a str,
+    conditions: &'a str,
+    sorting: &'a str,
+    display: &'a str,
+}
+
+impl SectionSources<'_> {
+    fn get(&self, section: Section) -> &str {
+        match section {
+            Section::Definitions => self.definitions,
+            Section::Conditions => self.conditions,
+            Section::Sorting => self.sorting,
+            Section::Display => self.display,
         }
     }
 }
@@ -410,21 +428,21 @@ fn make_js_error(message: &str, details: JsErrorDetails) -> JsValue {
 }
 
 /// Converts a Querydown [`Error`] into a thrown `QuerydownError`. `source` is the text the error's
-/// spans refer to (the whole query, or one section of it).
-fn to_js_error(err: &Error, source: &str, section: Option<Section>) -> JsValue {
+/// spans refer to: the whole query, or the text of the error's section.
+fn to_js_error(err: &Error, source: &str) -> JsValue {
     let kind = match err.kind {
         ErrorKind::Syntax => "syntax",
         ErrorKind::Schema => "schema",
         _ => "compile",
     };
-    let message = match section {
-        Some(section) => format!("{} section: {err}", section.title()),
+    let message = match err.section {
+        Some(section) => format!("{} section: {err}", section_title(section)),
         None => err.to_string(),
     };
     let details = JsErrorDetails {
         kind,
         reason: err.message.clone(),
-        section: section.map(Section::id),
+        section: err.section.map(section_id),
         span: err.span.as_ref().map(|span| to_js_span(source, span)),
         labels: err
             .labels
@@ -474,7 +492,7 @@ fn make_compiler(schema_json: &str, dialect: &str) -> Result<Compiler, JsValue> 
         dialect: parse_dialect(dialect)?,
         identifier_resolution: IdentifierResolution::Flexible,
     };
-    Compiler::new(schema_json, options).map_err(|e| to_js_error(&e, schema_json, None))
+    Compiler::new(schema_json, options).map_err(|e| to_js_error(&e, schema_json))
 }
 
 /// Serializes a [`CompileResult`] into the typed JS object returned to callers.
@@ -482,15 +500,6 @@ fn to_js_result(result: &CompileResult) -> Result<JsCompileResult, JsValue> {
     serde_wasm_bindgen::to_value(result)
         .map(|value| value.unchecked_into())
         .map_err(|e| JsError::new(&e.to_string()).into())
-}
-
-/// Parses one section of a sectioned query, attributing any error to that section.
-fn parse_section<T>(
-    section: Section,
-    source: &str,
-    parse: fn(&str) -> Result<T, Error>,
-) -> Result<T, JsValue> {
-    parse(source).map_err(|e| to_js_error(&e, source, Some(section)))
 }
 
 /// Return the static SQL query that introspects a database of the given dialect to produce the
@@ -512,7 +521,7 @@ pub fn compile(
     let compiler = make_compiler(schema_json, dialect)?;
     let result = compiler
         .compile(input.clone())
-        .map_err(|e| to_js_error(&e, &input, None))?;
+        .map_err(|e| to_js_error(&e, &input))?;
     to_js_result(&result)
 }
 
@@ -521,9 +530,10 @@ pub fn compile(
 ///
 /// Each section is parsed with its own parser, so one section's syntax cannot leak into another (a
 /// stray display `$` in the sort input is reported as a sort error rather than silently altering the
-/// result set). A syntax error's `section` names the section it occurred in, its `span` is relative
-/// to that section's text, and its `message` is prefixed with the section's name. A compile error
-/// (which can't be attributed to a single section) has no section.
+/// result set). An error's `section` names the section it is located in, its `span` is relative to
+/// that section's text, and its `message` is prefixed with the section's name. This applies to
+/// compile errors as well as syntax errors; only an error with no location (e.g. about the
+/// `base_table`) has no section.
 #[wasm_bindgen]
 pub fn compile_sections(
     schema_json: &str,
@@ -534,19 +544,26 @@ pub fn compile_sections(
     sorting: &str,
     display: &str,
 ) -> Result<JsCompileResult, JsValue> {
+    let sources = SectionSources {
+        definitions,
+        conditions,
+        sorting,
+        display,
+    };
+    // Every error's locations refer to the text of the section it names.
+    let to_js_error = |e: Error| match e.section {
+        Some(section) => to_js_error(&e, sources.get(section)),
+        None => to_js_error(&e, ""),
+    };
     let query = Query::from_parts(
         base_table,
-        parse_section(Section::Definitions, definitions, parse_definitions)?,
-        parse_section(Section::Conditions, conditions, parse_conditions)?,
-        parse_section(Section::Sorting, sorting, parse_sorting)?,
-        parse_section(Section::Display, display, parse_display)?,
+        parse_definitions(definitions).map_err(to_js_error)?,
+        parse_conditions(conditions).map_err(to_js_error)?,
+        parse_sorting(sorting).map_err(to_js_error)?,
+        parse_display(display).map_err(to_js_error)?,
     );
     let compiler = make_compiler(schema_json, dialect)?;
-    let result = compiler
-        .compile_query(query)
-        // A compile error can't be attributed to a single section; compile errors don't carry spans
-        // (yet), so no source text is needed to convert one.
-        .map_err(|e| to_js_error(&e, "", None))?;
+    let result = compiler.compile_query(query).map_err(to_js_error)?;
     to_js_result(&result)
 }
 

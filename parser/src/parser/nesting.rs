@@ -12,42 +12,45 @@ use crate::ast::*;
 /// `++`/`--` quantity prefix, the piped-in value of a function application, the left operand of an
 /// arithmetic expression, and the left side of a comparison. An expression with no leading column
 /// reference (e.g. a literal or a standalone `%count`) cannot be nested.
+///
+/// The expression keeps its own location, as written within the group.
 pub(crate) fn prefix_leading_path(head: &[PathPart], expr: Expr) -> Result<Expr, String> {
     let prefixed =
         |parts: Vec<PathPart>| -> Vec<PathPart> { head.iter().cloned().chain(parts).collect() };
-    match expr {
-        Expr::Path(parts) => Ok(Expr::Path(prefixed(parts))),
-        Expr::HasQuantity(has_quantity) => Ok(Expr::HasQuantity(HasQuantity {
+    let kind = match expr.kind {
+        ExprKind::Path(parts) => ExprKind::Path(prefixed(parts)),
+        ExprKind::HasQuantity(has_quantity) => ExprKind::HasQuantity(HasQuantity {
             quantity: has_quantity.quantity,
             path_parts: prefixed(has_quantity.path_parts),
-        })),
+        }),
         // A piped call's leading reference is its piped-in value (the first argument). A standalone
         // call (`@@fn(...)`) and a leading aggregate (`%count`, which has no arguments) have none.
-        Expr::Call(call) if call.syntax == CallSyntax::Piped && !call.args.is_empty() => {
-            Ok(Expr::Call(Call {
+        ExprKind::Call(call) if call.syntax == CallSyntax::Piped && !call.args.is_empty() => {
+            ExprKind::Call(Call {
                 args: prefix_first_arg(head, call.args)?,
                 ..call
-            }))
+            })
         }
         // An anonymous function call always carries its piped-in value as its first argument.
-        Expr::AnonymousFunctionCall(mut call) if !call.args.is_empty() => {
+        ExprKind::AnonymousFunctionCall(mut call) if !call.args.is_empty() => {
             call.args = prefix_first_arg(head, call.args)?;
-            Ok(Expr::AnonymousFunctionCall(call))
+            ExprKind::AnonymousFunctionCall(call)
         }
-        Expr::Product(a, b) => Ok(Expr::Product(prefix_boxed(head, *a)?, b)),
-        Expr::Quotient(a, b) => Ok(Expr::Quotient(prefix_boxed(head, *a)?, b)),
-        Expr::Sum(a, b) => Ok(Expr::Sum(prefix_boxed(head, *a)?, b)),
-        Expr::Difference(a, b) => Ok(Expr::Difference(prefix_boxed(head, *a)?, b)),
-        Expr::Comparison(mut comparison) => {
+        ExprKind::Product(a, b) => ExprKind::Product(prefix_boxed(head, *a)?, b),
+        ExprKind::Quotient(a, b) => ExprKind::Quotient(prefix_boxed(head, *a)?, b),
+        ExprKind::Sum(a, b) => ExprKind::Sum(prefix_boxed(head, *a)?, b),
+        ExprKind::Difference(a, b) => ExprKind::Difference(prefix_boxed(head, *a)?, b),
+        ExprKind::Comparison(mut comparison) => {
             let ComparisonSide::Expr(left) = comparison.left else {
                 return Err(msg_no_leading_column_reference());
             };
             comparison.left = ComparisonSide::Expr(prefix_leading_path(head, left)?);
-            Ok(Expr::Comparison(comparison))
+            ExprKind::Comparison(comparison)
         }
-        Expr::Not(inner) => Ok(Expr::Not(prefix_boxed(head, *inner)?)),
-        _ => Err(msg_no_leading_column_reference()),
-    }
+        ExprKind::Not(inner) => ExprKind::Not(prefix_boxed(head, *inner)?),
+        _ => return Err(msg_no_leading_column_reference()),
+    };
+    Ok(Expr::new(kind, expr.loc))
 }
 
 fn prefix_boxed(head: &[PathPart], expr: Expr) -> Result<Box<Expr>, String> {

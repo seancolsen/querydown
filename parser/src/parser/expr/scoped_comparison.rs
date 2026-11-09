@@ -7,13 +7,13 @@ use super::condition_set::condition_set;
 use super::path::path;
 
 /// Parses a "scoped comparison": a path immediately (no space) followed by a condition set, e.g.
-/// `issue{title:dashboard}`. This produces an [`Expr::ScopedConditionSet`] carrying the path and the
+/// `issue{title:dashboard}`. This produces an [`ExprKind::ScopedConditionSet`] carrying the path and the
 /// condition set verbatim; the scoping itself is resolved in the compiler, which evaluates every
 /// entry as though the path had been written in front of it.
 ///
 /// Resolving the scope in the compiler (rather than desugaring the path onto each entry here) is what
 /// lets the scope contain _anything_ you could write as a top-level condition on the related table —
-/// including a bare [default text search](Expr::String) term, which has no leading column reference
+/// including a bare [default text search](ExprKind::String) term, which has no leading column reference
 /// to prefix and no flat-syntax equivalent. So `issue{dashboard}` searches the issue's text columns.
 ///
 /// The **absence of a space** is what distinguishes this from `issue {title:dashboard}`, in which
@@ -21,11 +21,11 @@ use super::path::path;
 /// distinction falls out of the grammar: `path` does not consume trailing whitespace, and the
 /// condition set must follow it directly. (A spaced word never reaches this parser at all, because a
 /// bare word followed by a space is consumed as a search term earlier — see `bare_word`.)
-pub fn scoped_comparison<'src>(expr: impl Psr<'src, Expr> + 'src) -> impl Psr<'src, Expr> {
+pub fn scoped_comparison<'src>(expr: impl Psr<'src, Expr> + 'src) -> impl Psr<'src, ExprKind> {
     path(expr.clone())
         .then(condition_set(expr))
         .map(|(path, condition_set)| {
-            Expr::ScopedConditionSet(ScopedConditionSet {
+            ExprKind::ScopedConditionSet(ScopedConditionSet {
                 path,
                 condition_set,
             })
@@ -43,7 +43,10 @@ mod tests {
         let conditions = parse_conditions(input).unwrap();
         assert_eq!(conditions.entries.len(), 1, "expected one entry: {input}");
         match conditions.entries.into_iter().next().unwrap() {
-            Expr::ScopedConditionSet(scoped) => scoped,
+            Expr {
+                kind: ExprKind::ScopedConditionSet(scoped),
+                ..
+            } => scoped,
             other => panic!("expected a scoped condition set, got {other:?} for: {input}"),
         }
     }
@@ -53,15 +56,21 @@ mod tests {
         // The path and condition set are captured as written — no desugaring — with `{ }` yielding an
         // AND set and `[ ]` an OR set.
         let scoped = parse_scoped("issue{title:dashboard}");
-        assert_eq!(scoped.path, vec![PathPart::Column("issue".to_string())]);
+        assert_eq!(
+            scoped.path,
+            vec![PathPartKind::Column("issue".to_string()).into()]
+        );
         assert_eq!(scoped.condition_set.conjunction, Conjunction::And);
         assert_eq!(
             scoped.condition_set.entries,
-            vec![Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("title".to_string())])),
+            vec![ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("title".to_string()).into()]).into()
+                ),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::String("dashboard".to_string())),
-            }))]
+                right: ComparisonSide::Expr(ExprKind::String("dashboard".to_string()).into()),
+            }))
+            .into()]
         );
 
         assert_eq!(
@@ -76,21 +85,21 @@ mod tests {
         assert_eq!(
             scoped.path,
             vec![
-                PathPart::Column("issue".to_string()),
-                PathPart::Column("project".to_string()),
+                PathPartKind::Column("issue".to_string()).into(),
+                PathPartKind::Column("project".to_string()).into(),
             ]
         );
     }
 
     #[test]
     fn a_bare_word_entry_is_kept_as_a_search_term() {
-        // A bare word inside the scope is a default text-search term (an `Expr::String`), exactly as
+        // A bare word inside the scope is a default text-search term (an `ExprKind::String`), exactly as
         // it would be at the top level. This is the case that cannot be desugared and must be scoped
         // in the compiler.
         let scoped = parse_scoped("issue{dashboard}");
         assert_eq!(
             scoped.condition_set.entries,
-            vec![Expr::String("dashboard".to_string())]
+            vec![ExprKind::String("dashboard".to_string()).into()]
         );
     }
 
@@ -98,10 +107,16 @@ mod tests {
     fn scopes_nest() {
         // A scoped comparison is an ordinary expression, so it can itself be an entry of a scope.
         let outer = parse_scoped("issue{project{name:x}}");
-        assert_eq!(outer.path, vec![PathPart::Column("issue".to_string())]);
+        assert_eq!(
+            outer.path,
+            vec![PathPartKind::Column("issue".to_string()).into()]
+        );
         assert!(matches!(
             outer.condition_set.entries.as_slice(),
-            [Expr::ScopedConditionSet(_)]
+            [Expr {
+                kind: ExprKind::ScopedConditionSet(_),
+                ..
+            }]
         ));
     }
 
@@ -111,8 +126,11 @@ mod tests {
         // two entries — rather than a single scoped comparison.
         let spaced = parse_conditions("issue {id:7}").unwrap();
         assert_eq!(spaced.entries.len(), 2);
-        assert_eq!(spaced.entries[0], Expr::String("issue".to_string()));
-        assert!(matches!(spaced.entries[1], Expr::ConditionSet(_)));
+        assert_eq!(
+            spaced.entries[0],
+            ExprKind::String("issue".to_string()).into()
+        );
+        assert!(matches!(spaced.entries[1].kind, ExprKind::ConditionSet(_)));
     }
 
     #[test]
@@ -120,7 +138,11 @@ mod tests {
         // A scoped comparison nests inside `[ ]`/`{ }` like any other boolean expression. The
         // top-level conditions are an implicit AND set whose sole entry here is the explicit `[ ]`.
         let conditions = parse_conditions("[issue{title:x} body:y]").unwrap();
-        let [Expr::ConditionSet(or_set)] = conditions.entries.as_slice() else {
+        let [Expr {
+            kind: ExprKind::ConditionSet(or_set),
+            ..
+        }] = conditions.entries.as_slice()
+        else {
             panic!(
                 "expected a single OR condition set, got {:?}",
                 conditions.entries
@@ -129,7 +151,16 @@ mod tests {
         assert_eq!(or_set.conjunction, Conjunction::Or);
         assert!(matches!(
             or_set.entries.as_slice(),
-            [Expr::ScopedConditionSet(_), Expr::Comparison(_)]
+            [
+                Expr {
+                    kind: ExprKind::ScopedConditionSet(_),
+                    ..
+                },
+                Expr {
+                    kind: ExprKind::Comparison(_),
+                    ..
+                }
+            ]
         ));
     }
 }

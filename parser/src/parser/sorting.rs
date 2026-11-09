@@ -164,7 +164,7 @@ mod tests {
     use super::*;
 
     fn col(name: &str) -> Expr {
-        Expr::Path(vec![PathPart::Column(name.to_string())])
+        ExprKind::Path(vec![PathPartKind::Column(name.to_string()).into()]).into()
     }
 
     #[test]

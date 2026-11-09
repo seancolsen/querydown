@@ -1,6 +1,7 @@
 //! Checks that the compiler fails gracefully on arbitrary invalid input: it must never panic (which,
 //! in the WebAssembly build, aborts the whole module), and every error it returns must be
-//! well-formed — in particular, a syntax error's location must lie within the input.
+//! well-formed — in particular, every syntax or compile error must have a location, and it must lie
+//! within the input.
 //!
 //! The inputs are mutations of the valid queries in the test corpus: prefixes of each query
 //! (simulating a user part-way through typing it, which is what an editor that compiles on every
@@ -38,20 +39,23 @@ fn check_error(input: &str, err: &Error) -> Option<String> {
     if err.message.trim().is_empty() {
         return Some("empty message".to_string());
     }
-    if err.kind == ErrorKind::Syntax {
+    if matches!(err.kind, ErrorKind::Syntax | ErrorKind::Compile) {
         let Some(span) = &err.span else {
-            return Some("syntax error without a span".to_string());
+            return Some(format!("{} without a span", err.kind));
         };
         if let Some(problem) = check_span(input, span) {
             return Some(problem);
         }
-        if err.found.is_none() && err.expected.is_empty() && err.labels.is_empty() {
-            // Every syntax error should explain itself beyond the bare message, unless the message
-            // came from a custom validation (which is specific enough on its own).
-            if err.message.starts_with("Unexpected") {
-                return Some("unexpected-token error without `found` or `expected`".to_string());
-            }
-        }
+    }
+    // Every syntax error should explain itself beyond the bare message, unless the message came
+    // from a custom validation (which is specific enough on its own).
+    if err.kind == ErrorKind::Syntax
+        && err.found.is_none()
+        && err.expected.is_empty()
+        && err.labels.is_empty()
+        && err.message.starts_with("Unexpected")
+    {
+        return Some("unexpected-token error without `found` or `expected`".to_string());
     }
     for label in &err.labels {
         if let Some(problem) = check_span(input, &label.span) {

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use querydown_parser::ast::{
-    ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, PathPart, WindowFn,
+    ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, Loc, PathPart, WindowFn,
 };
 
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
     },
     sql::expr::build,
     sql::tree::{Cte, CtePurpose, Join, SqlExpr},
-    Options,
+    Error, Options,
 };
 
 use super::{
@@ -198,9 +198,9 @@ pub struct Scope<'a, 'b> {
     /// references each value. A window function that matches one of these compiles to that
     /// reference instead. Not inherited by spawned scopes, which compile in other contexts.
     window_substitutions: Vec<(WindowFn, SqlExpr)>,
-    /// Whether this scope has compiled a window function (excluding substitutions). Used to reject
-    /// window functions in a grouped stage.
-    has_compiled_window: bool,
+    /// Where the first window function that this scope compiled (excluding substitutions) was
+    /// written, if it has compiled one. Used to reject window functions in a grouped stage.
+    compiled_window: Option<Loc>,
 }
 
 impl<'a, 'b> Scope<'a, 'b> {
@@ -231,7 +231,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             custom_comparisons: HashMap::new(),
             window_ban: None,
             window_substitutions: Vec::new(),
-            has_compiled_window: false,
+            compiled_window: None,
         }
     }
 
@@ -294,10 +294,12 @@ impl<'a, 'b> Scope<'a, 'b> {
     /// Records that `expansion` is being expanded, until the returned guard is dropped. Fails with a
     /// descriptive error if it is already being expanded, which would mean the definition refers to
     /// itself (directly or indirectly) and would otherwise expand forever.
-    pub fn enter_expansion(&self, expansion: Expansion) -> Result<ExpansionGuard, String> {
+    pub fn enter_expansion(&self, expansion: Expansion) -> Result<ExpansionGuard, Error> {
         let mut state = self.expansion_state.borrow_mut();
         if let Some(index) = state.stack.iter().position(|e| *e == expansion) {
-            return Err(expansion.cycle_message(&state.stack[index..]));
+            return Err(Error::compile(
+                expansion.cycle_message(&state.stack[index..]),
+            ));
         }
         state.stack.push(expansion);
         Ok(ExpansionGuard {
@@ -352,10 +354,13 @@ impl<'a, 'b> Scope<'a, 'b> {
     pub fn register_computed_columns(
         &mut self,
         computed_columns: Vec<ComputedColumn>,
-    ) -> Result<(), String> {
+    ) -> Result<(), Error> {
         for computed_column in computed_columns {
             let table = get_table_by_name(self.options, self.schema, &computed_column.table)
-                .ok_or_else(|| msg::computed_column_unknown_table(&computed_column.table))?;
+                .ok_or_else(|| {
+                    msg::computed_column_unknown_table(&computed_column.table)
+                        .at(computed_column.table_loc)
+                })?;
             self.computed_columns
                 .entry(table.name.clone())
                 .or_default()
@@ -382,10 +387,12 @@ impl<'a, 'b> Scope<'a, 'b> {
     pub fn register_custom_comparisons(
         &mut self,
         custom_comparisons: Vec<CustomComparisonDef>,
-    ) -> Result<(), String> {
+    ) -> Result<(), Error> {
         for def in custom_comparisons {
-            let table = get_table_by_name(self.options, self.schema, &def.table)
-                .ok_or_else(|| msg::custom_comparison_unknown_table(&def.table))?;
+            let table =
+                get_table_by_name(self.options, self.schema, &def.table).ok_or_else(|| {
+                    msg::custom_comparison_unknown_table(&def.table).at(def.table_loc)
+                })?;
             self.custom_comparisons
                 .entry(table.name.clone())
                 .or_default()
@@ -471,7 +478,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             custom_comparisons: HashMap::new(),
             window_ban: self.window_ban,
             window_substitutions: Vec::new(),
-            has_compiled_window: false,
+            compiled_window: None,
         }
     }
 
@@ -507,12 +514,14 @@ impl<'a, 'b> Scope<'a, 'b> {
             .map(|(_, reference)| reference.clone())
     }
 
-    pub fn note_compiled_window(&mut self) {
-        self.has_compiled_window = true;
+    /// Records that this scope has compiled a window function, written at `loc`.
+    pub fn note_compiled_window(&mut self, loc: Loc) {
+        self.compiled_window.get_or_insert(loc);
     }
 
-    pub fn has_compiled_window(&self) -> bool {
-        self.has_compiled_window
+    /// Where the first window function that this scope compiled was written, if it has compiled one.
+    pub fn compiled_window(&self) -> Option<Loc> {
+        self.compiled_window
     }
 
     /// Returns a copy of the table aliases currently reserved in this scope. Used to seed a spawned
@@ -613,7 +622,7 @@ impl<'a, 'b> Scope<'a, 'b> {
         chain: Chain<FilteredLink>,
         aggregate_expr_template_opt: Option<AggregateExprTemplate>,
         purpose: CtePurpose,
-    ) -> Result<SqlExpr, String> {
+    ) -> Result<SqlExpr, Error> {
         let starting_reference = chain.get_first_link().get_start();
         let starting_table_id = starting_reference.table_id;
         let starting_column_id = starting_reference.column_id;

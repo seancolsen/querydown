@@ -1,38 +1,109 @@
+use std::ops::Range;
+
 use chumsky::{
-    input::{Checkpoint, Cursor},
+    input::{Checkpoint, Cursor, MapExtra},
     inspector::Inspector,
     prelude::*,
     text::*,
 };
 
+use crate::ast::{Expr, ExprKind, Loc};
+use crate::error::{Position, Section, Span};
 use crate::highlight::{Token, TokenKind};
 use crate::tokens::*;
 
-/// The parser state: the highlighting marks recorded so far (see [`mark`]).
+/// The parser state: the highlighting marks recorded so far (see [`mark`]), plus what is needed to
+/// give syntax tree nodes their locations (see [`with_loc`]).
 ///
 /// Chumsky notifies this [`Inspector`] whenever the parser saves its position and whenever it
 /// rewinds to a saved position, i.e. backtracks. Rewinding truncates the marks to those recorded
 /// before the save, discarding the marks of the abandoned alternative. (This is Chumsky's
 /// `TruncateState`, which we can't use directly because it requires `Token: Default`.)
+///
+/// The default state, used when a parser is run without one (as in unit tests), records no
+/// locations: every node it produces has [`Loc::NONE`].
 #[derive(Debug, Default)]
-pub struct Marks(pub Vec<Token>);
+pub struct State<'src> {
+    pub marks: Vec<Token>,
+    lines: Option<LineIndex<'src>>,
+    section: Option<Section>,
+}
 
-impl<'src, I: Input<'src>> Inspector<'src, I> for Marks {
+impl<'src> State<'src> {
+    /// The state for parsing `source`, the text of the given `section` of a query (or of a whole
+    /// query, for `None`).
+    pub fn new(source: &'src str, section: Option<Section>) -> Self {
+        State {
+            marks: Vec::new(),
+            lines: Some(LineIndex::new(source)),
+            section,
+        }
+    }
+
+    /// The location of the given byte `range` of the source.
+    fn loc(&self, range: Range<usize>) -> Loc {
+        match &self.lines {
+            Some(lines) => Loc::new(
+                Span {
+                    start: lines.position(range.start),
+                    end: lines.position(range.end),
+                },
+                self.section,
+            ),
+            None => Loc::NONE,
+        }
+    }
+}
+
+impl<'src, I: Input<'src>> Inspector<'src, I> for State<'src> {
     type Checkpoint = usize;
 
     fn on_token(&mut self, _: &I::Token) {}
 
     fn on_save<'parse>(&self, _: &Cursor<'src, 'parse, I>) -> usize {
-        self.0.len()
+        self.marks.len()
     }
 
     fn on_rewind<'parse>(&mut self, checkpoint: &Checkpoint<'src, 'parse, I, usize>) {
-        self.0.truncate(*checkpoint.inspector());
+        self.marks.truncate(*checkpoint.inspector());
     }
 }
 
-/// The "extra" type parameter shared by all of our parsers: rich errors, plus the [`Marks`] state.
-pub type Extra<'src> = extra::Full<Rich<'src, char>, Marks, ()>;
+/// The source being parsed, indexed by the byte offset at which each line starts, so that the line
+/// and column of a node can be found without scanning the source from its beginning.
+#[derive(Debug)]
+struct LineIndex<'src> {
+    source: &'src str,
+    line_starts: Vec<usize>,
+}
+
+impl<'src> LineIndex<'src> {
+    fn new(source: &'src str) -> Self {
+        let line_starts = std::iter::once(0)
+            .chain(source.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+        LineIndex {
+            source,
+            line_starts,
+        }
+    }
+
+    /// Equivalent to [`Position::from_offset`] (for an offset at a char boundary, which every offset
+    /// the parser reports is).
+    fn position(&self, offset: usize) -> Position {
+        let offset = offset.min(self.source.len());
+        let line = self.line_starts.partition_point(|&start| start <= offset);
+        let line_start = self.line_starts[line - 1];
+        Position {
+            offset,
+            line,
+            column: self.source[line_start..offset].chars().count() + 1,
+        }
+    }
+}
+
+/// The "extra" type parameter shared by all of our parsers: rich errors, plus the [`State`].
+pub type Extra<'src> = extra::Full<Rich<'src, char>, State<'src>, ()>;
 
 /// `Psr` is an abbreviation for "Parser". This is abbreviated because it is used in many places,
 /// and we don't want it to conflict with Chumsky's `Parser` trait.
@@ -63,12 +134,47 @@ impl<'src, S, T> Psr<'src, T> for S where S: Parser<'src, &'src str, T, Extra<'s
 pub fn mark<'src, T>(kind: TokenKind, parser: impl Psr<'src, T>) -> impl Psr<'src, T> {
     parser.try_map_with(move |output, extra| {
         let span: SimpleSpan = extra.span();
-        extra.state().0.push(Token {
+        extra.state().marks.push(Token {
             kind,
             span: span.into_range(),
         });
         Ok(output)
     })
+}
+
+/// The location of the text matched by the parser whose `extra` this is.
+pub fn loc<'src>(extra: &mut MapExtra<'src, '_, &'src str, Extra<'src>>) -> Loc {
+    let span: SimpleSpan = extra.span();
+    extra.state().loc(span.into_range())
+}
+
+// The helpers below map with `fn` items rather than closures. A closure's type is named after the
+// generic parameters of the function that defines it, so a closure here would spell out the whole
+// type of the (often enormous) parser being wrapped, a second time, in the name of every combinator
+// that wraps it — tripling the size of the crate's debug info.
+
+/// Pairs `parser`'s output with the location of the text it matched.
+pub fn with_loc<'src, T>(parser: impl Psr<'src, T>) -> impl Psr<'src, (T, Loc)> {
+    parser.map_with(pair_with_loc)
+}
+
+fn pair_with_loc<'src, T>(
+    output: T,
+    extra: &mut MapExtra<'src, '_, &'src str, Extra<'src>>,
+) -> (T, Loc) {
+    (output, loc(extra))
+}
+
+/// Makes an [`Expr`] of the kind `parser` yields, located at the text it matched.
+pub fn located<'src>(parser: impl Psr<'src, ExprKind>) -> impl Psr<'src, Expr> {
+    parser.map_with(locate_expr)
+}
+
+fn locate_expr<'src>(
+    kind: ExprKind,
+    extra: &mut MapExtra<'src, '_, &'src str, Extra<'src>>,
+) -> Expr {
+    Expr::new(kind, loc(extra))
 }
 
 pub fn exactly<'src>(s: &str) -> impl Psr<'src, String> {

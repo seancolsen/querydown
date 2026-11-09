@@ -17,7 +17,7 @@ pub use compiler::{completion, CompileResult, Compiler};
 // `error` module documentation for an overview of how errors are reported.
 pub use options::{IdentifierResolution, Options};
 pub use querydown_parser::error;
-pub use querydown_parser::error::{Error, ErrorKind, Label, Position, Span};
+pub use querydown_parser::error::{Error, ErrorKind, Label, Position, Section, Span};
 pub use sql::{Dialect, DuckDB, Postgres};
 
 // Re-exported from the parser crate so that consumers of the `querydown` crate can parse Querydown

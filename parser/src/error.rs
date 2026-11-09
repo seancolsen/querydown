@@ -3,8 +3,9 @@
 //! All fallible public entry points — parsing (here) and compilation (in the `querydown` crate,
 //! which re-exports this module's types) — report failures as an [`Error`]. An error always carries
 //! a [`kind`](Error::kind) and a human-readable [`message`](Error::message). Errors caused by a
-//! specific piece of the input — currently every [`ErrorKind::Syntax`] error — also carry a
-//! [`span`](Error::span) locating that piece, and may carry further detail: secondary
+//! specific piece of the input — every [`ErrorKind::Syntax`] and [`ErrorKind::Compile`] error —
+//! also carry a [`span`](Error::span) locating that piece (and, for a query parsed in sections, the
+//! [`section`](Error::section) it is in). They may carry further detail: secondary
 //! [`labels`](Error::labels), the [`expected`](Error::expected) and [`found`](Error::found)
 //! input, and a [`hint`](Error::hint) on how to fix the problem.
 //!
@@ -16,6 +17,8 @@ use std::fmt;
 use std::ops::Range;
 
 use serde::Serialize;
+
+use crate::ast::Loc;
 
 /// The broad category of an [`Error`].
 ///
@@ -36,8 +39,10 @@ pub enum ErrorKind {
     /// refers to a table, column, or function that doesn't exist, or uses a feature in an
     /// unsupported way.
     ///
-    /// Compile errors do not yet carry a span, because the parsed syntax tree does not currently
-    /// record source locations.
+    /// Compile errors have a [`span`](Error::span) locating the construct at fault (e.g. the
+    /// column reference naming a column that doesn't exist) whenever that construct was written in
+    /// the source. Code that a consumer assembles itself rather than parsing — such as the base
+    /// table passed to `Query::from_parts` — has no location, so errors about it have no span.
     Compile,
 }
 
@@ -116,6 +121,21 @@ impl Span {
     }
 }
 
+/// One section of a query that is parsed in sections, by
+/// [`parse_definitions`](crate::parse_definitions), [`parse_conditions`](crate::parse_conditions),
+/// [`parse_sorting`](crate::parse_sorting), or [`parse_display`](crate::parse_display).
+///
+/// Each section is parsed from its own text, so a location within one is only meaningful together
+/// with the section it refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Section {
+    Definitions,
+    Conditions,
+    Sorting,
+    Display,
+}
+
 /// A secondary location related to an [`Error`], with a note explaining its relevance — for
 /// example, pointing out where an unclosed bracket was opened.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -141,8 +161,11 @@ pub struct Error {
     /// present for [`ErrorKind::Syntax`] errors.
     ///
     /// When the source was parsed in sections (e.g. via `parse_conditions`), the span is relative to
-    /// the section's own text.
+    /// the text of the [`section`](Self::section) it is in.
     pub span: Option<Span>,
+    /// When the source was parsed in sections, the section that [`span`](Self::span) (and every
+    /// label's span) refers to. `None` for a whole query, and for an error with no span.
+    pub section: Option<Section>,
     /// Secondary locations relevant to the problem, each with an explanatory note.
     pub labels: Vec<Label>,
     /// For syntax errors: human-readable descriptions of what the parser would have accepted at
@@ -162,6 +185,7 @@ impl Error {
             kind,
             message: message.into(),
             span: None,
+            section: None,
             labels: Vec::new(),
             expected: Vec::new(),
             found: None,
@@ -182,6 +206,30 @@ impl Error {
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
         self
+    }
+
+    pub fn with_section(mut self, section: Option<Section>) -> Self {
+        self.section = section;
+        self
+    }
+
+    /// Locates the error at `loc`, the location of the syntax tree node at fault, replacing any
+    /// location it already had. (Locating it at [`Loc::NONE`] leaves it as it was.)
+    pub fn at(mut self, loc: Loc) -> Self {
+        if let Some(span) = loc.span() {
+            self.span = Some(span);
+            self.section = loc.section();
+        }
+        self
+    }
+
+    /// Locates the error at `loc` unless it already has a location. Used to fall back to the
+    /// location of an enclosing node when no more specific location is known.
+    pub fn or_at(self, loc: Loc) -> Self {
+        match self.span {
+            Some(_) => self,
+            None => self.at(loc),
+        }
     }
 
     pub fn with_label(mut self, span: Span, message: impl Into<String>) -> Self {

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use querydown_parser::ast::{ConditionSet, PathPart, TableWithMany};
+use querydown_parser::ast::{ConditionSet, PathPart, PathPartKind, TableWithMany};
 
 use crate::{
     compiler::scope::Scope,
@@ -10,6 +10,7 @@ use crate::{
         links::{FilteredLink, Link, LinkToOne, MultiLink, Reference},
         Table, TableId,
     },
+    Error,
 };
 
 #[derive(Debug)]
@@ -34,7 +35,7 @@ pub enum ClarifiedPathTail {
     ChainToMany((Chain<FilteredLink>, Option<String>, TableId)),
 }
 
-pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath, String> {
+pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath, Error> {
     let linked_path = build_linked_path(parts, scope)?;
     let chain_opt = linked_path.chain;
     let column_name_opt = linked_path.column;
@@ -124,15 +125,16 @@ struct LinkedPath {
     pub first_to_many_end_table_id: Option<TableId>,
 }
 
-fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, String> {
+/// Resolves `parts` against the schema. An error about one of the parts is located at it.
+fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, Error> {
     let mut current_table_opt: Option<&Table> = Some(scope.get_base_table());
     let mut chain_opt: Option<Chain<FilteredLink>> = None;
     let mut final_column_name: Option<String> = None;
     let mut first_to_many_end_table_id: Option<TableId> = None;
-    for part in parts {
-        let current_table = current_table_opt.ok_or_else(msg::no_current_table)?;
-        match part {
-            PathPart::Column(column_name) => {
+    for PathPart { kind, loc } in parts {
+        let current_table = current_table_opt.ok_or_else(|| msg::no_current_table().at(loc))?;
+        match kind {
+            PathPartKind::Column(column_name) => {
                 let column_id_opt = scope
                     .options
                     .resolve_identifier(&current_table.column_lookup, &column_name)
@@ -145,7 +147,9 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                         .get_computed_column(&current_table.name, &column_name)
                         .is_none()
                     {
-                        return Err(msg::col_not_in_table(&column_name, &current_table.name));
+                        return Err(
+                            msg::col_not_in_table(&column_name, &current_table.name).at(loc)
+                        );
                     }
                     current_table_opt = None;
                     final_column_name = Some(column_name);
@@ -159,10 +163,13 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                     };
                     chain_opt = match chain_opt {
                         Some(mut chain) => {
-                            chain.try_append(link)?;
+                            chain.try_append(link).map_err(Error::compile)?;
                             Some(chain)
                         }
-                        None => Some(Chain::try_new(link, ChainIntersecting::Allowed)?),
+                        None => Some(
+                            Chain::try_new(link, ChainIntersecting::Allowed)
+                                .map_err(Error::compile)?,
+                        ),
                     };
                 } else {
                     let column = current_table.columns.get(&column_id).unwrap();
@@ -170,13 +177,14 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                     final_column_name = Some(column.name.clone());
                 }
             }
-            PathPart::TableWithOne(table_name) => {
-                return Err(msg::table_with_one_path_unsupported(&table_name));
+            PathPartKind::TableWithOne(table_name) => {
+                return Err(msg::table_with_one_path_unsupported(&table_name).at(loc));
             }
-            PathPart::TableWithMany(mut table_with_many) => {
+            PathPartKind::TableWithMany(mut table_with_many) => {
                 let condition_set = std::mem::take(&mut table_with_many.condition_set);
                 let mut new_chain =
-                    get_chain_to_table_with_many(current_table, &table_with_many, scope)?;
+                    get_chain_to_table_with_many(current_table, &table_with_many, scope)
+                        .map_err(|err| err.at(loc))?;
                 new_chain.set_final_condition_set(condition_set);
                 new_chain.allow_intersecting();
                 if first_to_many_end_table_id.is_none() {
@@ -185,7 +193,7 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                 current_table_opt = scope.schema.tables.get(&new_chain.get_ending_table_id());
                 chain_opt = match chain_opt {
                     Some(mut chain) => {
-                        chain.try_connect(new_chain)?;
+                        chain.try_connect(new_chain).map_err(Error::compile)?;
                         Some(chain)
                     }
                     None => Some(new_chain),
@@ -214,7 +222,7 @@ fn get_chain_to_table_with_many(
     start: &Table,
     target: &TableWithMany,
     scope: &Scope,
-) -> Result<Chain<FilteredLink>, String> {
+) -> Result<Chain<FilteredLink>, Error> {
     let schema = scope.schema;
     let target_table = scope
         .get_table_by_name(&target.table)
@@ -302,7 +310,7 @@ fn ambiguous_route_error(
     start: &Table,
     target: &TableWithMany,
     scope: &Scope,
-) -> String {
+) -> Error {
     let route_up_to_final_link = |route: &Chain<MultiLink>| -> Vec<(Reference, Reference)> {
         let links = route.get_links();
         links[..links.len() - 1]

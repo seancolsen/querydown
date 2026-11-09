@@ -1,7 +1,7 @@
 //! The lexical side of completion: the word being typed, what introduces it, and whether the cursor
 //! is somewhere completion doesn't apply.
 
-use querydown_parser::ast::{PathPart, TableWithMany};
+use querydown_parser::ast::{PathPart, PathPartKind, TableWithMany};
 use querydown_parser::highlight::{Token, TokenKind};
 
 use super::annotation::{self, AnnotationPosition};
@@ -222,18 +222,18 @@ pub(super) fn path_before(source: &str, word_start: usize, tokens: &[Token]) -> 
         }
         let part_start = part.span.start;
         let text = &source[part.span.clone()];
-        let part = match text.strip_prefix('#') {
-            Some(table) => PathPart::TableWithMany(TableWithMany {
+        let kind = match text.strip_prefix('#') {
+            Some(table) => PathPartKind::TableWithMany(TableWithMany {
                 table: unquote(table),
                 condition_set: Default::default(),
                 linking_column: None,
             }),
             None if text.starts_with(|c: char| is_word_char(c) || c == '`') => {
-                PathPart::Column(unquote(text))
+                PathPartKind::Column(unquote(text))
             }
             None => break,
         };
-        parts.push(part);
+        parts.push(PathPart::from(kind));
         end = part_start;
     }
     parts.reverse();

@@ -9,6 +9,7 @@ use crate::{
         tree::{CtePurpose, SqlExpr},
         RegExFlags,
     },
+    Error,
 };
 
 use super::{
@@ -19,13 +20,17 @@ use super::{
     typing::infer_type,
 };
 
-pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, String> {
+pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, Error> {
     use ComparisonSide::{Expansion as CmpExpansion, Expr as CmpExpr, Range as CmpRange};
 
     // A custom comparison is invoked when the left-hand side is a path naming a registered custom
     // comparison. When one matches, its body is expanded in place of the whole comparison.
     if scope.has_custom_comparisons() {
-        if let ComparisonSide::Expr(Expr::Path(parts)) = &c.left {
+        if let ComparisonSide::Expr(Expr {
+            kind: ExprKind::Path(parts),
+            ..
+        }) = &c.left
+        {
             let prefixed = scope.prefixed(parts);
             if let Some((head_parts, def)) = resolve_custom_comparison(&prefixed, scope)? {
                 return convert_custom_comparison(def, head_parts, c.operator, c.right, scope);
@@ -109,7 +114,7 @@ fn convert_simple_comparison(
     operator: Operator,
     right: &Expr,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     use Operator::*;
 
     // The match operator (`:`) and the case-insensitive equality operator (`:=`, `EqCi`) both behave
@@ -142,7 +147,7 @@ fn convert_simple_comparison(
     // intuitively whether the date lies in the past or the future. The reversed order (duration on
     // the left, date on the right) is deliberately left alone, producing the usual database type
     // error just as a direct date-vs-duration comparison does today.
-    if is_date_like(left, scope) && matches!(right, Expr::Duration(_)) {
+    if is_date_like(left, scope) && matches!(right.kind, ExprKind::Duration(_)) {
         if let Some(build_cmp) = numeric_comparison(operator) {
             let date_zone = TemporalZone::of(&infer_type(left, scope));
             let date = convert_expr(left.to_owned(), scope)?;
@@ -209,7 +214,7 @@ fn convert_simple_comparison(
         // use strict equality instead, making `description:""` find rows with an empty description
         // (mirroring `description:=""`).
         Match => {
-            let right_is_empty_string = matches!(right, Expr::String(s) if s.is_empty());
+            let right_is_empty_string = matches!(&right.kind, ExprKind::String(s) if s.is_empty());
             if !right_is_empty_string && infer_type(left, scope) == ValueType::Text {
                 Ok(scope
                     .options
@@ -249,7 +254,7 @@ fn convert_range_comparison(
     expr: &Expr,
     range: &Range,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let lower_op = match range.lower.exclusivity {
         Exclusivity::Inclusive => Operator::Gte,
         Exclusivity::Exclusive => Operator::Gt,
@@ -293,7 +298,7 @@ fn convert_expression_vs_zero(
     expr: &Expr,
     cmp: ComparisonVsZero,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let fallback = |scope: &mut Scope| {
         let op = match cmp {
             ComparisonVsZero::Eq => cmp::eq,
@@ -301,7 +306,7 @@ fn convert_expression_vs_zero(
         };
         Ok(op(convert_expr(expr.to_owned(), scope)?, value::zero()))
     };
-    let Expr::Path(path_parts) = &expr else {
+    let ExprKind::Path(path_parts) = &expr.kind else {
         return fallback(scope);
     };
     // Resolve the path from the scope's current table, as `convert_path` does, so that an existence
@@ -330,9 +335,16 @@ fn convert_expression_vs_zero(
 fn resolve_custom_comparison(
     parts: &[PathPart],
     scope: &Scope,
-) -> Result<Option<(Vec<PathPart>, CustomComparisonDef)>, String> {
+) -> Result<Option<(Vec<PathPart>, CustomComparisonDef)>, Error> {
     // Only a trailing plain column can name a custom comparison.
-    let Some((PathPart::Column(name), head_parts)) = parts.split_last() else {
+    let Some((
+        PathPart {
+            kind: PathPartKind::Column(name),
+            ..
+        },
+        head_parts,
+    )) = parts.split_last()
+    else {
         return Ok(None);
     };
     // Determine the table hosting the comparison. Only the base table (empty head) or a single
@@ -371,7 +383,7 @@ fn resolve_custom_comparison(
 fn resolve_linked_record_comparison(
     parts: &[PathPart],
     scope: &Scope,
-) -> Result<Option<(Vec<PathPart>, CustomComparisonDef)>, String> {
+) -> Result<Option<(Vec<PathPart>, CustomComparisonDef)>, Error> {
     // Only a path that resolves to a single linked record qualifies. A path ending in a column (or a
     // to-many chain, or an empty path) is handled by the ordinary comparison logic. A path that
     // fails to clarify is likewise left to the ordinary logic to surface the error.
@@ -399,7 +411,7 @@ fn convert_custom_comparison(
     call_operator: Operator,
     right: ComparisonSide,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let _guard = scope.enter_expansion(Expansion::CustomComparison {
         table: def.table.clone(),
         name: def.name.clone(),
@@ -437,7 +449,7 @@ fn convert_custom_comparison_body(
     body: Expr,
     head_parts: &[PathPart],
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let bindings = vec![(param.to_string(), value)];
     scope.with_variable_bindings(bindings, |scope| {
         convert_expr_with_path_prefix(body, head_parts.to_vec(), scope)
@@ -448,7 +460,7 @@ fn convert_custom_comparison_body(
 /// if the comparison is being called with a different operator than it was defined with. Operator
 /// switching is only permitted when the definition uses `:` and every comparison in the body also
 /// uses `:`.
-fn switched_body(def: &CustomComparisonDef, call_operator: Operator) -> Result<Expr, String> {
+fn switched_body(def: &CustomComparisonDef, call_operator: Operator) -> Result<Expr, Error> {
     if call_operator == def.operator {
         return Ok(def.body.clone());
     }
@@ -462,47 +474,48 @@ fn switched_body(def: &CustomComparisonDef, call_operator: Operator) -> Result<E
 
 /// Whether every comparison anywhere within `expr` uses the match (`:`) operator.
 fn expr_all_match(expr: &Expr) -> bool {
-    match expr {
-        Expr::Comparison(c) => {
+    match &expr.kind {
+        ExprKind::Comparison(c) => {
             matches!(c.operator, Operator::Match)
                 && side_all_match(&c.left)
                 && side_all_match(&c.right)
         }
-        Expr::Not(e) => expr_all_match(e),
-        Expr::Product(a, b) | Expr::Quotient(a, b) | Expr::Sum(a, b) | Expr::Difference(a, b) => {
-            expr_all_match(a) && expr_all_match(b)
-        }
-        Expr::ConditionSet(cs) => cs.entries.iter().all(expr_all_match),
-        Expr::ScopedConditionSet(s) => {
+        ExprKind::Not(e) => expr_all_match(e),
+        ExprKind::Product(a, b)
+        | ExprKind::Quotient(a, b)
+        | ExprKind::Sum(a, b)
+        | ExprKind::Difference(a, b) => expr_all_match(a) && expr_all_match(b),
+        ExprKind::ConditionSet(cs) => cs.entries.iter().all(expr_all_match),
+        ExprKind::ScopedConditionSet(s) => {
             s.path.iter().all(pathpart_all_match)
                 && s.condition_set.entries.iter().all(expr_all_match)
         }
-        Expr::HasQuantity(h) => h.path_parts.iter().all(pathpart_all_match),
-        Expr::Case(c) => {
+        ExprKind::HasQuantity(h) => h.path_parts.iter().all(pathpart_all_match),
+        ExprKind::Case(c) => {
             c.variants
                 .iter()
                 .all(|v| expr_all_match(&v.condition) && expr_all_match(&v.value))
                 && expr_all_match(&c.fallback)
         }
-        Expr::Call(c) => c.args.iter().all(expr_all_match),
-        Expr::Path(parts) => parts.iter().all(pathpart_all_match),
-        Expr::Window(w) => {
+        ExprKind::Call(c) => c.args.iter().all(expr_all_match),
+        ExprKind::Path(parts) => parts.iter().all(pathpart_all_match),
+        ExprKind::Window(w) => {
             w.args.iter().all(expr_all_match)
                 && w.partition_by.iter().all(expr_all_match)
                 && w.order_by.iter().all(|s| expr_all_match(&s.expr))
         }
-        Expr::AnonymousFunctionCall(c) => {
+        ExprKind::AnonymousFunctionCall(c) => {
             c.args.iter().all(expr_all_match)
                 && c.body.assignments.iter().all(|a| expr_all_match(&a.expr))
                 && expr_all_match(&c.body.expr)
         }
         // A scalar subquery is self-contained; it does not participate in operator switching.
-        Expr::Subquery(_) => true,
-        Expr::Number(_)
-        | Expr::Date(_)
-        | Expr::Duration(_)
-        | Expr::String(_)
-        | Expr::Variable(_) => true,
+        ExprKind::Subquery(_) => true,
+        ExprKind::Number(_)
+        | ExprKind::Date(_)
+        | ExprKind::Duration(_)
+        | ExprKind::String(_)
+        | ExprKind::Variable(_) => true,
     }
 }
 
@@ -515,33 +528,36 @@ fn side_all_match(side: &ComparisonSide) -> bool {
 }
 
 fn pathpart_all_match(part: &PathPart) -> bool {
-    match part {
-        PathPart::TableWithMany(t) => t.condition_set.entries.iter().all(expr_all_match),
-        PathPart::Column(_) | PathPart::TableWithOne(_) => true,
+    match &part.kind {
+        PathPartKind::TableWithMany(t) => t.condition_set.entries.iter().all(expr_all_match),
+        PathPartKind::Column(_) | PathPartKind::TableWithOne(_) => true,
     }
 }
 
 /// Rewrites every match (`:`) operator within `expr` to `new_operator`, recursing through the same
 /// structure that [`expr_all_match`] inspects.
 fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
-    match expr {
-        Expr::Comparison(c) => {
+    match &mut expr.kind {
+        ExprKind::Comparison(c) => {
             if matches!(c.operator, Operator::Match) {
                 c.operator = new_operator;
             }
             rewrite_side(&mut c.left, new_operator);
             rewrite_side(&mut c.right, new_operator);
         }
-        Expr::Not(e) => rewrite_match_operator(e, new_operator),
-        Expr::Product(a, b) | Expr::Quotient(a, b) | Expr::Sum(a, b) | Expr::Difference(a, b) => {
+        ExprKind::Not(e) => rewrite_match_operator(e, new_operator),
+        ExprKind::Product(a, b)
+        | ExprKind::Quotient(a, b)
+        | ExprKind::Sum(a, b)
+        | ExprKind::Difference(a, b) => {
             rewrite_match_operator(a, new_operator);
             rewrite_match_operator(b, new_operator);
         }
-        Expr::ConditionSet(cs) => cs
+        ExprKind::ConditionSet(cs) => cs
             .entries
             .iter_mut()
             .for_each(|e| rewrite_match_operator(e, new_operator)),
-        Expr::ScopedConditionSet(s) => {
+        ExprKind::ScopedConditionSet(s) => {
             s.path
                 .iter_mut()
                 .for_each(|p| rewrite_pathpart(p, new_operator));
@@ -550,25 +566,25 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
                 .iter_mut()
                 .for_each(|e| rewrite_match_operator(e, new_operator));
         }
-        Expr::HasQuantity(h) => h
+        ExprKind::HasQuantity(h) => h
             .path_parts
             .iter_mut()
             .for_each(|p| rewrite_pathpart(p, new_operator)),
-        Expr::Case(c) => {
+        ExprKind::Case(c) => {
             for v in c.variants.iter_mut() {
                 rewrite_match_operator(&mut v.condition, new_operator);
                 rewrite_match_operator(&mut v.value, new_operator);
             }
             rewrite_match_operator(&mut c.fallback, new_operator);
         }
-        Expr::Call(c) => c
+        ExprKind::Call(c) => c
             .args
             .iter_mut()
             .for_each(|e| rewrite_match_operator(e, new_operator)),
-        Expr::Path(parts) => parts
+        ExprKind::Path(parts) => parts
             .iter_mut()
             .for_each(|p| rewrite_pathpart(p, new_operator)),
-        Expr::Window(w) => {
+        ExprKind::Window(w) => {
             w.args
                 .iter_mut()
                 .for_each(|e| rewrite_match_operator(e, new_operator));
@@ -579,7 +595,7 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
                 .iter_mut()
                 .for_each(|s| rewrite_match_operator(&mut s.expr, new_operator));
         }
-        Expr::AnonymousFunctionCall(c) => {
+        ExprKind::AnonymousFunctionCall(c) => {
             c.args
                 .iter_mut()
                 .for_each(|e| rewrite_match_operator(e, new_operator));
@@ -590,12 +606,12 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
             rewrite_match_operator(&mut c.body.expr, new_operator);
         }
         // A scalar subquery is self-contained; its inner operators are not rewritten.
-        Expr::Subquery(_) => {}
-        Expr::Number(_)
-        | Expr::Date(_)
-        | Expr::Duration(_)
-        | Expr::String(_)
-        | Expr::Variable(_) => {}
+        ExprKind::Subquery(_) => {}
+        ExprKind::Number(_)
+        | ExprKind::Date(_)
+        | ExprKind::Duration(_)
+        | ExprKind::String(_)
+        | ExprKind::Variable(_) => {}
     }
 }
 
@@ -614,7 +630,7 @@ fn rewrite_side(side: &mut ComparisonSide, new_operator: Operator) {
 }
 
 fn rewrite_pathpart(part: &mut PathPart, new_operator: Operator) {
-    if let PathPart::TableWithMany(t) = part {
+    if let PathPartKind::TableWithMany(t) = &mut part.kind {
         t.condition_set
             .entries
             .iter_mut()

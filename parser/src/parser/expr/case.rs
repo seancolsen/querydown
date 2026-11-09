@@ -61,33 +61,35 @@ mod tests {
     }
 
     fn col(name: &str) -> Expr {
-        Expr::Path(vec![PathPart::Column(name.to_string())])
+        ExprKind::Path(vec![PathPartKind::Column(name.to_string()).into()]).into()
     }
 
     fn str_(s: &str) -> Expr {
-        Expr::String(s.to_string())
+        ExprKind::String(s.to_string()).into()
     }
 
     // Builds the comparison produced by a `:=` operand (case-insensitive equality).
     fn match_eq(left: &str, right: Expr) -> Expr {
-        Expr::Comparison(Box::new(Comparison {
+        ExprKind::Comparison(Box::new(Comparison {
             left: ComparisonSide::Expr(col(left)),
             operator: Operator::EqCi,
             right: ComparisonSide::Expr(right),
         }))
+        .into()
     }
 
     #[test]
     fn test_single_variant() {
         assert_eq!(
             parse(r#"? is_active ~ "yes" ~~ "no""#),
-            Ok(Expr::Case(Case {
+            Ok(ExprKind::Case(Case {
                 variants: vec![CaseVariant {
                     condition: col("is_active"),
                     value: str_("yes"),
                 }],
                 fallback: Box::new(str_("no")),
-            }))
+            })
+            .into())
         );
     }
 
@@ -97,7 +99,7 @@ mod tests {
         let input = "?\n  status:=\"open\"   ~ \"Open\"\n  status:=\"closed\" ~ \"Closed\"\n  ~~                 \"Other\"";
         assert_eq!(
             parse(input),
-            Ok(Expr::Case(Case {
+            Ok(ExprKind::Case(Case {
                 variants: vec![
                     CaseVariant {
                         condition: match_eq("status", str_("open")),
@@ -109,7 +111,8 @@ mod tests {
                     },
                 ],
                 fallback: Box::new(str_("Other")),
-            }))
+            })
+            .into())
         );
     }
 
@@ -117,13 +120,14 @@ mod tests {
     fn test_numeric_values() {
         assert_eq!(
             parse("? is_active ~ 1 ~~ 0"),
-            Ok(Expr::Case(Case {
+            Ok(ExprKind::Case(Case {
                 variants: vec![CaseVariant {
                     condition: col("is_active"),
-                    value: Expr::Number("1".to_string()),
+                    value: ExprKind::Number("1".to_string()).into(),
                 }],
-                fallback: Box::new(Expr::Number("0".to_string())),
-            }))
+                fallback: Box::new(ExprKind::Number("0".to_string()).into()),
+            })
+            .into())
         );
     }
 
@@ -143,13 +147,14 @@ mod tests {
         // A case expression can be nested inside other expressions when parenthesized.
         assert_eq!(
             parse(r#"(? is_active ~ "yes" ~~ "no")"#),
-            Ok(Expr::Case(Case {
+            Ok(ExprKind::Case(Case {
                 variants: vec![CaseVariant {
                     condition: col("is_active"),
                     value: str_("yes"),
                 }],
                 fallback: Box::new(str_("no")),
-            }))
+            })
+            .into())
         );
     }
 }

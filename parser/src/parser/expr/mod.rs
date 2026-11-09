@@ -89,28 +89,28 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
     // far enough to OOM the build. Boxing is semantically transparent and also speeds up compiles.
     recursive(|id| {
         // --- Identifier-mode chain: a bare word is a column reference. ---
-        let id_atom = choice((
+        let id_atom = located(choice((
             // `duration` is tried before `number` because both begin with a digit. A duration
             // requires a trailing unit (e.g. `6m`), so a unit-less number like `6` falls through.
-            duration().map(Expr::Duration),
-            number().map(Expr::Number),
-            date().map(Expr::Date),
-            string().map(Expr::String),
+            duration().map(ExprKind::Duration),
+            number().map(ExprKind::Number),
+            date().map(ExprKind::Date),
+            string().map(ExprKind::String),
             // `function_call` is tried before `variable` because both begin with `@`; the `@@`
             // prefix of a call would otherwise be misread as the start of a `@`-prefixed variable.
             function_call(id.clone()),
-            variable().map(Expr::Variable),
+            variable().map(ExprKind::Variable),
             window(id.clone()),
             // `scoped_comparison` is tried before `path` because both begin with a path; they
             // diverge only at the condition set that must immediately follow a scoped comparison's
             // head. When no such condition set follows, this falls through to a plain `path`.
             scoped_comparison(id.clone()),
-            path(id.clone()).map(Expr::Path),
-            has_quantity(id.clone()).map(Expr::HasQuantity),
-            case(id.clone()).map(Expr::Case),
-            condition_set(id.clone()).map(Expr::ConditionSet),
+            path(id.clone()).map(ExprKind::Path),
+            has_quantity(id.clone()).map(ExprKind::HasQuantity),
+            case(id.clone()).map(ExprKind::Case),
+            condition_set(id.clone()).map(ExprKind::ConditionSet),
             parenthetical(id.clone()),
-        ))
+        )))
         .labelled(labels::VALUE)
         .boxed();
         let id_pipe = pipe(id_atom.clone(), id.clone()).boxed();
@@ -129,20 +129,20 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             // reference), and every sub-parser recurses back into this same string-mode chain so
             // the behavior holds at any depth. `case` and `window` are omitted because neither is
             // meaningful as a comparison value.
-            let str_atom = choice((
+            let str_atom = located(choice((
                 // See the ordering note on `id_atom` above: `duration` before `number`.
-                duration().map(Expr::Duration),
-                number().map(Expr::Number),
-                date().map(Expr::Date),
-                string().map(Expr::String),
+                duration().map(ExprKind::Duration),
+                number().map(ExprKind::Number),
+                date().map(ExprKind::Date),
+                string().map(ExprKind::String),
                 // See the ordering note on `id_atom` above: `function_call` before `variable`.
                 function_call(string_mode.clone()),
-                variable().map(Expr::Variable),
+                variable().map(ExprKind::Variable),
                 comparison_rhs_value(string_mode.clone()),
-                has_quantity(string_mode.clone()).map(Expr::HasQuantity),
-                condition_set(string_mode.clone()).map(Expr::ConditionSet),
+                has_quantity(string_mode.clone()).map(ExprKind::HasQuantity),
+                condition_set(string_mode.clone()).map(ExprKind::ConditionSet),
                 parenthetical(string_mode.clone()),
-            ))
+            )))
             .labelled(labels::VALUE)
             .boxed();
             let str_pipe = pipe(str_atom.clone(), string_mode.clone()).boxed();
@@ -153,11 +153,13 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             // The shared comparison rule, drawing its left side from the identifier-mode chain
             // and its right side from the string-mode chain. This is the point at which the two
             // chains meet.
-            let comparison_expr = comparison(
-                left_comparison_side(id.clone(), id_atom.clone(), id_addition.clone()),
-                right_comparison_side(string_mode.clone(), str_atom, str_addition.clone()),
+            let comparison_expr = located(
+                comparison(
+                    left_comparison_side(id.clone(), id_atom.clone(), id_addition.clone()),
+                    right_comparison_side(string_mode.clone(), str_atom, str_addition.clone()),
+                )
+                .map(|c| ExprKind::Comparison(Box::new(c))),
             )
-            .map(|c| Expr::Comparison(Box::new(c)))
             .boxed();
             or_string_shorthand(negation(comparison_expr.or(str_addition)).boxed()).boxed()
         });
@@ -166,32 +168,38 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
         let (str_atom, str_addition) = str_parts.expect("string-mode parts were built");
         // The same comparison rule, for identifier mode. It is given the (strong) `string_mode`
         // handle, which is what keeps the string-mode parser alive.
-        let comparison_expr = comparison(
-            left_comparison_side(id.clone(), id_atom, id_addition.clone()),
-            right_comparison_side(string_mode, str_atom, str_addition),
+        let comparison_expr = located(
+            comparison(
+                left_comparison_side(id.clone(), id_atom, id_addition.clone()),
+                right_comparison_side(string_mode, str_atom, str_addition),
+            )
+            .map(|c| ExprKind::Comparison(Box::new(c))),
         )
-        .map(|c| Expr::Comparison(Box::new(c)))
         .boxed();
         or_condition_set(negation(comparison_expr.or(id_addition)).boxed()).boxed()
     })
 }
 
-/// Negates an expression with a `!` prefix, producing [`Expr::Not`]. This binds more loosely than
-/// comparison (so `!foo:2` negates the whole comparison) but more tightly than the comma shorthand.
-/// The prefix may be repeated, e.g. `!!foo`. When no `!` is present, the expression passes through
-/// unchanged, so this rule is transparent.
+/// Negates an expression with a `!` prefix, producing [`ExprKind::Not`]. This binds more loosely
+/// than comparison (so `!foo:2` negates the whole comparison) but more tightly than the comma
+/// shorthand. The prefix may be repeated, e.g. `!!foo`. When no `!` is present, the expression
+/// passes through unchanged, so this rule is transparent. Each `Not` is located from its `!` to the
+/// end of the expression it negates.
 fn negation<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
-    just(NEGATE)
+    with_loc(just(NEGATE))
         .then_ignore(pad())
         .repeated()
-        .foldr(e, |_, expr| Expr::Not(Box::new(expr)))
+        .foldr(e, |(_, bang), expr| {
+            let loc = bang.to(expr.loc);
+            Expr::new(ExprKind::Not(Box::new(expr)), loc)
+        })
 }
 
 /// One operand of the comma "OR" shorthand: either a bare word or a general expression. A bare word
 /// is held as a string so it can be resolved differently depending on whether it stands alone (a
 /// column reference) or is part of a multi-operand `OR` (a default text search term).
 enum OrOperand {
-    Bare(String, SimpleSpan),
+    Bare(condition_set::BareWord),
     Expr(Expr),
 }
 
@@ -201,17 +209,20 @@ impl OrOperand {
     /// column `$foo` or a sort expression `\\foo` — a column reference rather than a search term.
     fn into_lone_expr(self) -> Expr {
         match self {
-            OrOperand::Bare(word, _) => Expr::Path(vec![PathPart::Column(word)]),
+            OrOperand::Bare(bare) => {
+                let part = PathPart::new(PathPartKind::Column(bare.word), bare.loc);
+                Expr::new(ExprKind::Path(vec![part]), bare.loc)
+            }
             OrOperand::Expr(expr) => expr,
         }
     }
 
     /// How a bare word resolves when it is _one of several_ comma-separated operands: as a default
-    /// text search term (an `Expr::String`), the same as a bare word standing alone in a boolean
+    /// text search term (an `ExprKind::String`), the same as a bare word standing alone in a boolean
     /// condition.
     fn into_or_entry(self) -> Expr {
         match self {
-            OrOperand::Bare(word, _) => Expr::String(word),
+            OrOperand::Bare(bare) => Expr::new(ExprKind::String(bare.word), bare.loc),
             OrOperand::Expr(expr) => expr,
         }
     }
@@ -227,7 +238,7 @@ impl OrOperand {
 /// column `$foo`.
 fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     let operand = choice((
-        condition_set::bare_search_operand().map(|(word, span)| OrOperand::Bare(word, span)),
+        condition_set::bare_search_operand().map(OrOperand::Bare),
         // A `!`-prefixed bare word is an unambiguous negated search term, so it resolves the same
         // way whether it stands alone (`!backend`) or is one of several comma operands
         // (`foo,!bar`). It is tried before the general `e` rule, which would otherwise read the bare
@@ -253,10 +264,10 @@ fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
                 false => TokenKind::SearchTerm,
             };
             for operand in std::iter::once(&first).chain(&rest) {
-                if let OrOperand::Bare(_, span) = operand {
-                    extra.state().0.push(Token {
+                if let OrOperand::Bare(bare) = operand {
+                    extra.state().marks.push(Token {
                         kind,
-                        span: span.into_range(),
+                        span: bare.span.into_range(),
                     });
                 }
             }
@@ -267,7 +278,10 @@ fn or_condition_set<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
                     .chain(rest)
                     .map(OrOperand::into_or_entry)
                     .collect();
-                Expr::ConditionSet(ConditionSet::via_or(entries))
+                Expr::new(
+                    ExprKind::ConditionSet(ConditionSet::via_or(entries)),
+                    loc(extra),
+                )
             })
         })
 }
@@ -286,20 +300,23 @@ fn or_string_shorthand<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
                 .repeated()
                 .collect::<Vec<Expr>>(),
         )
-        .map(|(first, rest)| {
+        .map_with(|(first, rest), extra| {
             if rest.is_empty() {
                 first
             } else {
                 let entries = std::iter::once(first).chain(rest).collect();
-                Expr::ConditionSet(ConditionSet::via_or(entries))
+                Expr::new(
+                    ExprKind::ConditionSet(ConditionSet::via_or(entries)),
+                    loc(extra),
+                )
             }
         })
 }
 
-fn operator<'src>(
-    c: char,
-    expr_enum_constructor: fn(Box<Expr>, Box<Expr>) -> Expr,
-) -> impl Psr<'src, fn(Box<Expr>, Box<Expr>) -> Expr> {
+/// The constructor of a binary operator's [`ExprKind`], e.g. [`ExprKind::Sum`].
+type BinaryKind = fn(Box<Expr>, Box<Expr>) -> ExprKind;
+
+fn operator<'src>(c: char, expr_enum_constructor: BinaryKind) -> impl Psr<'src, BinaryKind> {
     mark(TokenKind::Operator, just(c))
         .padded_by(pad())
         .to(expr_enum_constructor)
@@ -317,7 +334,7 @@ fn variable<'src>() -> impl Psr<'src, String> {
 /// This applies a (built-in or user-defined) scalar function without using a pipe. The arguments are
 /// space-separated (no commas) and enclosed in parentheses; the parentheses are required even for a
 /// call with no arguments.
-fn function_call<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+fn function_call<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, ExprKind> {
     let args = args_expr
         .padded_by(pad())
         .repeated()
@@ -326,23 +343,25 @@ fn function_call<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> 
             just(COMPOSITION_ARGUMENT_BRACE_L),
             just(COMPOSITION_ARGUMENT_BRACE_R),
         );
-    exactly(FUNCTION_SIGIL)
-        .ignore_then(mark(
+    with_loc(
+        exactly(FUNCTION_SIGIL).ignore_then(mark(
             TokenKind::Function,
             ident()
                 .map(|s: &str| s.to_string())
                 .labelled(labels::FUNCTION_NAME),
-        ))
-        .then(args)
-        .map(|(name, args)| {
-            Expr::Call(Call {
-                name,
-                dimension: FunctionDimension::Scalar,
-                syntax: CallSyntax::Standalone,
-                args,
-                order_by: vec![],
-            })
+        )),
+    )
+    .then(args)
+    .map(|((name, name_loc), args)| {
+        ExprKind::Call(Call {
+            name,
+            name_loc,
+            dimension: FunctionDimension::Scalar,
+            syntax: CallSyntax::Standalone,
+            args,
+            order_by: vec![],
         })
+    })
 }
 
 fn string<'src>() -> impl Psr<'src, String> {
@@ -363,36 +382,49 @@ fn string<'src>() -> impl Psr<'src, String> {
 ///
 /// A bare word is treated as a string only when it stands alone. If it is the head of a longer path
 /// (e.g. `foo.bar`), the whole path is parsed as a column reference instead.
-fn comparison_rhs_value<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+fn comparison_rhs_value<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, ExprKind> {
     let bare_string = mark(TokenKind::String, ident())
         .then_ignore(pad().then(just(PATH_SEPARATOR)).not())
-        .map(|s: &str| Expr::String(s.to_string()));
-    choice((bare_string, path(expr).map(Expr::Path)))
+        .map(|s: &str| ExprKind::String(s.to_string()));
+    choice((bare_string, path(expr).map(ExprKind::Path)))
 }
 
-fn parenthetical<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+/// A parenthesized expression. Its location (given by the caller) includes the parentheses.
+fn parenthetical<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, ExprKind> {
+    // (A `fn` item rather than a closure, for the reason given in `utils`.)
+    fn kind(expr: Expr) -> ExprKind {
+        expr.kind
+    }
     e.padded_by(pad())
         .delimited_by(just(EXPR_PAREN_L), just(EXPR_PAREN_R))
+        .map(kind)
+}
+
+/// Folds a left-associative chain of binary operations, locating each from the start of its left
+/// operand to the end of its right.
+fn binary<'src>(e: impl Psr<'src, Expr>, op: impl Psr<'src, BinaryKind>) -> impl Psr<'src, Expr> {
+    // (A `fn` item rather than a closure, for the reason given in `utils`.)
+    fn apply(lhs: Expr, (f, rhs): (BinaryKind, Expr)) -> Expr {
+        let loc = lhs.loc.to(rhs.loc);
+        Expr::new(f(Box::new(lhs), Box::new(rhs)), loc)
+    }
+    e.clone().foldl(op.then(e).repeated(), apply)
 }
 
 fn multiplication<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     let op = choice((
-        operator(EXPR_TIMES, Expr::Product),
-        operator(EXPR_DIVIDE, Expr::Quotient),
+        operator(EXPR_TIMES, ExprKind::Product),
+        operator(EXPR_DIVIDE, ExprKind::Quotient),
     ));
-    e.clone().foldl(op.then(e).repeated(), |lhs, (f, rhs)| {
-        f(Box::new(lhs), Box::new(rhs))
-    })
+    binary(e, op)
 }
 
 fn addition<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
     let op = choice((
-        operator(EXPR_PLUS, Expr::Sum),
-        operator(EXPR_MINUS, Expr::Difference),
+        operator(EXPR_PLUS, ExprKind::Sum),
+        operator(EXPR_MINUS, ExprKind::Difference),
     ));
-    e.clone().foldl(op.then(e).repeated(), |lhs, (f, rhs)| {
-        f(Box::new(lhs), Box::new(rhs))
-    })
+    binary(e, op)
 }
 
 #[cfg(test)]
@@ -412,141 +444,172 @@ mod tests {
                 .map_err(|_| ())
         };
 
-        assert_eq!(p("8"), Ok(Expr::Number("8".to_string())));
+        assert_eq!(p("8"), Ok(ExprKind::Number("8".to_string()).into()));
         assert_eq!(
             p("@2000-01-01"),
-            Ok(Expr::Date(Date {
+            Ok(ExprKind::Date(Date {
                 year: 2000,
                 day: 1,
                 month: 1
-            }))
+            })
+            .into())
         );
         assert_eq!(
             p("1y"),
-            Ok(Expr::Duration(Duration {
+            Ok(ExprKind::Duration(Duration {
                 years: 1.0,
                 ..Default::default()
-            }))
+            })
+            .into())
         );
         // A digit-initial token with no unit is a plain number, not a duration.
-        assert_eq!(p("6"), Ok(Expr::Number("6".to_string())));
-        assert_eq!(p("'foo'"), Ok(Expr::String("foo".to_string())));
-        assert_eq!(p("\"foo\""), Ok(Expr::String("foo".to_string())));
-        assert_eq!(p("@foo"), Ok(Expr::Variable("foo".to_string())));
-        assert_eq!(p("@null"), Ok(Expr::Variable("null".to_string())));
+        assert_eq!(p("6"), Ok(ExprKind::Number("6".to_string()).into()));
+        assert_eq!(p("'foo'"), Ok(ExprKind::String("foo".to_string()).into()));
+        assert_eq!(p("\"foo\""), Ok(ExprKind::String("foo".to_string()).into()));
+        assert_eq!(p("@foo"), Ok(ExprKind::Variable("foo".to_string()).into()));
+        assert_eq!(
+            p("@null"),
+            Ok(ExprKind::Variable("null".to_string()).into())
+        );
         assert_eq!(
             p("foo"),
-            Ok(Expr::Path(vec![PathPart::Column("foo".to_string())]))
+            Ok(ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()]).into())
         );
         assert_eq!(
             p("++#foo"),
-            Ok(Expr::HasQuantity(HasQuantity {
+            Ok(ExprKind::HasQuantity(HasQuantity {
                 quantity: Quantity::AtLeastOne,
-                path_parts: vec![PathPart::TableWithMany(TableWithMany {
+                path_parts: vec![PathPartKind::TableWithMany(TableWithMany {
                     table: "foo".to_string(),
                     condition_set: ConditionSet::default(),
                     linking_column: None
-                })]
-            }))
+                })
+                .into()]
+            })
+            .into())
         );
         assert_eq!(
             p("++#foo{a:2}"),
-            Ok(Expr::HasQuantity(HasQuantity {
+            Ok(ExprKind::HasQuantity(HasQuantity {
                 quantity: Quantity::AtLeastOne,
-                path_parts: vec![PathPart::TableWithMany(TableWithMany {
+                path_parts: vec![PathPartKind::TableWithMany(TableWithMany {
                     table: "foo".to_string(),
                     condition_set: ConditionSet {
                         conjunction: Conjunction::And,
-                        entries: vec![Expr::Comparison(Box::new(Comparison {
-                            left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                                "a".to_string()
-                            )])),
+                        entries: vec![ExprKind::Comparison(Box::new(Comparison {
+                            left: ComparisonSide::Expr(
+                                ExprKind::Path(vec![PathPartKind::Column("a".to_string()).into()])
+                                    .into()
+                            ),
                             operator: Operator::Match,
-                            right: ComparisonSide::Expr(Expr::Number("2".to_string())),
-                        }))]
+                            right: ComparisonSide::Expr(ExprKind::Number("2".to_string()).into()),
+                        }))
+                        .into()]
                     },
                     linking_column: None
-                })]
-            }))
+                })
+                .into()]
+            })
+            .into())
         );
         // Within a boolean condition set, a bare word is a default text search term (an
-        // `Expr::String`), not a column reference. A backtick-quoted identifier would instead be a
+        // `ExprKind::String`), not a column reference. A backtick-quoted identifier would instead be a
         // column reference.
         assert_eq!(
             p("[a b]"),
-            Ok(Expr::ConditionSet(ConditionSet {
+            Ok(ExprKind::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
-                entries: vec![Expr::String("a".to_string()), Expr::String("b".to_string()),]
-            }))
+                entries: vec![
+                    ExprKind::String("a".to_string()).into(),
+                    ExprKind::String("b".to_string()).into(),
+                ]
+            })
+            .into())
         );
         assert_eq!(
             p("{a b}"),
-            Ok(Expr::ConditionSet(ConditionSet {
+            Ok(ExprKind::ConditionSet(ConditionSet {
                 conjunction: Conjunction::And,
-                entries: vec![Expr::String("a".to_string()), Expr::String("b".to_string()),]
-            }))
+                entries: vec![
+                    ExprKind::String("a".to_string()).into(),
+                    ExprKind::String("b".to_string()).into(),
+                ]
+            })
+            .into())
         );
 
         // The comma is shorthand for an "OR" condition set. Each operand is boolean, so a bare word
-        // operand is a default text search term (an `Expr::String`), not a column reference.
+        // operand is a default text search term (an `ExprKind::String`), not a column reference.
         assert_eq!(
             p("a,b"),
-            Ok(Expr::ConditionSet(ConditionSet {
+            Ok(ExprKind::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
-                entries: vec![Expr::String("a".to_string()), Expr::String("b".to_string()),]
-            }))
+                entries: vec![
+                    ExprKind::String("a".to_string()).into(),
+                    ExprKind::String("b".to_string()).into(),
+                ]
+            })
+            .into())
         );
 
         // Whitespace is allowed around the comma, and it joins three or more expressions.
         assert_eq!(
             p("a , b ,c"),
-            Ok(Expr::ConditionSet(ConditionSet {
+            Ok(ExprKind::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
                 entries: vec![
-                    Expr::String("a".to_string()),
-                    Expr::String("b".to_string()),
-                    Expr::String("c".to_string()),
+                    ExprKind::String("a".to_string()).into(),
+                    ExprKind::String("b".to_string()).into(),
+                    ExprKind::String("c".to_string()).into(),
                 ]
-            }))
+            })
+            .into())
         );
 
         // The comma has lower precedence than comparison, so each comparison becomes its own entry.
         assert_eq!(
             p("foo:1,bar:2"),
-            Ok(Expr::ConditionSet(ConditionSet {
+            Ok(ExprKind::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
                 entries: vec![
-                    Expr::Comparison(Box::new(Comparison {
-                        left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                            "foo".to_string()
-                        )])),
+                    ExprKind::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(
+                            ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()])
+                                .into()
+                        ),
                         operator: Operator::Match,
-                        right: ComparisonSide::Expr(Expr::Number("1".to_string())),
-                    })),
-                    Expr::Comparison(Box::new(Comparison {
-                        left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                            "bar".to_string()
-                        )])),
+                        right: ComparisonSide::Expr(ExprKind::Number("1".to_string()).into()),
+                    }))
+                    .into(),
+                    ExprKind::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(
+                            ExprKind::Path(vec![PathPartKind::Column("bar".to_string()).into()])
+                                .into()
+                        ),
                         operator: Operator::Match,
-                        right: ComparisonSide::Expr(Expr::Number("2".to_string())),
-                    })),
+                        right: ComparisonSide::Expr(ExprKind::Number("2".to_string()).into()),
+                    }))
+                    .into(),
                 ]
-            }))
+            })
+            .into())
         );
 
         // The comma also has lower precedence than addition.
         assert_eq!(
             p("1+2,3"),
-            Ok(Expr::ConditionSet(ConditionSet {
+            Ok(ExprKind::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
                 entries: vec![
-                    Expr::Sum(
-                        Box::new(Expr::Number("1".to_string())),
-                        Box::new(Expr::Number("2".to_string()))
-                    ),
-                    Expr::Number("3".to_string()),
+                    ExprKind::Sum(
+                        Box::new(ExprKind::Number("1".to_string()).into()),
+                        Box::new(ExprKind::Number("2".to_string()).into())
+                    )
+                    .into(),
+                    ExprKind::Number("3".to_string()).into(),
                 ]
-            }))
+            })
+            .into())
         );
 
         // A trailing comma is not allowed.
@@ -554,50 +617,56 @@ mod tests {
 
         assert_eq!(
             p("5*7"),
-            Ok(Expr::Product(
-                Box::new(Expr::Number("5".to_string())),
-                Box::new(Expr::Number("7".to_string()))
-            ))
+            Ok(ExprKind::Product(
+                Box::new(ExprKind::Number("5".to_string()).into()),
+                Box::new(ExprKind::Number("7".to_string()).into())
+            )
+            .into())
         );
 
         assert_eq!(
             p("@a/@b"),
-            Ok(Expr::Quotient(
-                Box::new(Expr::Variable("a".to_string())),
-                Box::new(Expr::Variable("b".to_string()))
-            ))
+            Ok(ExprKind::Quotient(
+                Box::new(ExprKind::Variable("a".to_string()).into()),
+                Box::new(ExprKind::Variable("b".to_string()).into())
+            )
+            .into())
         );
 
         assert_eq!(
             p("5+7"),
-            Ok(Expr::Sum(
-                Box::new(Expr::Number("5".to_string())),
-                Box::new(Expr::Number("7".to_string()))
-            ))
+            Ok(ExprKind::Sum(
+                Box::new(ExprKind::Number("5".to_string()).into()),
+                Box::new(ExprKind::Number("7".to_string()).into())
+            )
+            .into())
         );
 
         assert_eq!(
             p("@a-@b"),
-            Ok(Expr::Difference(
-                Box::new(Expr::Variable("a".to_string())),
-                Box::new(Expr::Variable("b".to_string()))
-            ))
+            Ok(ExprKind::Difference(
+                Box::new(ExprKind::Variable("a".to_string()).into()),
+                Box::new(ExprKind::Variable("b".to_string()).into())
+            )
+            .into())
         );
 
         assert_eq!(
             p("5 - 7"),
-            Ok(Expr::Difference(
-                Box::new(Expr::Number("5".to_string())),
-                Box::new(Expr::Number("7".to_string()))
-            ))
+            Ok(ExprKind::Difference(
+                Box::new(ExprKind::Number("5".to_string()).into()),
+                Box::new(ExprKind::Number("7".to_string()).into())
+            )
+            .into())
         );
 
         assert_eq!(
             p("5 -7"),
-            Ok(Expr::Difference(
-                Box::new(Expr::Number("5".to_string())),
-                Box::new(Expr::Number("7".to_string()))
-            ))
+            Ok(ExprKind::Difference(
+                Box::new(ExprKind::Number("5".to_string()).into()),
+                Box::new(ExprKind::Number("7".to_string()).into())
+            )
+            .into())
         );
 
         // This is two expressions, not one.
@@ -605,43 +674,56 @@ mod tests {
 
         assert_eq!(
             p("5*7+3"),
-            Ok(Expr::Sum(
-                Box::new(Expr::Product(
-                    Box::new(Expr::Number("5".to_string())),
-                    Box::new(Expr::Number("7".to_string()))
-                )),
-                Box::new(Expr::Number("3".to_string()))
-            ))
+            Ok(ExprKind::Sum(
+                Box::new(
+                    ExprKind::Product(
+                        Box::new(ExprKind::Number("5".to_string()).into()),
+                        Box::new(ExprKind::Number("7".to_string()).into())
+                    )
+                    .into()
+                ),
+                Box::new(ExprKind::Number("3".to_string()).into())
+            )
+            .into())
         );
 
         assert_eq!(
             p("3+5*7"),
-            Ok(Expr::Sum(
-                Box::new(Expr::Number("3".to_string())),
-                Box::new(Expr::Product(
-                    Box::new(Expr::Number("5".to_string())),
-                    Box::new(Expr::Number("7".to_string()))
-                ))
-            ))
+            Ok(ExprKind::Sum(
+                Box::new(ExprKind::Number("3".to_string()).into()),
+                Box::new(
+                    ExprKind::Product(
+                        Box::new(ExprKind::Number("5".to_string()).into()),
+                        Box::new(ExprKind::Number("7".to_string()).into())
+                    )
+                    .into()
+                )
+            )
+            .into())
         );
 
         assert_eq!(
             p("( 3 + 5 )"),
-            Ok(Expr::Sum(
-                Box::new(Expr::Number("3".to_string())),
-                Box::new(Expr::Number("5".to_string()))
-            ))
+            Ok(ExprKind::Sum(
+                Box::new(ExprKind::Number("3".to_string()).into()),
+                Box::new(ExprKind::Number("5".to_string()).into())
+            )
+            .into())
         );
 
         assert_eq!(
             p("(3+5)*7"),
-            Ok(Expr::Product(
-                Box::new(Expr::Sum(
-                    Box::new(Expr::Number("3".to_string())),
-                    Box::new(Expr::Number("5".to_string()))
-                )),
-                Box::new(Expr::Number("7".to_string()))
-            ))
+            Ok(ExprKind::Product(
+                Box::new(
+                    ExprKind::Sum(
+                        Box::new(ExprKind::Number("3".to_string()).into()),
+                        Box::new(ExprKind::Number("5".to_string()).into())
+                    )
+                    .into()
+                ),
+                Box::new(ExprKind::Number("7".to_string()).into())
+            )
+            .into())
         );
 
         // Comparisons don't fold
@@ -650,134 +732,168 @@ mod tests {
         // Nested comparisons can be done via parentheses
         assert_eq!(
             p("(1:2):3"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Comparison(Box::new(Comparison {
-                    left: ComparisonSide::Expr(Expr::Number("1".to_string())),
-                    operator: Operator::Match,
-                    right: ComparisonSide::Expr(Expr::Number("2".to_string())),
-                }))),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(ExprKind::Number("1".to_string()).into()),
+                        operator: Operator::Match,
+                        right: ComparisonSide::Expr(ExprKind::Number("2".to_string()).into()),
+                    }))
+                    .into()
+                ),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::Number("3".to_string())),
-            })))
+                right: ComparisonSide::Expr(ExprKind::Number("3".to_string()).into()),
+            }))
+            .into())
         );
 
         assert_eq!(
             p("x:@a..@b"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("x".to_string())])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("x".to_string()).into()]).into()
+                ),
                 operator: Operator::Match,
                 right: ComparisonSide::Range(Range {
                     lower: RangeBound {
-                        expr: Expr::Variable("a".to_string()),
+                        expr: ExprKind::Variable("a".to_string()).into(),
                         exclusivity: Exclusivity::Inclusive,
                     },
                     upper: RangeBound {
-                        expr: Expr::Variable("b".to_string()),
+                        expr: ExprKind::Variable("b".to_string()).into(),
                         exclusivity: Exclusivity::Inclusive,
                     },
                 }),
-            })))
+            }))
+            .into())
         );
 
         assert_eq!(
             p("x:@a<..<@b"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("x".to_string())])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("x".to_string()).into()]).into()
+                ),
                 operator: Operator::Match,
                 right: ComparisonSide::Range(Range {
                     lower: RangeBound {
-                        expr: Expr::Variable("a".to_string()),
+                        expr: ExprKind::Variable("a".to_string()).into(),
                         exclusivity: Exclusivity::Exclusive,
                     },
                     upper: RangeBound {
-                        expr: Expr::Variable("b".to_string()),
+                        expr: ExprKind::Variable("b".to_string()).into(),
                         exclusivity: Exclusivity::Exclusive,
                     },
                 }),
-            })))
+            }))
+            .into())
         );
 
         assert_eq!(
             p("1|a|b(2)|c(3 4)"),
-            Ok(Expr::Call(Call {
+            Ok(ExprKind::Call(Call {
+                name_loc: Loc::NONE,
                 name: "c".to_string(),
                 dimension: FunctionDimension::Scalar,
                 syntax: CallSyntax::Piped,
                 args: vec![
-                    Expr::Call(Call {
+                    ExprKind::Call(Call {
+                        name_loc: Loc::NONE,
                         name: "b".to_string(),
                         dimension: FunctionDimension::Scalar,
                         syntax: CallSyntax::Piped,
                         args: vec![
-                            Expr::Call(Call {
+                            ExprKind::Call(Call {
+                                name_loc: Loc::NONE,
                                 name: "a".to_string(),
                                 dimension: FunctionDimension::Scalar,
                                 syntax: CallSyntax::Piped,
-                                args: vec![Expr::Number("1".to_string())],
+                                args: vec![ExprKind::Number("1".to_string()).into()],
                                 order_by: vec![],
-                            }),
-                            Expr::Number("2".to_string())
+                            })
+                            .into(),
+                            ExprKind::Number("2".to_string()).into()
                         ],
                         order_by: vec![],
-                    }),
-                    Expr::Number("3".to_string()),
-                    Expr::Number("4".to_string()),
+                    })
+                    .into(),
+                    ExprKind::Number("3".to_string()).into(),
+                    ExprKind::Number("4".to_string()).into(),
                 ],
                 order_by: vec![],
-            }))
+            })
+            .into())
         );
 
         assert_eq!(
             p("[a b]: 2 + foo * @bar | baz"),
-            Ok(Expr::Comparison(Box::new(Comparison {
+            Ok(ExprKind::Comparison(Box::new(Comparison {
                 left: ComparisonSide::Expansion(ConditionSet {
                     entries: vec![
-                        Expr::Path(vec![PathPart::Column("a".to_string())]),
-                        Expr::Path(vec![PathPart::Column("b".to_string())]),
+                        ExprKind::Path(vec![PathPartKind::Column("a".to_string()).into()]).into(),
+                        ExprKind::Path(vec![PathPartKind::Column("b".to_string()).into()]).into(),
                     ],
                     conjunction: Conjunction::Or,
                 }),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::Sum(
-                    Box::new(Expr::Number("2".to_string())),
-                    Box::new(Expr::Product(
-                        // A bare word on the right-hand side of a comparison is a string literal.
-                        Box::new(Expr::String("foo".to_string())),
-                        Box::new(Expr::Call(Call {
-                            name: "baz".to_string(),
-                            dimension: FunctionDimension::Scalar,
-                            syntax: CallSyntax::Piped,
-                            args: vec![Expr::Variable("bar".to_string())],
-                            order_by: vec![],
-                        })),
-                    )),
-                )),
-            })))
+                right: ComparisonSide::Expr(
+                    ExprKind::Sum(
+                        Box::new(ExprKind::Number("2".to_string()).into()),
+                        Box::new(
+                            ExprKind::Product(
+                                // A bare word on the right-hand side of a comparison is a string literal.
+                                Box::new(ExprKind::String("foo".to_string()).into()),
+                                Box::new(
+                                    ExprKind::Call(Call {
+                                        name_loc: Loc::NONE,
+                                        name: "baz".to_string(),
+                                        dimension: FunctionDimension::Scalar,
+                                        syntax: CallSyntax::Piped,
+                                        args: vec![ExprKind::Variable("bar".to_string()).into()],
+                                        order_by: vec![],
+                                    })
+                                    .into()
+                                ),
+                            )
+                            .into()
+                        ),
+                    )
+                    .into()
+                ),
+            }))
+            .into())
         );
 
         // A standalone aggregate `%count` has no `arg0`, so its `args` vector is empty. This is how
         // `count(*)` is written.
         assert_eq!(
             p("%count"),
-            Ok(Expr::Call(Call {
+            Ok(ExprKind::Call(Call {
+                name_loc: Loc::NONE,
                 name: "count".to_string(),
                 dimension: FunctionDimension::Aggregate,
                 syntax: CallSyntax::Piped,
                 args: vec![],
                 order_by: vec![],
-            }))
+            })
+            .into())
         );
 
         // A piped aggregate `created_at%max` carries the piped-in expression as its single argument.
         assert_eq!(
             p("created_at%max"),
-            Ok(Expr::Call(Call {
+            Ok(ExprKind::Call(Call {
+                name_loc: Loc::NONE,
                 name: "max".to_string(),
                 dimension: FunctionDimension::Aggregate,
                 syntax: CallSyntax::Piped,
-                args: vec![Expr::Path(vec![PathPart::Column("created_at".to_string())])],
+                args: vec![ExprKind::Path(vec![
+                    PathPartKind::Column("created_at".to_string()).into()
+                ])
+                .into()],
                 order_by: vec![],
-            }))
+            })
+            .into())
         );
 
         // A `!` prefix on a bare word negates a default text search term (a `String`), mirroring the
@@ -785,61 +901,75 @@ mod tests {
         // it (`` !`foo` ``).
         assert_eq!(
             p("!foo"),
-            Ok(Expr::Not(Box::new(Expr::String("foo".to_string()))))
+            Ok(ExprKind::Not(Box::new(ExprKind::String("foo".to_string()).into())).into())
         );
 
         // Backtick-quoting makes the negated operand a column reference rather than a search term.
         assert_eq!(
             p("!`foo`"),
-            Ok(Expr::Not(Box::new(Expr::Path(vec![PathPart::Column(
-                "foo".to_string()
-            )]))))
+            Ok(ExprKind::Not(Box::new(
+                ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()]).into()
+            ))
+            .into())
         );
 
         // Negation binds more loosely than comparison, so `!foo:2` negates the whole comparison.
         assert_eq!(
             p("!foo:2"),
-            Ok(Expr::Not(Box::new(Expr::Comparison(Box::new(
-                Comparison {
-                    left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                        "foo".to_string()
-                    )])),
+            Ok(ExprKind::Not(Box::new(
+                ExprKind::Comparison(Box::new(Comparison {
+                    left: ComparisonSide::Expr(
+                        ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()]).into()
+                    ),
                     operator: Operator::Match,
-                    right: ComparisonSide::Expr(Expr::Number("2".to_string())),
-                }
-            )))))
+                    right: ComparisonSide::Expr(ExprKind::Number("2".to_string()).into()),
+                }))
+                .into()
+            ))
+            .into())
         );
 
         // The `!` prefix can be repeated.
         assert_eq!(
             p("!!foo"),
-            Ok(Expr::Not(Box::new(Expr::Not(Box::new(Expr::String(
-                "foo".to_string()
-            ))))))
+            Ok(ExprKind::Not(Box::new(
+                ExprKind::Not(Box::new(ExprKind::String("foo".to_string()).into())).into()
+            ))
+            .into())
         );
 
         // Negation binds more tightly than the comma shorthand, so only the first entry is negated.
         assert_eq!(
             p("!foo:1,bar:2"),
-            Ok(Expr::ConditionSet(ConditionSet {
+            Ok(ExprKind::ConditionSet(ConditionSet {
                 conjunction: Conjunction::Or,
                 entries: vec![
-                    Expr::Not(Box::new(Expr::Comparison(Box::new(Comparison {
-                        left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                            "foo".to_string()
-                        )])),
+                    ExprKind::Not(Box::new(
+                        ExprKind::Comparison(Box::new(Comparison {
+                            left: ComparisonSide::Expr(
+                                ExprKind::Path(
+                                    vec![PathPartKind::Column("foo".to_string()).into()]
+                                )
+                                .into()
+                            ),
+                            operator: Operator::Match,
+                            right: ComparisonSide::Expr(ExprKind::Number("1".to_string()).into()),
+                        }))
+                        .into()
+                    ))
+                    .into(),
+                    ExprKind::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(
+                            ExprKind::Path(vec![PathPartKind::Column("bar".to_string()).into()])
+                                .into()
+                        ),
                         operator: Operator::Match,
-                        right: ComparisonSide::Expr(Expr::Number("1".to_string())),
-                    })))),
-                    Expr::Comparison(Box::new(Comparison {
-                        left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                            "bar".to_string()
-                        )])),
-                        operator: Operator::Match,
-                        right: ComparisonSide::Expr(Expr::Number("2".to_string())),
-                    })),
+                        right: ComparisonSide::Expr(ExprKind::Number("2".to_string()).into()),
+                    }))
+                    .into(),
                 ]
-            }))
+            })
+            .into())
         );
     }
 
@@ -857,49 +987,60 @@ mod tests {
         // arguments (no commas).
         assert_eq!(
             p("@@max(foo 0)"),
-            Ok(Expr::Call(Call {
+            Ok(ExprKind::Call(Call {
+                name_loc: Loc::NONE,
                 name: "max".to_string(),
                 dimension: FunctionDimension::Scalar,
                 syntax: CallSyntax::Standalone,
                 args: vec![
-                    Expr::Path(vec![PathPart::Column("foo".to_string())]),
-                    Expr::Number("0".to_string()),
+                    ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()]).into(),
+                    ExprKind::Number("0".to_string()).into(),
                 ],
                 order_by: vec![],
-            }))
+            })
+            .into())
         );
 
         // The parentheses are required, but may be empty for a no-argument call.
         assert_eq!(
             p("@@now()"),
-            Ok(Expr::Call(Call {
+            Ok(ExprKind::Call(Call {
+                name_loc: Loc::NONE,
                 name: "now".to_string(),
                 dimension: FunctionDimension::Scalar,
                 syntax: CallSyntax::Standalone,
                 args: vec![],
                 order_by: vec![],
-            }))
+            })
+            .into())
         );
 
         // Arguments may themselves be pipes.
         assert_eq!(
             p("@@max(foo|bar 0)"),
-            Ok(Expr::Call(Call {
+            Ok(ExprKind::Call(Call {
+                name_loc: Loc::NONE,
                 name: "max".to_string(),
                 dimension: FunctionDimension::Scalar,
                 syntax: CallSyntax::Standalone,
                 args: vec![
-                    Expr::Call(Call {
+                    ExprKind::Call(Call {
+                        name_loc: Loc::NONE,
                         name: "bar".to_string(),
                         dimension: FunctionDimension::Scalar,
                         syntax: CallSyntax::Piped,
-                        args: vec![Expr::Path(vec![PathPart::Column("foo".to_string())])],
+                        args: vec![ExprKind::Path(vec![
+                            PathPartKind::Column("foo".to_string()).into()
+                        ])
+                        .into()],
                         order_by: vec![],
-                    }),
-                    Expr::Number("0".to_string()),
+                    })
+                    .into(),
+                    ExprKind::Number("0".to_string()).into(),
                 ],
                 order_by: vec![],
-            }))
+            })
+            .into())
         );
     }
 
@@ -917,47 +1058,55 @@ mod tests {
         // and the body references the parameter.
         assert_eq!(
             p("foo|(@x => @x * 2)"),
-            Ok(Expr::AnonymousFunctionCall(Box::new(
-                AnonymousFunctionCall {
+            Ok(
+                ExprKind::AnonymousFunctionCall(Box::new(AnonymousFunctionCall {
                     params: vec!["x".to_string()],
                     body: FunctionBody {
                         assignments: vec![],
-                        expr: Expr::Product(
-                            Box::new(Expr::Variable("x".to_string())),
-                            Box::new(Expr::Number("2".to_string())),
-                        ),
+                        expr: ExprKind::Product(
+                            Box::new(ExprKind::Variable("x".to_string()).into()),
+                            Box::new(ExprKind::Number("2".to_string()).into()),
+                        )
+                        .into(),
                     },
-                    args: vec![Expr::Path(vec![PathPart::Column("foo".to_string())])],
-                }
-            )))
+                    args: vec![ExprKind::Path(
+                        vec![PathPartKind::Column("foo".to_string()).into()]
+                    )
+                    .into()],
+                }))
+                .into()
+            )
         );
 
         // An anonymous function may take multiple parameters and contain a local assignment. The
         // piped-in value is the first argument; parenthesized values supply the rest.
         assert_eq!(
             p("foo|(@a @b => @s = @a + @b @s * 2)(3)"),
-            Ok(Expr::AnonymousFunctionCall(Box::new(
-                AnonymousFunctionCall {
+            Ok(
+                ExprKind::AnonymousFunctionCall(Box::new(AnonymousFunctionCall {
                     params: vec!["a".to_string(), "b".to_string()],
                     body: FunctionBody {
                         assignments: vec![Assignment {
                             name: "s".to_string(),
-                            expr: Expr::Sum(
-                                Box::new(Expr::Variable("a".to_string())),
-                                Box::new(Expr::Variable("b".to_string())),
-                            ),
+                            expr: ExprKind::Sum(
+                                Box::new(ExprKind::Variable("a".to_string()).into()),
+                                Box::new(ExprKind::Variable("b".to_string()).into()),
+                            )
+                            .into(),
                         }],
-                        expr: Expr::Product(
-                            Box::new(Expr::Variable("s".to_string())),
-                            Box::new(Expr::Number("2".to_string())),
-                        ),
+                        expr: ExprKind::Product(
+                            Box::new(ExprKind::Variable("s".to_string()).into()),
+                            Box::new(ExprKind::Number("2".to_string()).into()),
+                        )
+                        .into(),
                     },
                     args: vec![
-                        Expr::Path(vec![PathPart::Column("foo".to_string())]),
-                        Expr::Number("3".to_string()),
+                        ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()]).into(),
+                        ExprKind::Number("3".to_string()).into(),
                     ],
-                }
-            )))
+                }))
+                .into()
+            )
         );
     }
 
@@ -975,13 +1124,15 @@ mod tests {
         // word on the right-hand side is a string literal.
         assert_eq!(
             p("description:title"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                    "description".to_string()
-                )])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("description".to_string()).into()])
+                        .into()
+                ),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::String("title".to_string())),
-            })))
+                right: ComparisonSide::Expr(ExprKind::String("title".to_string()).into()),
+            }))
+            .into())
         );
 
         // A bare word on the right-hand side behaves identically to a quoted string.
@@ -990,55 +1141,64 @@ mod tests {
         // Backtick-quoting the right-hand side designates it as a column reference instead.
         assert_eq!(
             p("description:`title`"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                    "description".to_string()
-                )])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("description".to_string()).into()])
+                        .into()
+                ),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                    "title".to_string()
-                )])),
-            })))
+                right: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("title".to_string()).into()]).into()
+                ),
+            }))
+            .into())
         );
 
         // A multi-part path on the right-hand side remains a column reference, since it is not a
         // bare, standalone word.
         assert_eq!(
             p("description:foo.bar"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                    "description".to_string()
-                )])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("description".to_string()).into()])
+                        .into()
+                ),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::Path(vec![
-                    PathPart::Column("foo".to_string()),
-                    PathPart::Column("bar".to_string()),
-                ])),
-            })))
+                right: ComparisonSide::Expr(
+                    ExprKind::Path(vec![
+                        PathPartKind::Column("foo".to_string()).into(),
+                        PathPartKind::Column("bar".to_string()).into(),
+                    ])
+                    .into()
+                ),
+            }))
+            .into())
         );
 
         // The rule applies to other comparison operators too, not just match.
         assert_eq!(
             p("status:=open"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                    "status".to_string()
-                )])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("status".to_string()).into()]).into()
+                ),
                 operator: Operator::EqCi,
-                right: ComparisonSide::Expr(Expr::String("open".to_string())),
-            })))
+                right: ComparisonSide::Expr(ExprKind::String("open".to_string()).into()),
+            }))
+            .into())
         );
 
         // The case-sensitive equality operator `:==` parses to `Eq`.
         assert_eq!(
             p("status:==open"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                    "status".to_string()
-                )])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("status".to_string()).into()]).into()
+                ),
                 operator: Operator::Eq,
-                right: ComparisonSide::Expr(Expr::String("open".to_string())),
-            })))
+                right: ComparisonSide::Expr(ExprKind::String("open".to_string()).into()),
+            }))
+            .into())
         );
     }
 
@@ -1060,53 +1220,65 @@ mod tests {
         );
         assert_eq!(
             p("title:~[color colour]"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("title".to_string())])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("title".to_string()).into()]).into()
+                ),
                 operator: Operator::RegexMatch,
                 right: ComparisonSide::Expansion(ConditionSet {
                     conjunction: Conjunction::Or,
                     entries: vec![
-                        Expr::String("color".to_string()),
-                        Expr::String("colour".to_string()),
+                        ExprKind::String("color".to_string()).into(),
+                        ExprKind::String("colour".to_string()).into(),
                     ],
                 }),
-            })))
+            }))
+            .into())
         );
 
         // Bare words within a pipe on the right-hand side — both the piped-in value and the extra
         // arguments — are string literals.
         assert_eq!(
             p("title:foo|concat(bar)"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("title".to_string())])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("title".to_string()).into()]).into()
+                ),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::Call(Call {
-                    name: "concat".to_string(),
-                    dimension: FunctionDimension::Scalar,
-                    syntax: CallSyntax::Piped,
-                    args: vec![
-                        Expr::String("foo".to_string()),
-                        Expr::String("bar".to_string()),
-                    ],
-                    order_by: vec![],
-                })),
-            })))
+                right: ComparisonSide::Expr(
+                    ExprKind::Call(Call {
+                        name_loc: Loc::NONE,
+                        name: "concat".to_string(),
+                        dimension: FunctionDimension::Scalar,
+                        syntax: CallSyntax::Piped,
+                        args: vec![
+                            ExprKind::String("foo".to_string()).into(),
+                            ExprKind::String("bar".to_string()).into(),
+                        ],
+                        order_by: vec![],
+                    })
+                    .into()
+                ),
+            }))
+            .into())
         );
 
         // The same pipe *outside* a comparison treats bare words as column references, illustrating
         // that the string-mode behavior is confined to the right-hand side.
         assert_eq!(
             p("status|concat(title)"),
-            Ok(Expr::Call(Call {
+            Ok(ExprKind::Call(Call {
+                name_loc: Loc::NONE,
                 name: "concat".to_string(),
                 dimension: FunctionDimension::Scalar,
                 syntax: CallSyntax::Piped,
                 args: vec![
-                    Expr::Path(vec![PathPart::Column("status".to_string())]),
-                    Expr::Path(vec![PathPart::Column("title".to_string())]),
+                    ExprKind::Path(vec![PathPartKind::Column("status".to_string()).into()]).into(),
+                    ExprKind::Path(vec![PathPartKind::Column("title".to_string()).into()]).into(),
                 ],
                 order_by: vec![],
-            }))
+            })
+            .into())
         );
 
         // Bare words inside parentheses on the right-hand side are string literals too.
@@ -1117,19 +1289,25 @@ mod tests {
         // comparison's right side, while its own right side remains a string literal.
         assert_eq!(
             p("description:(title:foo)"),
-            Ok(Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                    "description".to_string()
-                )])),
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("description".to_string()).into()])
+                        .into()
+                ),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::Comparison(Box::new(Comparison {
-                    left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                        "title".to_string()
-                    )])),
-                    operator: Operator::Match,
-                    right: ComparisonSide::Expr(Expr::String("foo".to_string())),
-                }))),
-            })))
+                right: ComparisonSide::Expr(
+                    ExprKind::Comparison(Box::new(Comparison {
+                        left: ComparisonSide::Expr(
+                            ExprKind::Path(vec![PathPartKind::Column("title".to_string()).into()])
+                                .into()
+                        ),
+                        operator: Operator::Match,
+                        right: ComparisonSide::Expr(ExprKind::String("foo".to_string()).into()),
+                    }))
+                    .into()
+                ),
+            }))
+            .into())
         );
     }
 }

@@ -179,18 +179,66 @@ fn section_syntax_error_is_attributed_to_its_section() {
 }
 
 #[wasm_bindgen_test]
-fn compile_error_has_no_span() {
-    let err = thrown(compile(SCHEMA, "postgres", "#t $nope".to_string()));
+fn compile_error_is_located() {
+    let err = thrown(compile(SCHEMA, "postgres", "#t\n  $id $nope".to_string()));
     assert!(querydown_js::is_querydown_error(&err));
     assert_eq!(get_str(&err, "kind"), "compile");
     assert_eq!(
-        get_str(&err, "message"),
+        get_str(&err, "reason"),
         "Column `nope` not found within table `t`."
     );
+    assert_eq!(
+        get_str(&err, "message"),
+        "Column `nope` not found within table `t`. (line 2, column 8)"
+    );
+    assert_eq!(get_num(&err, "span.start.offset"), 10.0);
+    assert_eq!(get_num(&err, "span.end.offset"), 14.0);
+    assert!(get(&err, "section").is_null());
     // Absent values are `null`, not `undefined`, to match the TypeScript declarations.
-    assert!(get(&err, "span").is_null());
     assert!(get(&err, "hint").is_null());
     assert!(get(&err, "found").is_null());
+}
+
+#[wasm_bindgen_test]
+fn section_compile_error_is_attributed_to_its_section() {
+    let err = thrown(compile_sections(
+        SCHEMA,
+        "postgres",
+        "t".to_string(),
+        "",
+        "name:x",
+        "",
+        "$id\n$name|nope",
+    ));
+    // The span is relative to the display section's own text.
+    assert_eq!(get_str(&err, "kind"), "compile");
+    assert_eq!(get_str(&err, "section"), "display");
+    assert_eq!(get_num(&err, "span.start.offset"), 9.0);
+    assert_eq!(get_num(&err, "span.end.offset"), 14.0);
+    assert_eq!(
+        get_str(&err, "message"),
+        "Display section: Scalar function `nope` does not exist. (line 2, column 6)"
+    );
+}
+
+#[wasm_bindgen_test]
+fn compile_error_about_the_base_table_of_sections_has_no_section() {
+    let err = thrown(compile_sections(
+        SCHEMA,
+        "postgres",
+        "nope".to_string(),
+        "",
+        "",
+        "",
+        "",
+    ));
+    assert_eq!(get_str(&err, "kind"), "compile");
+    assert!(get(&err, "span").is_null());
+    assert!(get(&err, "section").is_null());
+    assert_eq!(
+        get_str(&err, "message"),
+        "Base table `nope` does not exist."
+    );
 }
 
 #[wasm_bindgen_test]

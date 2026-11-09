@@ -16,8 +16,8 @@ mod window;
 use std::collections::HashMap;
 
 use querydown_parser::ast::{
-    AnnotationValue, ComputedColumn, ConstantDef, CustomComparisonDef, Expr, FunctionDef, Query,
-    TableDef, Transformation,
+    AnnotationValue, ComputedColumn, ConstantDef, CustomComparisonDef, Expr, ExprKind, FunctionDef,
+    Query, TableDef, Transformation,
 };
 use querydown_parser::parse;
 use serde::Serialize;
@@ -71,7 +71,7 @@ impl Compiler {
     pub fn new(schema_json: &str, options: Options) -> Result<Self, Error> {
         let primitive_schema = serde_json::from_str::<PrimitiveSchema>(schema_json)
             .map_err(|e| Error::schema(format!("The schema is not valid: {e}.")))?;
-        let schema = Schema::try_from(primitive_schema).map_err(Error::schema)?;
+        let schema = Schema::try_from(primitive_schema)?;
         Ok(Self { options, schema })
     }
 
@@ -84,6 +84,7 @@ impl Compiler {
     ///   [`Error::render`] with `input` to display it.
     /// - An [`ErrorKind::Compile`](crate::ErrorKind::Compile) error if `input` is valid Querydown
     ///   that can't be compiled against the schema (e.g. it refers to a column that doesn't exist).
+    ///   Its [`span`](Error::span) locates the construct at fault within `input`.
     pub fn compile(&self, input: String) -> Result<CompileResult, Error> {
         self.compile_query(parse(&input)?)
     }
@@ -98,12 +99,10 @@ impl Compiler {
     /// # Errors
     ///
     /// Returns an [`ErrorKind::Compile`](crate::ErrorKind::Compile) error if the query can't be
-    /// compiled against the schema.
+    /// compiled against the schema. Its [`span`](Error::span) locates the construct at fault, as
+    /// recorded in the query's syntax tree: when the query was assembled from sections, the span is
+    /// relative to the text of the error's [`section`](Error::section).
     pub fn compile_query(&self, query: Query) -> Result<CompileResult, Error> {
-        self.compile_query_inner(query).map_err(Error::compile)
-    }
-
-    fn compile_query_inner(&self, query: Query) -> Result<CompileResult, String> {
         let (udt_ctes, udt_tables) = self.compile_user_tables(&query.definitions.tables)?;
 
         let mut final_stage =
@@ -123,7 +122,7 @@ impl Compiler {
             .tables
             .values()
             .next()
-            .ok_or("The schema contains no tables.")?;
+            .ok_or_else(msg::schema_has_no_tables)?;
         let mut render_scope = Scope::build_with_base_table(&self.options, &self.schema, any_table);
 
         Ok(CompileResult {
@@ -136,7 +135,7 @@ impl Compiler {
     /// (named after the definition) representing its output columns. The synthetic tables
     /// accumulate so that a later user-defined table — and ultimately the main query — can use an
     /// earlier one as its base table.
-    fn compile_user_tables(&self, defs: &[TableDef]) -> Result<(Vec<Cte>, Vec<Table>), String> {
+    fn compile_user_tables(&self, defs: &[TableDef]) -> Result<(Vec<Cte>, Vec<Table>), Error> {
         let mut udt_ctes: Vec<Cte> = Vec::new();
         let mut udt_tables: Vec<Table> = Vec::new();
         for table_def in defs {
@@ -164,7 +163,7 @@ impl Compiler {
 
     /// The names of the columns that `query` outputs, which are the columns available to a later
     /// pipeline stage (or to a query using it as a user-defined table). Used by autocompletion.
-    pub(crate) fn output_column_names(&self, query: Query) -> Result<Vec<String>, String> {
+    pub(crate) fn output_column_names(&self, query: Query) -> Result<Vec<String>, Error> {
         let (_, udt_tables) = self.compile_user_tables(&query.definitions.tables)?;
         let stage = compile_pipeline(&self.options, &self.schema, query, &udt_tables, true)?;
         Ok(stage.output_names)
@@ -184,7 +183,7 @@ fn compile_pipeline(
     query: Query,
     extra_tables: &[Table],
     final_is_cte: bool,
-) -> Result<StageOutput, String> {
+) -> Result<StageOutput, Error> {
     let transformations = if query.transformations.is_empty() {
         vec![Transformation::default()]
     } else {
@@ -208,7 +207,8 @@ fn compile_pipeline(
         // `synthetic_tables`) to this block so that we can push to `synthetic_tables` after.
         let stage = {
             let base_table: &Table = if i == 0 {
-                resolve_base_table(options, schema, &query.base_table, extra_tables)?
+                resolve_base_table(options, schema, &query.base_table, extra_tables)
+                    .map_err(|err| err.at(query.base_table_loc))?
             } else {
                 &synthetic_tables[i - 1]
             };
@@ -252,7 +252,7 @@ fn compile_pipeline(
 /// Compiles a scalar subquery (`#( ... )`) into a parenthesized `(SELECT ...)` SQL expression, to be
 /// inlined wherever the subquery's value is referenced. The inner query is expected to produce a
 /// single value.
-pub(super) fn convert_subquery(query: Query, scope: &mut Scope) -> Result<SqlExpr, String> {
+pub(super) fn convert_subquery(query: Query, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let stage = compile_pipeline(scope.options, scope.schema, query, &[], false)?;
     // Rendering only reads the dialect from the scope, so rendering the subquery with the enclosing
     // scope is safe and does not disturb the outer query's compilation state.
@@ -274,7 +274,7 @@ fn compile_stage(
     custom_comparisons: &[CustomComparisonDef],
     computed_columns: &[ComputedColumn],
     is_last: bool,
-) -> Result<StageOutput, String> {
+) -> Result<StageOutput, Error> {
     let mut scope = Scope::build_with_base_table(options, schema, base_table);
     // The query's definitions are in scope for every stage of the pipeline.
     scope.register_constants(constants.to_vec());
@@ -313,9 +313,10 @@ fn compile_stage(
             convert_condition_set(inner_conditions, scope)
         })?;
         (source.columns, _) = expand_base_table_columns(base_table, &source_scope);
-        for (index, window) in windows.into_iter().enumerate() {
+        for (index, (window, loc)) in windows.into_iter().enumerate() {
             let alias = format!("{WINDOW_PROJECTION_ALIAS_PREFIX}{index}");
-            let sql = convert_expr(Expr::Window(window.clone()), &mut source_scope)?;
+            let expr = Expr::new(ExprKind::Window(window.clone()), loc);
+            let sql = convert_expr(expr, &mut source_scope)?;
             source.columns.push(Column::new(sql, Some(alias.clone())));
             let reference = scope.table_column_expr(scope.get_base_alias(), &alias);
             scope.add_window_substitution(window, reference);
@@ -343,8 +344,8 @@ fn compile_stage(
         mut column_annotations,
         mut output_names,
     } = convert_result_columns(transformation.result_columns, &mut scope)?;
-    if !grouping.is_empty() && scope.has_compiled_window() {
-        return Err(msg::window_in_grouped_stage());
+    if let Some(window_loc) = scope.compiled_window().filter(|_| !grouping.is_empty()) {
+        return Err(msg::window_in_grouped_stage().at(window_loc));
     }
     if columns.is_empty() {
         // With no explicit result columns, the stage emits every column of its base table. We list
@@ -424,7 +425,7 @@ fn resolve_base_table<'a>(
     schema: &'a Schema,
     name: &str,
     extra_tables: &'a [Table],
-) -> Result<&'a Table, String> {
+) -> Result<&'a Table, Error> {
     let extra_lookup: HashMap<String, usize> = extra_tables
         .iter()
         .enumerate()
@@ -436,7 +437,7 @@ fn resolve_base_table<'a>(
     options
         .resolve_identifier(&schema.table_lookup, name)
         .map(|id| schema.tables.get(id).unwrap())
-        .ok_or_else(|| format!("Base table `{}` does not exist.", name))
+        .ok_or_else(|| msg::base_table_not_found(name))
 }
 
 /// Builds a synthetic [`Table`] representing the output of a pipeline stage. The table's name

@@ -17,7 +17,7 @@ use crate::tokens::*;
 /// After the window definition, `%func` names the window function and an optional parenthesized,
 /// space-separated argument list supplies its value arguments (e.g. the column for `sum`, or the
 /// column plus offset and default for `lag`). Ranking functions like `row_number` take no arguments.
-pub fn window<'src>(full_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
+pub fn window<'src>(full_expr: impl Psr<'src, Expr>) -> impl Psr<'src, ExprKind> {
     let item = full_expr
         .clone()
         .then(pad().ignore_then(column_control()).or_not());
@@ -40,21 +40,21 @@ pub fn window<'src>(full_expr: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
             just(COMPOSITION_ARGUMENT_BRACE_R),
         );
 
-    let function = just(COMPOSITION_PIPE_AGGREGATE)
-        .ignore_then(mark(
-            TokenKind::AggregateFunction,
-            ident().labelled(labels::FUNCTION_NAME),
-        ))
-        .then(args.or_not());
+    let function = with_loc(just(COMPOSITION_PIPE_AGGREGATE).ignore_then(mark(
+        TokenKind::AggregateFunction,
+        ident().labelled(labels::FUNCTION_NAME),
+    )))
+    .then(args.or_not());
 
     just(WINDOW_DEFINITION_PREFIX)
         .ignore_then(pad())
         .ignore_then(definition)
         .then(pad().ignore_then(function))
-        .map(|(items, (name, args))| {
+        .map(|(items, ((name, function_loc), args))| {
             let (partition_by, order_by) = split_window_items(items);
-            Expr::Window(WindowFn {
+            ExprKind::Window(WindowFn {
                 function: name.to_string(),
+                function_loc,
                 args: args.unwrap_or_default(),
                 partition_by,
                 order_by,
@@ -104,14 +104,15 @@ mod tests {
     }
 
     fn col(name: &str) -> Expr {
-        Expr::Path(vec![PathPart::Column(name.to_string())])
+        ExprKind::Path(vec![PathPartKind::Column(name.to_string()).into()]).into()
     }
 
     #[test]
     fn test_parse_ranking_window() {
         assert_eq!(
             parse(r"%%(project\p created_at\s)%row_number"),
-            Ok(Expr::Window(WindowFn {
+            Ok(ExprKind::Window(WindowFn {
+                function_loc: Loc::NONE,
                 function: "row_number".to_string(),
                 args: vec![],
                 partition_by: vec![col("project")],
@@ -120,7 +121,8 @@ mod tests {
                     direction: SortDirection::Asc,
                     nulls_sort: NullsSort::Last,
                 }],
-            }))
+            })
+            .into())
         );
     }
 
@@ -129,12 +131,13 @@ mod tests {
         // The value column and extra arguments are supplied in parentheses after the function name.
         assert_eq!(
             parse(r"%%(account\p date\sd)%lag(balance 1 0)"),
-            Ok(Expr::Window(WindowFn {
+            Ok(ExprKind::Window(WindowFn {
+                function_loc: Loc::NONE,
                 function: "lag".to_string(),
                 args: vec![
                     col("balance"),
-                    Expr::Number("1".to_string()),
-                    Expr::Number("0".to_string())
+                    ExprKind::Number("1".to_string()).into(),
+                    ExprKind::Number("0".to_string()).into()
                 ],
                 partition_by: vec![col("account")],
                 order_by: vec![SortExpr {
@@ -142,14 +145,19 @@ mod tests {
                     direction: SortDirection::Desc,
                     nulls_sort: NullsSort::Last,
                 }],
-            }))
+            })
+            .into())
         );
     }
 
     #[test]
     fn test_window_order_by_ordinals() {
         // Ordering entries are placed by their `\s` ordinals; an unflagged entry partitions.
-        let Ok(Expr::Window(window)) = parse(r"%%(a b\s2 c\s1)%row_number") else {
+        let Ok(Expr {
+            kind: ExprKind::Window(window),
+            ..
+        }) = parse(r"%%(a b\s2 c\s1)%row_number")
+        else {
             panic!("expected a window expression");
         };
         assert_eq!(window.partition_by, vec![col("a")]);
@@ -161,6 +169,12 @@ mod tests {
     fn test_window_used_in_comparison() {
         // A window function can be the left-hand side of a comparison (used to filter on it).
         let result = parse(r"%%(project\p created_at\sd)%row_number:1");
-        assert!(matches!(result, Ok(Expr::Comparison(_))));
+        assert!(matches!(
+            result,
+            Ok(Expr {
+                kind: ExprKind::Comparison(_),
+                ..
+            })
+        ));
     }
 }

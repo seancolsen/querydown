@@ -247,6 +247,7 @@ impl Walker<'_> {
         let earlier_stages = Query {
             definitions,
             base_table: query.base_table.clone(),
+            base_table_loc: query.base_table_loc,
             transformations: query.transformations[..index].to_vec(),
         };
         virtual_table(self.compiler, earlier_stages)
@@ -387,9 +388,9 @@ impl Walker<'_> {
 
     /// `condition` means that `expr` stands as a condition (or the left side of a comparison).
     fn expr(&self, expr: &Expr, env: &Env, condition: bool) -> Option<Found> {
-        match expr {
-            Expr::Number(_) | Expr::Date(_) | Expr::Duration(_) => None,
-            Expr::String(s) if is_sentinel(s) => match env.rhs {
+        match &expr.kind {
+            ExprKind::Number(_) | ExprKind::Date(_) | ExprKind::Duration(_) => None,
+            ExprKind::String(s) if is_sentinel(s) => match env.rhs {
                 true => env.found(Target::Nothing),
                 // A search term.
                 false => env.found(Target::Column {
@@ -397,23 +398,23 @@ impl Walker<'_> {
                     condition: true,
                 }),
             },
-            Expr::String(_) => None,
-            Expr::Variable(name) if is_sentinel(name) => env.found(Target::Variable),
-            Expr::Variable(_) => None,
-            Expr::Path(parts) => self.path(parts, env, condition),
-            Expr::ConditionSet(set) => match env.rhs {
+            ExprKind::String(_) => None,
+            ExprKind::Variable(name) if is_sentinel(name) => env.found(Target::Variable),
+            ExprKind::Variable(_) => None,
+            ExprKind::Path(parts) => self.path(parts, env, condition),
+            ExprKind::ConditionSet(set) => match env.rhs {
                 true => set.entries.iter().find_map(|e| self.expr(e, env, false)),
                 false => self.entries(&set.entries, env),
             },
-            Expr::ScopedConditionSet(scoped) => {
+            ExprKind::ScopedConditionSet(scoped) => {
                 if let Some(found) = self.path(&scoped.path, env, false) {
                     return Some(found);
                 }
                 let env = env.with_table(self.follow(&env.table, &scoped.path));
                 self.entries(&scoped.condition_set.entries, &env)
             }
-            Expr::HasQuantity(has) => self.path(&has.path_parts, env, false),
-            Expr::Case(case) => case
+            ExprKind::HasQuantity(has) => self.path(&has.path_parts, env, false),
+            ExprKind::Case(case) => case
                 .variants
                 .iter()
                 .find_map(|variant| {
@@ -421,14 +422,14 @@ impl Walker<'_> {
                         .or_else(|| self.expr(&variant.value, env, false))
                 })
                 .or_else(|| self.expr(&case.fallback, env, false)),
-            Expr::Call(call) => self.call(call, env),
-            Expr::Product(a, b)
-            | Expr::Quotient(a, b)
-            | Expr::Sum(a, b)
-            | Expr::Difference(a, b) => self
+            ExprKind::Call(call) => self.call(call, env),
+            ExprKind::Product(a, b)
+            | ExprKind::Quotient(a, b)
+            | ExprKind::Sum(a, b)
+            | ExprKind::Difference(a, b) => self
                 .expr(a, env, false)
                 .or_else(|| self.expr(b, env, false)),
-            Expr::Comparison(comparison) => {
+            ExprKind::Comparison(comparison) => {
                 let left = Env {
                     rhs: false,
                     ..env.clone()
@@ -440,8 +441,8 @@ impl Walker<'_> {
                 self.comparison_side(&comparison.left, &left, true)
                     .or_else(|| self.comparison_side(&comparison.right, &right, false))
             }
-            Expr::Not(inner) => self.expr(inner, env, condition),
-            Expr::Window(window) => {
+            ExprKind::Not(inner) => self.expr(inner, env, condition),
+            ExprKind::Window(window) => {
                 if is_sentinel(&window.function) {
                     return env.found(Target::WindowFunction);
                 }
@@ -452,7 +453,7 @@ impl Walker<'_> {
                     .chain(window.order_by.iter().map(|sort| &sort.expr))
                     .find_map(|e| self.expr(e, env, false))
             }
-            Expr::AnonymousFunctionCall(call) => {
+            ExprKind::AnonymousFunctionCall(call) => {
                 if let Some(found) = call.args.iter().find_map(|e| self.expr(e, env, false)) {
                     return Some(found);
                 }
@@ -464,7 +465,7 @@ impl Walker<'_> {
                 env.locals.extend(call.params.iter().cloned());
                 self.function_body(&call.body, env)
             }
-            Expr::Subquery(query) => self.query(query, &[]),
+            ExprKind::Subquery(query) => self.query(query, &[]),
         }
     }
 
@@ -493,11 +494,11 @@ impl Walker<'_> {
         }
         // An aggregate's sorting entries are evaluated from the first `#` table of the aggregated
         // path, or from the current table when there is none.
-        let sort_table = match call.args.first() {
-            Some(Expr::Path(parts)) => {
+        let sort_table = match call.args.first().map(|arg| &arg.kind) {
+            Some(ExprKind::Path(parts)) => {
                 match parts
                     .iter()
-                    .position(|part| matches!(part, PathPart::TableWithMany(_)))
+                    .position(|part| matches!(part.kind, PathPartKind::TableWithMany(_)))
                 {
                     Some(index) => self.follow(&env.table, &parts[..=index]),
                     None => env.table.clone(),
@@ -516,17 +517,17 @@ impl Walker<'_> {
     fn path(&self, parts: &[PathPart], env: &Env, condition: bool) -> Option<Found> {
         let mut table = env.table.clone();
         for part in parts {
-            match part {
-                PathPart::Column(name) if is_sentinel(name) => {
+            match &part.kind {
+                PathPartKind::Column(name) if is_sentinel(name) => {
                     return env.found(Target::Column { table, condition });
                 }
-                PathPart::TableWithOne(name) if is_sentinel(name) => {
+                PathPartKind::TableWithOne(name) if is_sentinel(name) => {
                     return env.found(Target::Table { from: table });
                 }
-                PathPart::TableWithMany(many) if is_sentinel(&many.table) => {
+                PathPartKind::TableWithMany(many) if is_sentinel(&many.table) => {
                     return env.found(Target::Table { from: table });
                 }
-                PathPart::TableWithMany(many) => {
+                PathPartKind::TableWithMany(many) => {
                     let target = self.schema_table(&many.table);
                     if many.linking_column.as_deref().is_some_and(is_sentinel) {
                         return env.found(Target::LinkingColumn {
@@ -565,8 +566,8 @@ pub(super) fn follow_path(compiler: &Compiler, table: TableCtx, parts: &[PathPar
             .resolve_table(name)
             .map_or(TableCtx::Unknown, TableCtx::Schema)
     };
-    parts.iter().fold(table, |table, part| match part {
-        PathPart::Column(name) => {
+    parts.iter().fold(table, |table, part| match &part.kind {
+        PathPartKind::Column(name) => {
             let TableCtx::Schema(table_id) = table else {
                 return TableCtx::Unknown;
             };
@@ -579,8 +580,8 @@ pub(super) fn follow_path(compiler: &Compiler, table: TableCtx, parts: &[PathPar
                     TableCtx::Schema(link.get_end().table_id)
                 })
         }
-        PathPart::TableWithOne(name) => schema_table(name),
-        PathPart::TableWithMany(many) => schema_table(&many.table),
+        PathPartKind::TableWithOne(name) => schema_table(name),
+        PathPartKind::TableWithMany(many) => schema_table(&many.table),
     })
 }
 
@@ -601,6 +602,7 @@ pub(super) fn base_table_ctx(
             Query {
                 definitions: definitions.clone(),
                 base_table: name.to_string(),
+                base_table_loc: Loc::NONE,
                 transformations: vec![],
             },
         );

@@ -5,6 +5,7 @@ use crate::{
     schema::{links::Link, Table, ValueType},
     sql::expr::build::*,
     sql::tree::{CtePurpose, SqlExpr},
+    Error,
 };
 
 use super::{
@@ -19,33 +20,41 @@ use super::{
     typing::infer_type,
 };
 
-/// Convert a Querydown expression to an SQL expression
-pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
-    match expr {
-        Expr::Number(n) => Ok(SqlExpr::atom(n)),
-        Expr::Date(d) => Ok(SqlExpr::atom(scope.options.dialect.date(&d))),
-        Expr::Duration(d) => Ok(SqlExpr::atom(scope.options.dialect.duration(&d))),
-        Expr::String(s) => Ok(SqlExpr::atom(scope.options.dialect.quote_string(&s))),
-        Expr::Variable(v) => convert_variable(&v, scope),
-        Expr::Path(p) => convert_path(p, scope),
-        Expr::ConditionSet(cs) => convert_condition_set(cs, scope),
-        Expr::ScopedConditionSet(s) => convert_scoped_condition_set(s, scope),
-        Expr::HasQuantity(h) => convert_has_quantity(h, scope),
-        Expr::Case(c) => convert_case(c, scope),
-        Expr::Call(c) => convert_call(c, scope),
-        Expr::Product(a, b) => Ok(math::multiply(
+/// Convert a Querydown expression to an SQL expression.
+///
+/// An error that arises while converting the expression and isn't otherwise located (by something
+/// more specific within it) is located at the expression.
+pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let loc = expr.loc;
+    convert_expr_kind(expr.kind, loc, scope).map_err(|err| err.or_at(loc))
+}
+
+fn convert_expr_kind(kind: ExprKind, loc: Loc, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    match kind {
+        ExprKind::Number(n) => Ok(SqlExpr::atom(n)),
+        ExprKind::Date(d) => Ok(SqlExpr::atom(scope.options.dialect.date(&d))),
+        ExprKind::Duration(d) => Ok(SqlExpr::atom(scope.options.dialect.duration(&d))),
+        ExprKind::String(s) => Ok(SqlExpr::atom(scope.options.dialect.quote_string(&s))),
+        ExprKind::Variable(v) => convert_variable(&v, scope),
+        ExprKind::Path(p) => convert_path(p, scope),
+        ExprKind::ConditionSet(cs) => convert_condition_set(cs, scope),
+        ExprKind::ScopedConditionSet(s) => convert_scoped_condition_set(s, scope),
+        ExprKind::HasQuantity(h) => convert_has_quantity(h, loc, scope),
+        ExprKind::Case(c) => convert_case(c, scope),
+        ExprKind::Call(c) => convert_call(c, scope),
+        ExprKind::Product(a, b) => Ok(math::multiply(
             convert_expr(*a, scope)?,
             convert_expr(*b, scope)?,
         )),
-        Expr::Quotient(a, b) => Ok(math::divide(
+        ExprKind::Quotient(a, b) => Ok(math::divide(
             convert_expr(*a, scope)?,
             convert_expr(*b, scope)?,
         )),
-        Expr::Sum(a, b) => Ok(math::add(
+        ExprKind::Sum(a, b) => Ok(math::add(
             convert_expr(*a, scope)?,
             convert_expr(*b, scope)?,
         )),
-        Expr::Difference(a, b) => {
+        ExprKind::Difference(a, b) => {
             // Subtracting two temporal values whose zone-ness differs (e.g. `@now` minus a naive
             // `timestamp` column) needs reconciling for dialects that can't mix the two.
             let left_zone = TemporalZone::of(&infer_type(&a, scope));
@@ -59,15 +68,15 @@ pub fn convert_expr(expr: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
             );
             Ok(math::subtract(left, right))
         }
-        Expr::Comparison(c) => convert_comparison(*c, scope),
-        Expr::Not(e) => Ok(cond::not(convert_expr(*e, scope)?)),
-        Expr::Window(w) => super::window::convert_window(w, scope),
-        Expr::AnonymousFunctionCall(c) => convert_anonymous_function_call(*c, scope),
-        Expr::Subquery(q) => super::convert_subquery(*q, scope),
+        ExprKind::Comparison(c) => convert_comparison(*c, scope),
+        ExprKind::Not(e) => Ok(cond::not(convert_expr(*e, scope)?)),
+        ExprKind::Window(w) => super::window::convert_window(w, scope),
+        ExprKind::AnonymousFunctionCall(c) => convert_anonymous_function_call(*c, scope),
+        ExprKind::Subquery(q) => super::convert_subquery(*q, scope),
     }
 }
 
-fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let sql = match variable {
         VAR_NOW => now_operand(scope.options.dialect.as_ref()).0,
         VAR_INFINITY => value::infinity(),
@@ -95,7 +104,7 @@ fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, String
     Ok(SqlExpr::atom(sql.to_string()))
 }
 
-fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let prefixed_parts = scope.prefixed(&parts);
     // If the path names a computed column, substitute its definition, evaluated relative to the
     // table that hosts it (the head of the path).
@@ -140,9 +149,16 @@ fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Stri
 pub(super) fn resolve_computed_column(
     parts: &[PathPart],
     scope: &Scope,
-) -> Result<Option<(Vec<PathPart>, Expr, Expansion)>, String> {
+) -> Result<Option<(Vec<PathPart>, Expr, Expansion)>, Error> {
     // Only a trailing plain column can name a computed column.
-    let Some((PathPart::Column(name), head_parts)) = parts.split_last() else {
+    let Some((
+        PathPart {
+            kind: PathPartKind::Column(name),
+            ..
+        },
+        head_parts,
+    )) = parts.split_last()
+    else {
         return Ok(None);
     };
     // Determine the table hosting the computed column. Only the base table (empty head) or a single
@@ -183,7 +199,7 @@ pub(super) fn convert_expr_with_path_prefix(
     expr: Expr,
     path_prefix: Vec<PathPart>,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let saved = std::mem::replace(&mut scope.path_prefix, path_prefix);
     let result = convert_expr(expr, scope);
     scope.path_prefix = saved;
@@ -201,19 +217,16 @@ pub(super) fn convert_expr_with_path_prefix(
 fn convert_scoped_condition_set(
     scoped: ScopedConditionSet,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let extended_prefix = scope.prefixed(&scoped.path);
-    convert_expr_with_path_prefix(
-        Expr::ConditionSet(scoped.condition_set),
-        extended_prefix,
-        scope,
-    )
+    let condition_set = ExprKind::ConditionSet(scoped.condition_set).into();
+    convert_expr_with_path_prefix(condition_set, extended_prefix, scope)
 }
 
 pub fn convert_condition_set(
     condition_set: ConditionSet,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let conditions = condition_set
         .entries
         .into_iter()
@@ -226,19 +239,21 @@ pub fn convert_condition_set(
 ///
 /// A bare string standing alone as a boolean condition is a default text search term. The parser
 /// produces this for an unquoted bare word as well as a quoted string (see the `condition_entry`
-/// parser); a backtick-quoted identifier remains an `Expr::Path` and so is treated as an ordinary
-/// column reference here.
+/// parser); a backtick-quoted identifier remains an `ExprKind::Path` and so is treated as an
+/// ordinary column reference here.
 ///
-/// A `!`-prefixed search term (`!backend`) arrives as an `Expr::Not` wrapping the string. The `Not`
+/// A `!`-prefixed search term (`!backend`) arrives as an `ExprKind::Not` wrapping the string. The `Not`
 /// layers are peeled recursively so the search interpretation still reaches the inner term (and
 /// repeated negation like `!!backend` works). Every other entry — including `Not` of a non-search
 /// expression such as a negated column or condition set — falls through to `convert_expr` unchanged.
-fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr, String> {
-    match entry {
-        Expr::String(term) => convert_default_text_search(term, scope),
-        Expr::Not(inner) => Ok(cond::not(convert_condition_set_entry(*inner, scope)?)),
-        entry => convert_expr(entry, scope),
+fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let loc = entry.loc;
+    match entry.kind {
+        ExprKind::String(term) => convert_default_text_search(term, loc, scope),
+        ExprKind::Not(inner) => Ok(cond::not(convert_condition_set_entry(*inner, scope)?)),
+        kind => convert_expr(Expr::new(kind, loc), scope),
     }
+    .map_err(|err| err.or_at(loc))
 }
 
 /// Compiles a default text search for `term` against the scope's current table — the base table, or,
@@ -251,7 +266,18 @@ fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr
 /// Every column reference and custom-comparison lookup produced here flows back through the ordinary
 /// comparison machinery, which applies the scope's `path_prefix`, so the search lands on the scoped
 /// table's columns (e.g. `issue{dashboard}` searches `issue.title`, `issue.description`, …).
-fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExpr, String> {
+///
+/// The expressions synthesized for the search are all located at the search term, `loc`.
+fn convert_default_text_search(
+    term: String,
+    loc: Loc,
+    scope: &mut Scope,
+) -> Result<SqlExpr, Error> {
+    let column = |name: String| {
+        let path = vec![PathPart::new(PathPartKind::Column(name), loc)];
+        ComparisonSide::Expr(Expr::new(ExprKind::Path(path), loc))
+    };
+    let search_term = || ComparisonSide::Expr(Expr::new(ExprKind::String(term.clone()), loc));
     let table = get_prefix_table(scope)?;
     let table_name = table.name.clone();
 
@@ -261,11 +287,9 @@ fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExp
         .is_some()
     {
         let comparison = Comparison {
-            left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                DEFAULT_TEXT_SEARCH_COMPARISON_NAME.to_string(),
-            )])),
+            left: column(DEFAULT_TEXT_SEARCH_COMPARISON_NAME.to_string()),
             operator: Operator::Match,
-            right: ComparisonSide::Expr(Expr::String(term)),
+            right: search_term(),
         };
         return convert_comparison(comparison, scope);
     }
@@ -284,11 +308,12 @@ fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExp
     let entries = text_columns
         .into_iter()
         .map(|(_, column_name)| {
-            Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(column_name)])),
+            let comparison = Comparison {
+                left: column(column_name),
                 operator: Operator::Match,
-                right: ComparisonSide::Expr(Expr::String(term.clone())),
-            }))
+                right: search_term(),
+            };
+            Expr::new(ExprKind::Comparison(Box::new(comparison)), loc)
         })
         .collect();
     convert_condition_set(ConditionSet::via_or(entries), scope)
@@ -296,12 +321,13 @@ fn convert_default_text_search(term: String, scope: &mut Scope) -> Result<SqlExp
 
 /// The table that the scope's current `path_prefix` resolves to: the base table when there is no
 /// prefix, or the single related record the prefix leads to. Used to scope a default text search to
-/// the right table. Errors if the prefix does not lead to exactly one related record (e.g. it ends
-/// at a column, or traverses a to-many relationship).
-fn get_prefix_table<'a>(scope: &'a Scope) -> Result<&'a Table, String> {
-    if scope.path_prefix.is_empty() {
+/// the right table. Errors (at the prefix) if the prefix does not lead to exactly one related record
+/// (e.g. it ends at a column, or traverses a to-many relationship).
+fn get_prefix_table<'a>(scope: &'a Scope) -> Result<&'a Table, Error> {
+    let (Some(first), Some(last)) = (scope.path_prefix.first(), scope.path_prefix.last()) else {
         return Ok(scope.get_base_table());
-    }
+    };
+    let prefix_loc = first.loc.to(last.loc);
     let clarified = clarify_path(scope.path_prefix.clone(), scope)?;
     match (clarified.head, clarified.tail) {
         (Some(chain_to_one), None) => Ok(scope
@@ -309,11 +335,11 @@ fn get_prefix_table<'a>(scope: &'a Scope) -> Result<&'a Table, String> {
             .tables
             .get(&chain_to_one.get_ending_table_id())
             .unwrap()),
-        _ => Err(msg::scope_is_not_a_single_related_record()),
+        _ => Err(msg::scope_is_not_a_single_related_record().at(prefix_loc)),
     }
 }
 
-fn convert_case(case: Case, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn convert_case(case: Case, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let mut variants = Vec::with_capacity(case.variants.len());
     for variant in case.variants {
         let condition = convert_expr(variant.condition, scope)?;
@@ -324,13 +350,18 @@ fn convert_case(case: Case, scope: &mut Scope) -> Result<SqlExpr, String> {
     Ok(cond::case(variants, fallback))
 }
 
-fn convert_has_quantity(has_quantity: HasQuantity, scope: &mut Scope) -> Result<SqlExpr, String> {
+/// Compiles `++path` or `--path` (written at `loc`) as a comparison of the count of related records.
+fn convert_has_quantity(
+    has_quantity: HasQuantity,
+    loc: Loc,
+    scope: &mut Scope,
+) -> Result<SqlExpr, Error> {
     let operator = match has_quantity.quantity {
         Quantity::AtLeastOne => Operator::Gt,
         Quantity::Zero => Operator::Eq,
     };
     let comparison = Comparison {
-        left: ComparisonSide::Expr(Expr::Path(has_quantity.path_parts)),
+        left: ComparisonSide::Expr(Expr::new(ExprKind::Path(has_quantity.path_parts), loc)),
         operator,
         right: ComparisonSide::Expr(Expr::zero()),
     };

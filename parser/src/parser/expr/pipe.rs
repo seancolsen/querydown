@@ -17,10 +17,13 @@ fn agg_sort_expr<'src>(expr_parser: impl Psr<'src, Expr>) -> impl Psr<'src, Aggr
         .then(pad().ignore_then(sort_flags()).or_not())
         .map(|(expr, flags)| (AggregateSortKey::Expr(expr), flags.unwrap_or_default()));
     let value_entry = value_sort_flags().map(|flags| (AggregateSortKey::Value, flags));
-    choice((expr_entry, value_entry)).map(|(key, (direction, nulls_sort))| AggregateSortExpr {
-        key,
-        direction,
-        nulls_sort,
+    choice((expr_entry, value_entry)).map_with(|(key, (direction, nulls_sort)), extra| {
+        AggregateSortExpr {
+            key,
+            direction,
+            nulls_sort,
+            loc: loc(extra),
+        }
     })
 }
 
@@ -46,6 +49,7 @@ enum PipeStep {
     Call {
         dimension: FunctionDimension,
         name: String,
+        name_loc: Loc,
         extra_args: Vec<Expr>,
         order_by: Vec<AggregateSortExpr>,
     },
@@ -119,33 +123,40 @@ pub fn pipe<'src>(
             extra_args: extra_args.unwrap_or_default(),
         });
 
-    let scalar_call = just(COMPOSITION_PIPE_SCALAR)
-        .padded_by(pad())
-        .ignore_then(mark(
-            TokenKind::Function,
-            ident().labelled(labels::FUNCTION_NAME),
+    let scalar_call = pad()
+        .ignore_then(with_loc(
+            just(COMPOSITION_PIPE_SCALAR).then(pad()).ignore_then(mark(
+                TokenKind::Function,
+                ident().labelled(labels::FUNCTION_NAME),
+            )),
         ))
         .then(scalar_args.or_not())
-        .map(|(name, extra_args)| PipeStep::Call {
+        .map(|((name, name_loc), extra_args)| PipeStep::Call {
             dimension: FunctionDimension::Scalar,
             name: name.to_string(),
+            name_loc,
             extra_args: extra_args.unwrap_or_default(),
             order_by: vec![],
         });
 
+    // The aggregate function's name, located along with the `%` before it.
     let aggregate_name = || {
-        mark(
-            TokenKind::AggregateFunction,
-            ident().labelled(labels::AGGREGATE_FUNCTION_NAME),
+        with_loc(
+            just(COMPOSITION_PIPE_AGGREGATE)
+                .then(pad())
+                .ignore_then(mark(
+                    TokenKind::AggregateFunction,
+                    ident().labelled(labels::AGGREGATE_FUNCTION_NAME),
+                )),
         )
     };
-    let aggregate_call = just(COMPOSITION_PIPE_AGGREGATE)
-        .padded_by(pad())
+    let aggregate_call = pad()
         .ignore_then(aggregate_name())
         .then(aggregate_order_by(extra_args_expr.clone()).or_not())
-        .map(|(name, order_by)| PipeStep::Call {
+        .map(|((name, name_loc), order_by)| PipeStep::Call {
             dimension: FunctionDimension::Aggregate,
             name: name.to_string(),
+            name_loc,
             extra_args: vec![],
             order_by: order_by.unwrap_or_default(),
         });
@@ -153,48 +164,58 @@ pub fn pipe<'src>(
     // A standalone (leading) aggregate, e.g. `%count`, which has no `arg0` to its left. This is how
     // `count(*)` is written. It produces a [`Call`] with an empty `args` vector, distinguishing it
     // from a piped aggregate like `created_at%max` whose `args` contains the piped-in expression.
-    let leading_aggregate = just(COMPOSITION_PIPE_AGGREGATE)
-        .padded_by(pad())
-        .ignore_then(aggregate_name())
-        .then(aggregate_order_by(extra_args_expr).or_not())
-        .map(|(name, order_by)| {
-            Expr::Call(Call {
-                name: name.to_string(),
-                dimension: FunctionDimension::Aggregate,
-                syntax: CallSyntax::Piped,
-                args: vec![],
-                order_by: order_by.unwrap_or_default(),
-            })
-        });
+    let leading_aggregate = pad().ignore_then(located(
+        aggregate_name()
+            .then(aggregate_order_by(extra_args_expr).or_not())
+            .map(|((name, name_loc), order_by)| {
+                ExprKind::Call(Call {
+                    name: name.to_string(),
+                    name_loc,
+                    dimension: FunctionDimension::Aggregate,
+                    syntax: CallSyntax::Piped,
+                    args: vec![],
+                    order_by: order_by.unwrap_or_default(),
+                })
+            }),
+    ));
 
     // `anonymous_call` is tried before `scalar_call` because both begin with `|`; they diverge only
     // after the pipe (`(` for an anonymous function versus an identifier for a named function).
+    //
+    // Each application is located from the start of the piped-in value to the end of the step.
     choice((leading_aggregate, arg0_expr)).foldl(
-        choice((anonymous_call, scalar_call, aggregate_call)).repeated(),
-        |arg0, step| match step {
-            PipeStep::Call {
-                dimension,
-                name,
-                extra_args,
-                order_by,
-            } => {
-                let args = std::iter::once(arg0).chain(extra_args).collect();
-                Expr::Call(Call {
-                    name,
+        with_loc(choice((anonymous_call, scalar_call, aggregate_call))).repeated(),
+        |arg0, (step, step_loc)| {
+            let loc = arg0.loc.to(step_loc);
+            let kind = match step {
+                PipeStep::Call {
                     dimension,
-                    syntax: CallSyntax::Piped,
-                    args,
+                    name,
+                    name_loc,
+                    extra_args,
                     order_by,
-                })
-            }
-            PipeStep::AnonymousFn {
-                params,
-                body,
-                extra_args,
-            } => {
-                let args = std::iter::once(arg0).chain(extra_args).collect();
-                Expr::AnonymousFunctionCall(Box::new(AnonymousFunctionCall { params, body, args }))
-            }
+                } => {
+                    let args = std::iter::once(arg0).chain(extra_args).collect();
+                    ExprKind::Call(Call {
+                        name,
+                        name_loc,
+                        dimension,
+                        syntax: CallSyntax::Piped,
+                        args,
+                        order_by,
+                    })
+                }
+                PipeStep::AnonymousFn {
+                    params,
+                    body,
+                    extra_args,
+                } => {
+                    let args = std::iter::once(arg0).chain(extra_args).collect();
+                    let call = AnonymousFunctionCall { params, body, args };
+                    ExprKind::AnonymousFunctionCall(Box::new(call))
+                }
+            };
+            Expr::new(kind, loc)
         },
     )
 }
@@ -214,13 +235,16 @@ mod tests {
 
     fn order_by(input: &str) -> Vec<AggregateSortExpr> {
         match parse(input) {
-            Ok(Expr::Call(call)) => call.order_by,
+            Ok(Expr {
+                kind: ExprKind::Call(call),
+                ..
+            }) => call.order_by,
             other => panic!("expected a call for {input}, got {other:?}"),
         }
     }
 
     fn col(name: &str) -> Expr {
-        Expr::Path(vec![PathPart::Column(name.to_string())])
+        ExprKind::Path(vec![PathPartKind::Column(name.to_string()).into()]).into()
     }
 
     fn sort(
@@ -229,6 +253,7 @@ mod tests {
         nulls: NullsSort,
     ) -> AggregateSortExpr {
         AggregateSortExpr {
+            loc: Loc::NONE,
             key,
             direction,
             nulls_sort: nulls,
@@ -268,7 +293,7 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert!(matches!(
             &entries[0].key,
-            AggregateSortKey::Expr(Expr::Call(Call { name, .. })) if name == "count"
+            AggregateSortKey::Expr(Expr { kind: ExprKind::Call(Call { name, .. }), .. }) if name == "count"
         ));
     }
 

@@ -26,7 +26,7 @@ use crate::{
         expr::{build::cmp, SqlExpr},
         tree::{Column, Cte, CtePurpose, JoinType, Select},
     },
-    Dialect,
+    Dialect, Error,
 };
 
 /// Wraps a resolved `table.column` expression and a pre-rendered `ORDER BY` clause into an
@@ -86,7 +86,7 @@ impl AggregateExprTemplate {
     }
 }
 
-pub fn render_order_by(order_by: Vec<SortExpr>, scope: &mut Scope) -> Result<String, String> {
+pub fn render_order_by(order_by: Vec<SortExpr>, scope: &mut Scope) -> Result<String, Error> {
     let mut parts = Vec::with_capacity(order_by.len());
     for sort_expr in order_by {
         let sql_expr = convert_expr(sort_expr.expr, scope)?;
@@ -104,7 +104,7 @@ pub fn build_cte_select(
     aggregate_expr_template_opt: Option<AggregateExprTemplate>,
     parent_scope: &Scope,
     purpose: CtePurpose,
-) -> Result<ValueViaCte, String> {
+) -> Result<ValueViaCte, Error> {
     let schema = parent_scope.schema;
     let mut links_iter = chain.into_iter();
     let first_link = links_iter.next().unwrap();
@@ -263,7 +263,7 @@ fn aggregated_value(
     alias: &str,
     select: &mut Select,
     cte_scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     if let Some(column_id) = cte_scope
         .options
         .resolve_identifier(&table.column_lookup, column_name)
@@ -311,7 +311,7 @@ fn build_distinct_list_select(
     sorts: Vec<ResolvedSort>,
     mode: ListMode,
     scope: &mut Scope,
-) -> Result<ValueViaCte, String> {
+) -> Result<ValueViaCte, Error> {
     let inner_alias = scope.get_alias(DISTINCT_VALUES_CTE_ALIAS);
     inner.columns.push(Column::new(
         value.clone(),
@@ -334,7 +334,7 @@ fn build_distinct_list_select(
                     }
                     // `compile_aggregate` rejects row-level sort keys before requesting a two-level
                     // list.
-                    SortKey::Row(_) => return Err(msg::list_sorted_by_row_expr()),
+                    SortKey::Row(_) => return Err(msg::list_sorted_by_row_expr().at(sort.loc)),
                 };
                 order_by.push(render_sort_entry(&expr, &sort.direction, &sort.nulls_sort));
             }
@@ -348,7 +348,7 @@ fn build_distinct_list_select(
                     SortKey::Aggregated(sql) => sql,
                     // `compile_aggregate` rejects row-level sort keys before requesting a two-level
                     // list.
-                    SortKey::Row(_) => return Err(msg::top_sorted_by_row_expr()),
+                    SortKey::Row(_) => return Err(msg::top_sorted_by_row_expr().at(sort.loc)),
                 };
                 order_by.push(render_sort_entry(&expr, &sort.direction, &sort.nulls_sort));
             }

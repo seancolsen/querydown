@@ -1,7 +1,130 @@
+use std::fmt;
+
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Serialize, Serializer};
 
+use crate::error::{Position, Section, Span};
 use crate::tokens::LITERAL_NULL;
+
+/// Where a syntax tree node was written in the source: its [`Span`], plus the [`Section`] of the
+/// query whose text that span is relative to (for a query parsed in sections).
+///
+/// A node that wasn't parsed from source — e.g. one assembled by a consumer, or synthesized by the
+/// compiler — has no location ([`Loc::NONE`]). The compiler uses locations to report where a
+/// compile error is.
+///
+/// Locations are metadata about a tree rather than part of its meaning, so **all locations compare
+/// equal**: two trees are equal when they say the same thing, wherever and however they were
+/// written.
+///
+/// Every node of a tree has a location, so they are stored compactly (in 32-bit numbers, which
+/// limits a located source to 4 GiB).
+#[derive(Clone, Copy, Default)]
+pub struct Loc(Option<CompactSpan>);
+
+#[derive(Clone, Copy)]
+struct CompactSpan {
+    start: CompactPosition,
+    end: CompactPosition,
+    section: Option<Section>,
+}
+
+#[derive(Clone, Copy)]
+struct CompactPosition {
+    offset: u32,
+    line: u32,
+    column: u32,
+}
+
+impl From<Position> for CompactPosition {
+    fn from(position: Position) -> Self {
+        let compact = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        CompactPosition {
+            offset: compact(position.offset),
+            line: compact(position.line),
+            column: compact(position.column),
+        }
+    }
+}
+
+impl From<CompactPosition> for Position {
+    fn from(position: CompactPosition) -> Self {
+        Position {
+            offset: position.offset as usize,
+            line: position.line as usize,
+            column: position.column as usize,
+        }
+    }
+}
+
+impl Loc {
+    /// The location of a node that wasn't written in the source.
+    pub const NONE: Loc = Loc(None);
+
+    pub fn new(span: Span, section: Option<Section>) -> Self {
+        Loc(Some(CompactSpan {
+            start: span.start.into(),
+            end: span.end.into(),
+            section,
+        }))
+    }
+
+    pub fn span(&self) -> Option<Span> {
+        self.0.map(|compact| Span {
+            start: compact.start.into(),
+            end: compact.end.into(),
+        })
+    }
+
+    /// The section of the query that [`span`](Self::span) is relative to, or `None` for a whole
+    /// query (or a node with no location).
+    pub fn section(&self) -> Option<Section> {
+        self.0.and_then(|compact| compact.section)
+    }
+
+    /// The location from the start of `self` to the end of `end`, e.g. covering both operands of a
+    /// binary operator. If either has no location, this is the other's.
+    pub fn to(self, end: Loc) -> Loc {
+        match (self.0, end.0) {
+            (Some(start), Some(end)) => Loc(Some(CompactSpan {
+                end: end.end,
+                ..start
+            })),
+            (Some(_), None) => self,
+            (None, _) => end,
+        }
+    }
+}
+
+impl PartialEq for Loc {
+    /// Always true; see the [type documentation](Loc).
+    fn eq(&self, _: &Loc) -> bool {
+        true
+    }
+}
+
+impl fmt::Debug for Loc {
+    /// A compact `line:column-line:column` form, to keep the debug output of a tree readable.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Some(CompactSpan {
+            start,
+            end,
+            section,
+        }) = self.0
+        else {
+            return f.write_str("Loc(none)");
+        };
+        write!(
+            f,
+            "Loc({}:{}-{}:{}",
+            start.line, start.column, end.line, end.column
+        )?;
+        if let Some(section) = section {
+            write!(f, " in {section:?}")?;
+        }
+        f.write_str(")")
+    }
+}
 
 /// A value in Querydown's JSON-like annotation sub-language. Used to carry arbitrary,
 /// application-defined annotations for result columns from the source code through to the compiler
@@ -10,7 +133,7 @@ use crate::tokens::LITERAL_NULL;
 pub enum AnnotationValue {
     Null,
     Bool(bool),
-    /// The number is kept as a string (like [`Expr::Number`]) so that we preserve the exact way it
+    /// The number is kept as a string (like [`ExprKind::Number`]) so that we preserve the exact way it
     /// was written. It is serialized as a JSON number.
     Number(String),
     String(String),
@@ -57,6 +180,8 @@ pub struct Query {
     /// tables) written before the base table.
     pub definitions: Definitions,
     pub base_table: String,
+    /// Where the base table was named (e.g. `#issues`).
+    pub base_table_loc: Loc,
     pub transformations: Vec<Transformation>,
 }
 
@@ -71,6 +196,7 @@ impl Query {
     ///
     /// The base table is supplied separately because it is not part of any of the four sections; in
     /// a multi-input UI it is typically chosen on its own (e.g. via a dropdown) rather than typed.
+    /// It therefore has no location.
     pub fn from_parts(
         base_table: String,
         definitions: Definitions,
@@ -81,6 +207,7 @@ impl Query {
         Query {
             definitions,
             base_table,
+            base_table_loc: Loc::NONE,
             transformations: vec![Transformation {
                 conditions,
                 sorting,
@@ -127,6 +254,8 @@ pub struct TableDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComputedColumn {
     pub table: String,
+    /// Where the table was named (the `#table` before the `.`).
+    pub table_loc: Loc,
     pub name: String,
     pub expr: Expr,
 }
@@ -174,6 +303,8 @@ pub struct Assignment {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomComparisonDef {
     pub table: String,
+    /// Where the table was named (the `#table` before the `.`).
+    pub table_loc: Loc,
     pub name: String,
     /// The operator used in the definition (between the name and the parameter). Whether a call may
     /// use a different operator depends on this and on the operators used within `body`.
@@ -199,8 +330,29 @@ pub struct SortExpr {
     pub nulls_sort: NullsSort,
 }
 
+/// An expression, together with where it was written.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub struct Expr {
+    pub kind: ExprKind,
+    /// Where the whole expression was written, e.g. both operands and the operator of a sum.
+    pub loc: Loc,
+}
+
+impl Expr {
+    pub fn new(kind: ExprKind, loc: Loc) -> Self {
+        Expr { kind, loc }
+    }
+}
+
+impl From<ExprKind> for Expr {
+    /// An expression with no location.
+    fn from(kind: ExprKind) -> Self {
+        Expr::new(kind, Loc::NONE)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExprKind {
     Number(String),
     Date(Date),
     Duration(Duration),
@@ -256,6 +408,8 @@ pub struct AnonymousFunctionCall {
 pub struct WindowFn {
     /// The window function name as written, e.g. `row_number`, `sum`, `lag`.
     pub function: String,
+    /// Where the function was named (e.g. `%row_number`).
+    pub function_loc: Loc,
     /// The function's value arguments (e.g. the column for `sum`, or the column plus offset and
     /// default for `lag`). Empty for ranking functions like `row_number`.
     pub args: Vec<Expr>,
@@ -267,27 +421,28 @@ pub struct WindowFn {
 }
 
 impl Expr {
+    /// The number zero, with no location.
     pub fn zero() -> Self {
-        Expr::Number("0".to_string())
+        ExprKind::Number("0".to_string()).into()
     }
 
     pub fn is_zero(&self) -> bool {
-        match self {
-            Expr::Number(ref num) => num == "0",
+        match &self.kind {
+            ExprKind::Number(num) => num == "0",
             _ => false,
         }
     }
 
     pub fn is_null(&self) -> bool {
-        match self {
-            Expr::Variable(ref name) => name == LITERAL_NULL,
+        match &self.kind {
+            ExprKind::Variable(name) => name == LITERAL_NULL,
             _ => false,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        match self {
-            Expr::ConditionSet(condition_set) => condition_set.is_empty(),
+        match &self.kind {
+            ExprKind::ConditionSet(condition_set) => condition_set.is_empty(),
             _ => false,
         }
     }
@@ -352,8 +507,31 @@ impl Duration {
     }
 }
 
+/// One `.`-separated part of a path, together with where it was written.
 #[derive(Debug, Clone, PartialEq)]
-pub enum PathPart {
+pub struct PathPart {
+    pub kind: PathPartKind,
+    /// Where the part was written. For a `#table` part, this covers the table name and any linking
+    /// column (`#table(column)`), but not the condition set that may follow, whose entries have
+    /// locations of their own.
+    pub loc: Loc,
+}
+
+impl PathPart {
+    pub fn new(kind: PathPartKind, loc: Loc) -> Self {
+        PathPart { kind, loc }
+    }
+}
+
+impl From<PathPartKind> for PathPart {
+    /// A path part with no location.
+    fn from(kind: PathPartKind) -> Self {
+        PathPart::new(kind, Loc::NONE)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PathPartKind {
     Column(String),
     TableWithOne(String),
     TableWithMany(TableWithMany),
@@ -460,7 +638,7 @@ pub enum Conjunction {
 /// so `issue{title:dashboard}` scopes `title:dashboard` to the base record's issue (the same as
 /// `issue.title:dashboard`). Unlike prefixing the path syntactically, this scopes the _whole_
 /// condition set — including entries that have no leading column reference to prefix, most notably a
-/// bare [default text search](Expr::String) term. That is why the scoping is resolved in the
+/// bare [default text search](ExprKind::String) term. That is why the scoping is resolved in the
 /// compiler (against the related table) rather than desugared away in the parser: `issue{dashboard}`
 /// searches the issue's text columns, which has no flat-syntax equivalent.
 #[derive(Debug, Clone, PartialEq)]
@@ -501,6 +679,8 @@ pub struct CaseVariant {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Call {
     pub name: String,
+    /// Where the function was named (e.g. `|upper`, `%count`, or `@@max`).
+    pub name_loc: Loc,
     pub dimension: FunctionDimension,
     pub args: Vec<Expr>,
     pub syntax: CallSyntax,
@@ -517,6 +697,8 @@ pub struct AggregateSortExpr {
     pub key: AggregateSortKey,
     pub direction: SortDirection,
     pub nulls_sort: NullsSort,
+    /// Where the whole entry was written, including its flags.
+    pub loc: Loc,
 }
 
 /// What an [`AggregateSortExpr`] sorts by.
@@ -598,6 +780,9 @@ pub enum SortDirection {
 pub struct ColumnGlob {
     pub head: Vec<PathPart>,
     pub specs: Vec<ColumnSpec>,
+    /// Where the glob was written, from its head through the `*` (excluding the specs that may
+    /// follow, which have locations of their own).
+    pub loc: Loc,
 }
 
 #[cfg(test)]

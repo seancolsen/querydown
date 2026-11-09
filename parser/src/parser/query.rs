@@ -33,10 +33,10 @@ pub fn query<'src>() -> impl Psr<'src, Query> {
 /// subqueries). The recursive handle is threaded into the definition parsers that accept subqueries.
 fn query_body<'src>() -> impl Psr<'src, Query> {
     recursive(|query| {
-        let base_table = mark(
+        let base_table = with_loc(mark(
             TokenKind::BaseTable,
             just(TABLE_SIGIL).ignore_then(db_identifier().labelled(labels::TABLE_NAME)),
-        )
+        ))
         .labelled(labels::BASE_TABLE);
         let transformations = transformation()
             .separated_by(
@@ -49,11 +49,14 @@ fn query_body<'src>() -> impl Psr<'src, Query> {
             .then(base_table)
             .then_ignore(pad())
             .then(transformations)
-            .map(|((definitions, base_table), transformations)| Query {
-                definitions,
-                base_table,
-                transformations,
-            })
+            .map(
+                |((definitions, (base_table, base_table_loc)), transformations)| Query {
+                    definitions,
+                    base_table,
+                    base_table_loc,
+                    transformations,
+                },
+            )
     })
 }
 
@@ -143,9 +146,15 @@ fn table_subquery<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Q
         .then_ignore(just(EXPR_PAREN_R))
 }
 
-/// Parses a `#( query )` scalar subquery into an [`Expr::Subquery`].
+/// Parses a `#( query )` scalar subquery into an [`ExprKind::Subquery`].
 fn subquery<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Expr> {
-    table_subquery(query).map(|q| Expr::Subquery(Box::new(q)))
+    located(table_subquery(query).map(|q| ExprKind::Subquery(Box::new(q))))
+}
+
+/// Parses the `#table` that begins a computed column or custom comparison definition, along with
+/// its location.
+fn definition_table<'src>() -> impl Psr<'src, (String, Loc)> {
+    with_loc(just(TABLE_SIGIL).ignore_then(db_identifier()))
 }
 
 /// Parses a variable reference's name, e.g. the `date` in `@date`.
@@ -209,21 +218,24 @@ fn assignment<'src>() -> impl Psr<'src, Assignment> {
 /// only permitted before the base table — never within the query itself. The right-hand side is a
 /// single expression which may itself reference earlier computed columns.
 fn computed_column<'src>() -> impl Psr<'src, ComputedColumn> {
-    just(TABLE_SIGIL)
-        .ignore_then(db_identifier())
+    definition_table()
         .then_ignore(just(PATH_SEPARATOR))
         .then(db_identifier())
         .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
         .then(expr())
-        .map(|((table, name), expr)| ComputedColumn { table, name, expr })
+        .map(|(((table, table_loc), name), expr)| ComputedColumn {
+            table,
+            table_loc,
+            name,
+            expr,
+        })
 }
 
 /// Parses one custom comparison definition, e.g. `#issues.comment:@x = ++#comments{body:@x}`. The
 /// comparison operator (here `:`) sits between the name and the parameter, and the body — in which
 /// the parameter may be referenced — follows the `=`.
 fn custom_comparison<'src>() -> impl Psr<'src, CustomComparisonDef> {
-    just(TABLE_SIGIL)
-        .ignore_then(db_identifier())
+    definition_table()
         .then_ignore(just(PATH_SEPARATOR))
         .then(db_identifier())
         .then(comparison_operator())
@@ -232,8 +244,9 @@ fn custom_comparison<'src>() -> impl Psr<'src, CustomComparisonDef> {
         .then_ignore(pad().then(just(DEFINITION_ASSIGN)).then(pad()))
         .then(expr())
         .map(
-            |((((table, name), operator), param), body)| CustomComparisonDef {
+            |(((((table, table_loc), name), operator), param), body)| CustomComparisonDef {
                 table,
+                table_loc,
                 name,
                 operator,
                 param,
@@ -284,6 +297,7 @@ mod tests {
         assert_eq!(
             query().parse("#foo a:1 b:2 $c").into_result(),
             Ok(Query {
+                base_table_loc: Loc::NONE,
                 definitions: Definitions::default(),
                 base_table: "foo".to_string(),
                 transformations: vec![Transformation {
@@ -291,20 +305,32 @@ mod tests {
                     conditions: ConditionSet {
                         conjunction: Conjunction::And,
                         entries: vec![
-                            Expr::Comparison(Box::new(Comparison {
-                                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                                    "a".to_string()
-                                )])),
+                            ExprKind::Comparison(Box::new(Comparison {
+                                left: ComparisonSide::Expr(
+                                    ExprKind::Path(vec![
+                                        PathPartKind::Column("a".to_string()).into()
+                                    ])
+                                    .into()
+                                ),
                                 operator: Operator::Match,
-                                right: ComparisonSide::Expr(Expr::Number("1".to_string())),
-                            })),
-                            Expr::Comparison(Box::new(Comparison {
-                                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                                    "b".to_string()
-                                )])),
+                                right: ComparisonSide::Expr(
+                                    ExprKind::Number("1".to_string()).into()
+                                ),
+                            }))
+                            .into(),
+                            ExprKind::Comparison(Box::new(Comparison {
+                                left: ComparisonSide::Expr(
+                                    ExprKind::Path(vec![
+                                        PathPartKind::Column("b".to_string()).into()
+                                    ])
+                                    .into()
+                                ),
                                 operator: Operator::Match,
-                                right: ComparisonSide::Expr(Expr::Number("2".to_string())),
-                            })),
+                                right: ComparisonSide::Expr(
+                                    ExprKind::Number("2".to_string()).into()
+                                ),
+                            }))
+                            .into(),
                         ],
                     },
                     result_columns: vec![ResultColumnStatement::Spec(ColumnSpec {
@@ -315,7 +341,8 @@ mod tests {
                             is_partition_by: false,
                             is_hidden: false
                         },
-                        expr: Expr::Path(vec![PathPart::Column("c".to_string())]),
+                        expr: ExprKind::Path(vec![PathPartKind::Column("c".to_string()).into()])
+                            .into(),
                         annotation: None,
                     })],
                 }],
@@ -359,11 +386,14 @@ mod tests {
         );
         assert_eq!(
             result.definitions.computed_columns[1].expr,
-            Expr::Comparison(Box::new(Comparison {
-                left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column("age".to_string())])),
+            ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("age".to_string()).into()]).into()
+                ),
                 operator: Operator::Gte,
-                right: ComparisonSide::Expr(Expr::Number("21".to_string())),
+                right: ComparisonSide::Expr(ExprKind::Number("21".to_string()).into()),
             }))
+            .into()
         );
     }
 
@@ -379,7 +409,7 @@ mod tests {
             result.definitions.constants,
             vec![ConstantDef {
                 name: "user_id".to_string(),
-                expr: Expr::Number("1234".to_string()),
+                expr: ExprKind::Number("1234".to_string()).into(),
             }]
         );
         assert!(result.definitions.computed_columns.is_empty());
@@ -400,10 +430,11 @@ mod tests {
         assert!(func.body.assignments.is_empty());
         assert_eq!(
             func.body.expr,
-            Expr::Product(
-                Box::new(Expr::Variable("x".to_string())),
-                Box::new(Expr::Number("2".to_string())),
+            ExprKind::Product(
+                Box::new(ExprKind::Variable("x".to_string()).into()),
+                Box::new(ExprKind::Number("2".to_string()).into()),
             )
+            .into()
         );
     }
 
@@ -421,24 +452,26 @@ mod tests {
         assert_eq!(func.body.assignments[0].name, "s".to_string());
         assert_eq!(
             func.body.assignments[0].expr,
-            Expr::Sum(
-                Box::new(Expr::Variable("a".to_string())),
-                Box::new(Expr::Variable("b".to_string())),
+            ExprKind::Sum(
+                Box::new(ExprKind::Variable("a".to_string()).into()),
+                Box::new(ExprKind::Variable("b".to_string()).into()),
             )
+            .into()
         );
         assert_eq!(
             func.body.expr,
-            Expr::Product(
-                Box::new(Expr::Variable("s".to_string())),
-                Box::new(Expr::Number("2".to_string())),
+            ExprKind::Product(
+                Box::new(ExprKind::Variable("s".to_string()).into()),
+                Box::new(ExprKind::Number("2".to_string()).into()),
             )
+            .into()
         );
     }
 
     #[test]
     fn test_parse_query_with_constant_from_subquery() {
         // A constant may be defined as a `#( ... )` scalar subquery. The right-hand side parses into
-        // an `Expr::Subquery` wrapping the inner query.
+        // an `ExprKind::Subquery` wrapping the inner query.
         let result = query()
             .parse("@latest = #( #comments $created_at%max )\n#issues created_at:>@latest")
             .into_result()
@@ -447,7 +480,7 @@ mod tests {
         assert_eq!(result.definitions.constants.len(), 1);
         let constant = &result.definitions.constants[0];
         assert_eq!(constant.name, "latest".to_string());
-        let Expr::Subquery(inner) = &constant.expr else {
+        let ExprKind::Subquery(inner) = &constant.expr.kind else {
             panic!("expected a subquery, got {:?}", constant.expr);
         };
         assert_eq!(inner.base_table, "comments".to_string());
@@ -498,23 +531,29 @@ mod tests {
         assert_eq!(def.param, "x".to_string());
         assert_eq!(
             def.body,
-            Expr::HasQuantity(HasQuantity {
+            ExprKind::HasQuantity(HasQuantity {
                 quantity: Quantity::AtLeastOne,
-                path_parts: vec![PathPart::TableWithMany(TableWithMany {
+                path_parts: vec![PathPartKind::TableWithMany(TableWithMany {
                     table: "comments".to_string(),
                     condition_set: ConditionSet {
                         conjunction: Conjunction::And,
-                        entries: vec![Expr::Comparison(Box::new(Comparison {
-                            left: ComparisonSide::Expr(Expr::Path(vec![PathPart::Column(
-                                "body".to_string()
-                            )])),
+                        entries: vec![ExprKind::Comparison(Box::new(Comparison {
+                            left: ComparisonSide::Expr(
+                                ExprKind::Path(vec![
+                                    PathPartKind::Column("body".to_string()).into()
+                                ])
+                                .into()
+                            ),
                             operator: Operator::Match,
-                            right: ComparisonSide::Expr(Expr::Variable("x".to_string())),
-                        }))]
+                            right: ComparisonSide::Expr(ExprKind::Variable("x".to_string()).into()),
+                        }))
+                        .into()]
                     },
                     linking_column: None,
-                })]
+                })
+                .into()]
             })
+            .into()
         );
     }
 }

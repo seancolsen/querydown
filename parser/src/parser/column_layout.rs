@@ -88,7 +88,7 @@ fn apply_path_prefix(
         })),
         ResultColumnStatement::Glob(glob) => Ok(ResultColumnStatement::Glob(ColumnGlob {
             head: head.iter().cloned().chain(glob.head).collect(),
-            specs: glob.specs,
+            ..glob
         })),
     }
 }
@@ -110,9 +110,9 @@ fn column_glob<'src>() -> impl Psr<'src, ColumnGlob> {
         .or_not()
         .map(|a| a.unwrap_or_default());
 
-    head.then_ignore(mark(TokenKind::Glob, just(COLUMN_GLOB)))
+    with_loc(head.then_ignore(mark(TokenKind::Glob, just(COLUMN_GLOB))))
         .then(specs)
-        .map(|(head, specs)| ColumnGlob { head, specs })
+        .map(|((head, loc), specs)| ColumnGlob { head, specs, loc })
 }
 
 fn column_spec<'src>() -> impl Psr<'src, ColumnSpec> {
@@ -262,7 +262,7 @@ mod tests {
             column_spec().parse("8").into_result(),
             Ok(ColumnSpec {
                 column_control: ColumnControl::default(),
-                expr: Expr::Number("8".to_string()),
+                expr: ExprKind::Number("8".to_string()).into(),
                 alias: None,
                 annotation: None,
             })
@@ -280,7 +280,7 @@ mod tests {
                     is_partition_by: false,
                     is_hidden: false,
                 },
-                expr: Expr::Path(vec![PathPart::Column("foo".to_string())]),
+                expr: ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()]).into(),
                 alias: Some("bar".to_string()),
                 annotation: None,
             })
@@ -306,7 +306,7 @@ mod tests {
                     is_partition_by: false,
                     is_hidden: false,
                 },
-                expr: Expr::Path(vec![PathPart::Column("foo".to_string())]),
+                expr: ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()]).into(),
                 alias: Some("bar".to_string()),
                 annotation: Some(AnnotationValue::Object(vec![(
                     "width".to_string(),
@@ -418,9 +418,10 @@ mod tests {
         assert_eq!(
             parse_result_columns(r"$a.b.*(c \h)"),
             Ok(vec![ResultColumnStatement::Glob(ColumnGlob {
+                loc: Loc::NONE,
                 head: vec![
-                    PathPart::Column("a".to_string()),
-                    PathPart::Column("b".to_string()),
+                    PathPartKind::Column("a".to_string()).into(),
+                    PathPartKind::Column("b".to_string()).into(),
                 ],
                 specs: vec![ColumnSpec {
                     column_control: ColumnControl {
@@ -429,7 +430,7 @@ mod tests {
                         is_partition_by: false,
                         is_hidden: true,
                     },
-                    expr: Expr::Path(vec![PathPart::Column("c".to_string())]),
+                    expr: ExprKind::Path(vec![PathPartKind::Column("c".to_string()).into()]).into(),
                     alias: None,
                     annotation: None,
                 }],
@@ -446,9 +447,10 @@ mod tests {
             Ok(vec![
                 ResultColumnStatement::Glob(ColumnGlob::default()),
                 ResultColumnStatement::Glob(ColumnGlob {
+                    loc: Loc::NONE,
                     head: vec![
-                        PathPart::Column("a".to_string()),
-                        PathPart::Column("b".to_string()),
+                        PathPartKind::Column("a".to_string()).into(),
+                        PathPartKind::Column("b".to_string()).into(),
                     ],
                     specs: vec![
                         ColumnSpec {
@@ -458,7 +460,10 @@ mod tests {
                                 is_partition_by: false,
                                 is_hidden: true,
                             },
-                            expr: Expr::Path(vec![PathPart::Column("c".to_string())]),
+                            expr: ExprKind::Path(
+                                vec![PathPartKind::Column("c".to_string()).into()]
+                            )
+                            .into(),
                             alias: None,
                             annotation: None,
                         },
@@ -473,7 +478,10 @@ mod tests {
                                 is_partition_by: false,
                                 is_hidden: false,
                             },
-                            expr: Expr::Path(vec![PathPart::Column("d".to_string())]),
+                            expr: ExprKind::Path(
+                                vec![PathPartKind::Column("d".to_string()).into()]
+                            )
+                            .into(),
                             alias: None,
                             annotation: None,
                         },
@@ -481,7 +489,8 @@ mod tests {
                 }),
                 ResultColumnStatement::Spec(ColumnSpec {
                     column_control: ColumnControl::default(),
-                    expr: Expr::Path(vec![PathPart::Column("foo".to_string())]),
+                    expr: ExprKind::Path(vec![PathPartKind::Column("foo".to_string()).into()])
+                        .into(),
                     alias: None,
                     annotation: None,
                 }),
@@ -492,7 +501,8 @@ mod tests {
                         is_partition_by: false,
                         is_hidden: false,
                     },
-                    expr: Expr::Path(vec![PathPart::Column("bar".to_string())]),
+                    expr: ExprKind::Path(vec![PathPartKind::Column("bar".to_string()).into()])
+                        .into(),
                     alias: Some("B".to_string()),
                     annotation: None,
                 }),

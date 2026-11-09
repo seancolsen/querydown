@@ -7,7 +7,7 @@ use std::collections::{
     HashMap,
 };
 
-use crate::errors::msg;
+use crate::{errors::msg, Error};
 
 use self::{
     links::{
@@ -220,9 +220,9 @@ fn make_table(id: TableId, primitive_table: PrimitiveTable) -> Table {
 }
 
 impl TryFrom<PrimitiveSchema> for Schema {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(primitive_schema: PrimitiveSchema) -> Result<Schema, String> {
+    fn try_from(primitive_schema: PrimitiveSchema) -> Result<Schema, Error> {
         let mut max_table_id: TableId = 0;
         let mut tables = HashMap::<TableId, Table>::new();
         for primitive_table in primitive_schema.tables {
@@ -237,29 +237,28 @@ impl TryFrom<PrimitiveSchema> for Schema {
             .collect();
 
         let foreign_keys: Vec<ForeignKey> = {
-            let get_table_by_name = |name: &String| -> Result<&Table, String> {
+            let get_table_by_name = |name: &String| -> Result<&Table, Error> {
                 let table_id = table_lookup.get(name).ok_or_else(|| {
-                    format!(
+                    Error::schema(format!(
                         "The schema has a link involving the table `{name}`, which is not \
                              among the schema's tables."
-                    )
+                    ))
                 })?;
                 let table = tables
                     .get(table_id)
-                    .ok_or_else(|| format!("Table not found by id: {}", table_id))?;
+                    .ok_or_else(|| Error::schema(format!("Table not found by id: {}", table_id)))?;
                 Ok(table)
             };
-            let get_column_id_by_name =
-                |table: &Table, name: &String| -> Result<ColumnId, String> {
-                    let column_id = table.column_lookup.get(name).ok_or_else(|| {
-                        format!(
-                            "The schema has a link involving the column `{name}`, which is not \
+            let get_column_id_by_name = |table: &Table, name: &String| -> Result<ColumnId, Error> {
+                let column_id = table.column_lookup.get(name).ok_or_else(|| {
+                    Error::schema(format!(
+                        "The schema has a link involving the column `{name}`, which is not \
                                  among the columns of the table `{}`.",
-                            table.name
-                        )
-                    })?;
-                    Ok(*column_id)
-                };
+                        table.name
+                    ))
+                })?;
+                Ok(*column_id)
+            };
             let mut foreign_keys: Vec<ForeignKey> = vec![];
             for primitive_link in primitive_schema.links {
                 let base_table = get_table_by_name(&primitive_link.from.table)?;

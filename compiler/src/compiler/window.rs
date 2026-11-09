@@ -13,7 +13,7 @@
 //! contexts set a [`WindowBan`] on the scope, so that a window function reaching them — e.g.
 //! through a computed column — is reported as a compile error rather than producing invalid SQL.
 
-use querydown_parser::ast::{ComparisonSide, Expr, WindowFn};
+use querydown_parser::ast::{ComparisonSide, Expr, ExprKind, Loc, WindowFn};
 
 use crate::{
     compiler::{
@@ -25,6 +25,7 @@ use crate::{
     errors::msg,
     schema::ValueType,
     sql::tree::SqlExpr,
+    Error,
 };
 
 /// The SQL realization of a window function: its SQL name, the inclusive range of value arguments it
@@ -81,7 +82,7 @@ pub(super) fn window_fn_return_type(name: &str) -> Option<TypeRule> {
 }
 
 /// Converts a window function application into a SQL `func(...) OVER (...)` expression.
-pub fn convert_window(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, String> {
+pub fn convert_window(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, Error> {
     if let Some(reference) = scope.substitute_window(&window) {
         return Ok(reference);
     }
@@ -93,28 +94,27 @@ pub fn convert_window(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, St
             WindowBan::Nested => msg::window_in_window(),
         });
     }
-    scope.note_compiled_window();
+    scope.note_compiled_window(window.function_loc);
     scope.with_window_ban(WindowBan::Nested, |scope| {
         convert_window_parts(window, scope)
     })
 }
 
-fn convert_window_parts(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn convert_window_parts(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let WindowFn {
         function,
+        function_loc,
         args,
         partition_by,
         order_by,
     } = window;
 
-    let spec = window_fn_spec(&function).ok_or_else(|| msg::unknown_window_function(&function))?;
+    let spec = window_fn_spec(&function)
+        .ok_or_else(|| msg::unknown_window_function(&function).at(function_loc))?;
     if args.len() < spec.min_args || args.len() > spec.max_args {
-        return Err(msg::window_fn_wrong_arg_count(
-            &function,
-            spec.min_args,
-            spec.max_args,
-            args.len(),
-        ));
+        let err =
+            msg::window_fn_wrong_arg_count(&function, spec.min_args, spec.max_args, args.len());
+        return Err(err.at(function_loc));
     }
 
     // The function call itself. A bare `count` (no argument) becomes `count(*)`; everything else
@@ -150,38 +150,41 @@ fn convert_window_parts(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, 
 }
 
 /// Collects the window functions within `expr` whose values a wrapping query can supply (see
-/// [`extract_window_conditions`]), skipping duplicates.
+/// [`extract_window_conditions`]), each with where it was written, skipping duplicates.
 ///
 /// This descends only into the parts of an expression that are compiled in the stage's own scope,
 /// without any path prefix, so that each collected window compiles the same way in the wrapping
 /// query as it would have here. Windows elsewhere — within a scoped condition (`issue{…}`), a
 /// has-quantity condition (`++#comments{…}`), an anonymous function's body, or a subquery — aren't
 /// collected, and are reported as errors when compiled (see [`WindowBan`]).
-fn collect_windows(expr: &Expr, windows: &mut Vec<WindowFn>) {
-    match expr {
-        Expr::Window(window) => {
-            if !windows.contains(window) {
-                windows.push(window.clone());
+fn collect_windows(expr: &Expr, windows: &mut Vec<(WindowFn, Loc)>) {
+    match &expr.kind {
+        ExprKind::Window(window) => {
+            if !windows.iter().any(|(w, _)| w == window) {
+                windows.push((window.clone(), expr.loc));
             }
         }
-        Expr::Not(e) => collect_windows(e, windows),
-        Expr::Product(a, b) | Expr::Quotient(a, b) | Expr::Sum(a, b) | Expr::Difference(a, b) => {
+        ExprKind::Not(e) => collect_windows(e, windows),
+        ExprKind::Product(a, b)
+        | ExprKind::Quotient(a, b)
+        | ExprKind::Sum(a, b)
+        | ExprKind::Difference(a, b) => {
             collect_windows(a, windows);
             collect_windows(b, windows);
         }
-        Expr::Call(call) => call.args.iter().for_each(|a| collect_windows(a, windows)),
-        Expr::AnonymousFunctionCall(call) => {
+        ExprKind::Call(call) => call.args.iter().for_each(|a| collect_windows(a, windows)),
+        ExprKind::AnonymousFunctionCall(call) => {
             call.args.iter().for_each(|a| collect_windows(a, windows))
         }
-        Expr::Case(case) => {
+        ExprKind::Case(case) => {
             for variant in &case.variants {
                 collect_windows(&variant.condition, windows);
                 collect_windows(&variant.value, windows);
             }
             collect_windows(&case.fallback, windows);
         }
-        Expr::ConditionSet(cs) => cs.entries.iter().for_each(|e| collect_windows(e, windows)),
-        Expr::Comparison(c) => {
+        ExprKind::ConditionSet(cs) => cs.entries.iter().for_each(|e| collect_windows(e, windows)),
+        ExprKind::Comparison(c) => {
             for side in [&c.left, &c.right] {
                 match side {
                     ComparisonSide::Expr(e) => collect_windows(e, windows),
@@ -195,15 +198,15 @@ fn collect_windows(expr: &Expr, windows: &mut Vec<WindowFn>) {
                 }
             }
         }
-        Expr::ScopedConditionSet(_)
-        | Expr::HasQuantity(_)
-        | Expr::Subquery(_)
-        | Expr::Number(_)
-        | Expr::Date(_)
-        | Expr::Duration(_)
-        | Expr::String(_)
-        | Expr::Variable(_)
-        | Expr::Path(_) => {}
+        ExprKind::ScopedConditionSet(_)
+        | ExprKind::HasQuantity(_)
+        | ExprKind::Subquery(_)
+        | ExprKind::Number(_)
+        | ExprKind::Date(_)
+        | ExprKind::Duration(_)
+        | ExprKind::String(_)
+        | ExprKind::Variable(_)
+        | ExprKind::Path(_) => {}
     }
 }
 
@@ -220,8 +223,9 @@ pub struct SplitConditions {
     /// Conditions referencing window functions, to be applied in the outer (wrapping) query. Empty
     /// when no wrapping is needed.
     pub outer: querydown_parser::ast::ConditionSet,
-    /// The window functions within `outer`, to be computed by the inner query.
-    pub windows: Vec<WindowFn>,
+    /// The window functions within `outer`, to be computed by the inner query, each with where it
+    /// was written.
+    pub windows: Vec<(WindowFn, Loc)>,
 }
 
 /// Splits a stage's conditions into inner and outer parts for window-function wrapping. When the

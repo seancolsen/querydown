@@ -41,18 +41,31 @@ pub fn path_to_one<'src>() -> impl Psr<'src, Vec<PathPart>> {
 }
 
 fn path_part<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, PathPart> {
+    // (`fn` items rather than closures, for the reason given in `utils`.)
+    fn table_with_many_part((table, loc): (TableWithMany, Loc)) -> (PathPartKind, Loc) {
+        (PathPartKind::TableWithMany(table), loc)
+    }
+    fn part((kind, loc): (PathPartKind, Loc)) -> PathPart {
+        PathPart::new(kind, loc)
+    }
     choice((
-        mark(TokenKind::Column, db_identifier()).map(PathPart::Column),
-        table_with_many(expr).map(PathPart::TableWithMany),
-        table_with_one().map(PathPart::TableWithOne),
+        with_loc(column().map(PathPartKind::Column)),
+        table_with_many(expr).map(table_with_many_part),
+        with_loc(table_with_one().map(PathPartKind::TableWithOne)),
     ))
+    .map(part)
 }
 
 fn path_part_to_one<'src>() -> impl Psr<'src, PathPart> {
     choice((
-        mark(TokenKind::Column, db_identifier()).map(PathPart::Column),
-        table_with_one().map(PathPart::TableWithOne),
+        column().map(PathPartKind::Column),
+        table_with_one().map(PathPartKind::TableWithOne),
     ))
+    .map_with(|kind, extra| PathPart::new(kind, loc(extra)))
+}
+
+fn column<'src>() -> impl Psr<'src, String> {
+    mark(TokenKind::Column, db_identifier())
 }
 
 fn table_with_one<'src>() -> impl Psr<'src, String> {
@@ -62,7 +75,9 @@ fn table_with_one<'src>() -> impl Psr<'src, String> {
     ))
 }
 
-fn table_with_many<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, TableWithMany> {
+/// Parses a `#table` path part, along with the location of its head: the table name and any linking
+/// column, but not the condition set (see [`PathPart::loc`]).
+fn table_with_many<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, (TableWithMany, Loc)> {
     let column = mark(TokenKind::Column, db_identifier()).delimited_by(
         just(TABLE_WITH_MANY_COLUMN_BRACE_L).then(pad()),
         pad().then(just(TABLE_WITH_MANY_COLUMN_BRACE_R)),
@@ -71,13 +86,15 @@ fn table_with_many<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, TableWith
         TokenKind::Table,
         just(TABLE_SIGIL).ignore_then(db_identifier().labelled(labels::TABLE_NAME)),
     );
-    table
-        .then(column.or_not())
+    with_loc(table.then(column.or_not()))
         .then(condition_set(expr).or_not())
-        .map(|((table, column), cs)| TableWithMany {
-            table,
-            condition_set: cs.unwrap_or_default(),
-            linking_column: column,
+        .map(|(((table, column), loc), cs)| {
+            let table = TableWithMany {
+                table,
+                condition_set: cs.unwrap_or_default(),
+                linking_column: column,
+            };
+            (table, loc)
         })
 }
 
@@ -91,7 +108,7 @@ mod tests {
     /// don't test cases that require parsing expressions within paths. Testing for paths which
     /// contain expressions is done at a higher level.
     fn incapable_expression_parser<'src>() -> impl Psr<'src, Expr> {
-        exactly("NOPE").map(|_| Expr::Variable("nope".to_string()))
+        exactly("NOPE").map(|_| ExprKind::Variable("nope".to_string()).into())
     }
 
     fn simple_path<'src>() -> impl Psr<'src, Vec<PathPart>> {
@@ -101,54 +118,61 @@ mod tests {
     #[test]
     fn test_parse_path() {
         let p = |s: &str| simple_path().parse(s).into_result().map_err(|_| ());
-        assert_eq!(p("foo"), Ok(vec![PathPart::Column("foo".to_string())]));
+        assert_eq!(
+            p("foo"),
+            Ok(vec![PathPartKind::Column("foo".to_string()).into()])
+        );
         assert_eq!(
             p("foo.bar"),
             Ok(vec![
-                PathPart::Column("foo".to_string()),
-                PathPart::Column("bar".to_string()),
+                PathPartKind::Column("foo".to_string()).into(),
+                PathPartKind::Column("bar".to_string()).into(),
             ])
         );
         assert_eq!(
             p("#foo"),
-            Ok(vec![PathPart::TableWithMany(TableWithMany {
+            Ok(vec![PathPartKind::TableWithMany(TableWithMany {
                 table: "foo".to_string(),
                 linking_column: None,
                 condition_set: ConditionSet::default(),
-            })])
+            })
+            .into()])
         );
         assert_eq!(
             p("#foo(bar)"),
-            Ok(vec![PathPart::TableWithMany(TableWithMany {
+            Ok(vec![PathPartKind::TableWithMany(TableWithMany {
                 table: "foo".to_string(),
                 linking_column: Some("bar".to_string()),
                 condition_set: ConditionSet::default(),
-            })])
+            })
+            .into()])
         );
         assert_eq!(
             p(">>clients.start_date"),
             Ok(vec![
-                PathPart::TableWithOne("clients".to_string()),
-                PathPart::Column("start_date".to_string()),
+                PathPartKind::TableWithOne("clients".to_string()).into(),
+                PathPartKind::Column("start_date".to_string()).into(),
             ])
         );
         assert_eq!(
             p("foo.bar.#baz(a).#bat.>>spam.eggs"),
             Ok(vec![
-                PathPart::Column("foo".to_string()),
-                PathPart::Column("bar".to_string()),
-                PathPart::TableWithMany(TableWithMany {
+                PathPartKind::Column("foo".to_string()).into(),
+                PathPartKind::Column("bar".to_string()).into(),
+                PathPartKind::TableWithMany(TableWithMany {
                     table: "baz".to_string(),
                     linking_column: Some("a".to_string()),
                     condition_set: ConditionSet::default(),
-                }),
-                PathPart::TableWithMany(TableWithMany {
+                })
+                .into(),
+                PathPartKind::TableWithMany(TableWithMany {
                     table: "bat".to_string(),
                     linking_column: None,
                     condition_set: ConditionSet::default(),
-                }),
-                PathPart::TableWithOne("spam".to_string()),
-                PathPart::Column("eggs".to_string()),
+                })
+                .into(),
+                PathPartKind::TableWithOne("spam".to_string()).into(),
+                PathPartKind::Column("eggs".to_string()).into(),
             ])
         );
 

@@ -2,15 +2,15 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 use querydown_parser::ast::{
-    AggregateSortExpr, AggregateSortKey, AnonymousFunctionCall, Assignment, Call, Expr,
-    FunctionBody, FunctionDef, FunctionDimension, PathPart,
+    AggregateSortExpr, AggregateSortKey, AnonymousFunctionCall, Assignment, Call, Expr, ExprKind,
+    FunctionBody, FunctionDef, FunctionDimension, Loc, PathPartKind,
 };
 
 use crate::{
     compiler::{
         aggregate_sorting::{
             compile_aggregate, resolve_aggregate_sorting, AggregateKind, CompiledAggregate,
-            ListMode,
+            ListMode, ResolvedSort, SortKey,
         },
         expr::{convert_expr, convert_expr_with_path_prefix, resolve_computed_column},
         paths::{clarify_path, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail},
@@ -22,6 +22,7 @@ use crate::{
     schema::ValueType,
     sql::expr::build::{self, agg::*, cond::*, date_time::*, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
+    Error,
 };
 
 /// Describes the [`ValueType`] a function produces, in terms of the function's arguments. This lets
@@ -44,25 +45,35 @@ pub enum TypeRule {
     ArrayOfArg(usize),
 }
 
-pub fn convert_call(call: Call, scope: &mut Scope) -> Result<SqlExpr, String> {
+pub fn convert_call(call: Call, scope: &mut Scope) -> Result<SqlExpr, Error> {
     match call.dimension {
-        FunctionDimension::Scalar => convert_scalar_call(&call.name, call.args, scope),
+        FunctionDimension::Scalar => {
+            convert_scalar_call(&call.name, call.name_loc, call.args, scope)
+        }
         FunctionDimension::Aggregate => {
-            convert_aggregate_call(&call.name, call.args, call.order_by, scope)
+            convert_aggregate_call(&call.name, call.name_loc, call.args, call.order_by, scope)
         }
     }
 }
 
-fn convert_scalar_call(name: &str, e: Vec<Expr>, s: &mut Scope) -> Result<SqlExpr, String> {
+/// Compiles a scalar function call. An error about the call itself (e.g. an unknown function, or
+/// the wrong number of arguments) is located at the function's name, `name_loc`.
+fn convert_scalar_call(
+    name: &str,
+    name_loc: Loc,
+    e: Vec<Expr>,
+    s: &mut Scope,
+) -> Result<SqlExpr, Error> {
     // Built-in scalar functions take precedence; a user-defined function of the same name is only
     // consulted if no built-in matches.
-    if let Some(func) = s.get_scalar_function(name) {
-        return (func.call)(e, s);
-    }
-    if let Some(def) = s.get_user_function(name).cloned() {
-        return convert_user_function_call(def, e, s);
-    }
-    Err(unknown_scalar_function(name))
+    let result = if let Some(func) = s.get_scalar_function(name) {
+        (func.call)(e, s)
+    } else if let Some(def) = s.get_user_function(name).cloned() {
+        convert_user_function_call(def, e, s)
+    } else {
+        Err(unknown_scalar_function(name))
+    };
+    result.map_err(|err| err.or_at(name_loc))
 }
 
 /// Applies a user-defined scalar function by binding its parameters to the call's arguments and its
@@ -73,7 +84,7 @@ fn convert_user_function_call(
     def: FunctionDef,
     args: Vec<Expr>,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let _guard = scope.enter_expansion(Expansion::Function(def.name.clone()))?;
     apply_function(&def.name, def.params, def.body, args, scope)
 }
@@ -84,7 +95,7 @@ fn convert_user_function_call(
 pub fn convert_anonymous_function_call(
     call: AnonymousFunctionCall,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     apply_function("(anonymous)", call.params, call.body, call.args, scope)
 }
 
@@ -96,7 +107,7 @@ fn apply_function(
     body: FunctionBody,
     args: Vec<Expr>,
     scope: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     if args.len() != params.len() {
         return Err(msg::function_wrong_arg_count(
             name,
@@ -116,35 +127,38 @@ fn apply_function(
     scope.with_variable_bindings(bindings, |scope| convert_expr(body.expr, scope))
 }
 
+/// Compiles an aggregate function call. An unknown function, or one that needs an argument it
+/// lacks, is reported at the function's name, `name_loc`.
 fn convert_aggregate_call(
     name: &str,
+    name_loc: Loc,
     e: Vec<Expr>,
     order_by: Vec<AggregateSortExpr>,
     s: &mut Scope,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     // A standalone aggregate with no argument, e.g. `%count`, which is shorthand for `count(*)`.
     // Only `count` is meaningful without an argument.
     if e.is_empty() {
-        if order_by.iter().any(|o| o.key == AggregateSortKey::Value) {
-            return Err(msg::value_sort_without_value(name));
+        if let Some(value_sort) = order_by.iter().find(|o| o.key == AggregateSortKey::Value) {
+            return Err(msg::value_sort_without_value(name).at(value_sort.loc));
         }
         if name == "count" {
             return Ok(build::agg::count_star());
         }
-        return Err(msg::aggregate_fn_without_argument(name));
+        return Err(msg::aggregate_fn_without_argument(name).at(name_loc));
     }
     let func = s
         .get_aggregate_function(name)
-        .ok_or_else(|| unknown_aggregate_function(name))?;
+        .ok_or_else(|| unknown_aggregate_function(name).at(name_loc))?;
     (func.call)(e, order_by, s)
 }
 
 pub type ScalarFuncMap = HashMap<String, ScalarFunction>;
-pub type ScalarFunc = fn(Vec<Expr>, &mut Scope) -> Result<SqlExpr, String>;
+pub type ScalarFunc = fn(Vec<Expr>, &mut Scope) -> Result<SqlExpr, Error>;
 
 pub type AggregateFuncMap = HashMap<String, AggregateFunction>;
 pub type AggregateFunc =
-    fn(Vec<Expr>, Vec<AggregateSortExpr>, &mut Scope) -> Result<SqlExpr, String>;
+    fn(Vec<Expr>, Vec<AggregateSortExpr>, &mut Scope) -> Result<SqlExpr, Error>;
 
 /// A built-in scalar function: the closure that compiles it, paired with the rule describing the
 /// type of value it returns (consulted by type inference).
@@ -182,7 +196,7 @@ fn args_v(
     args: Vec<Expr>,
     scope: &mut Scope,
     f: fn(Vec<SqlExpr>) -> SqlExpr,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let mut sql_args = Vec::<SqlExpr>::new();
     for arg in args {
         sql_args.push(convert_expr(arg, scope)?);
@@ -191,11 +205,7 @@ fn args_v(
 }
 
 /// Used for a scalar function that takes one argument
-fn args_1(
-    args: Vec<Expr>,
-    scope: &mut Scope,
-    f: fn(SqlExpr) -> SqlExpr,
-) -> Result<SqlExpr, String> {
+fn args_1(args: Vec<Expr>, scope: &mut Scope, f: fn(SqlExpr) -> SqlExpr) -> Result<SqlExpr, Error> {
     let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let a = convert_expr(arg0, scope)?;
     Ok(f(a))
@@ -206,7 +216,7 @@ fn args_2(
     args: Vec<Expr>,
     scope: &mut Scope,
     f: fn(SqlExpr, SqlExpr) -> SqlExpr,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let (a, b) = iter_two(args).ok_or_else(msg::expected_two_args)?;
     Ok(f(convert_expr(a, scope)?, convert_expr(b, scope)?))
 }
@@ -219,7 +229,7 @@ fn arg_zone(arg: &Expr, scope: &mut Scope) -> TemporalZone {
 
 /// `age(x)` = `@now - x`. `@now` is zoned, so when `x` is naive the subtraction is reconciled for
 /// dialects that can't mix zoned and naive temporal values.
-fn temporal_age(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn temporal_age(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let zone = arg_zone(&arg, scope);
     let a = convert_expr(arg, scope)?;
@@ -233,7 +243,7 @@ fn temporal_age(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
 }
 
 /// `countdown(x)` = `x - @now`, the mirror of [`temporal_age`].
-fn temporal_countdown(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn temporal_countdown(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let zone = arg_zone(&arg, scope);
     let a = convert_expr(arg, scope)?;
@@ -248,7 +258,7 @@ fn temporal_countdown(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Str
 
 /// `minus(a, b)` = `a - b`, reconciling the operands when they mix a zoned and a naive temporal
 /// value.
-fn temporal_minus(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn temporal_minus(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let (a, b) = iter_two(args).ok_or_else(msg::expected_two_args)?;
     let a_zone = arg_zone(&a, scope);
     let b_zone = arg_zone(&b, scope);
@@ -264,7 +274,7 @@ fn temporal_minus(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String>
 
 /// `unit_hash(x)` hashes `x` to a double uniformly distributed over `[0, 1]`. The hash function
 /// and normalization differ per dialect (see [`crate::sql::Dialect::unit_hash`]).
-fn unit_hash(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn unit_hash(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let a = convert_expr(arg0, scope)?;
     Ok(scope.options.dialect.unit_hash(a))
@@ -274,7 +284,7 @@ fn unit_hash(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
 /// On a dialect that can't operate on zoned timestamps (see
 /// [`crate::sql::Dialect::coerces_timestamptz`]), a zoned argument is first coerced to a naive
 /// timestamp, so the component is read from its UTC wall-clock value.
-fn temporal_arg(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn temporal_arg(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
     let zone = arg_zone(&arg, scope);
     let a = convert_expr(arg, scope)?;
@@ -287,12 +297,12 @@ fn temporal_arg(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
 }
 
 /// `year(x)`, `month(x)`, `day(x)`: one calendar field of a date or timestamp, as an integer.
-fn calendar_field(args: Vec<Expr>, scope: &mut Scope, field: &str) -> Result<SqlExpr, String> {
+fn calendar_field(args: Vec<Expr>, scope: &mut Scope, field: &str) -> Result<SqlExpr, Error> {
     Ok(extract_field(field, temporal_arg(args, scope)?))
 }
 
 /// `year_month(x)`: a date or timestamp formatted as a `YYYY-MM` string.
-fn year_month(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, String> {
+fn year_month(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let a = temporal_arg(args, scope)?;
     Ok(scope.options.dialect.year_month(a))
 }
@@ -358,10 +368,10 @@ fn agg_1(
     scope: &mut Scope,
     kind: AggregateKind,
     coalesce_to_zero: bool,
-) -> Result<SqlExpr, String> {
+) -> Result<SqlExpr, Error> {
     let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
-    let Expr::Path(path_parts) = arg0 else {
-        return Err(msg::aggregate_fn_applied_to_a_non_path());
+    let ExprKind::Path(path_parts) = arg0.kind else {
+        return Err(msg::aggregate_fn_applied_to_a_non_path().at(arg0.loc));
     };
     // Resolve the path from the scope's current table, as `convert_path` does, so that an aggregate
     // inside a scoped condition set (`author{#comments.id%max:>5}`) starts from the scoped table
@@ -371,7 +381,7 @@ fn agg_1(
     // the current table, when there is none), so this is the aggregated value's path from there.
     let value_path = match path_parts
         .iter()
-        .position(|part| matches!(part, PathPart::TableWithMany(_)))
+        .position(|part| matches!(part.kind, PathPartKind::TableWithMany(_)))
     {
         Some(index) => path_parts[index + 1..].to_vec(),
         None => path_parts.clone(),
@@ -430,7 +440,10 @@ fn agg_1(
                     // A two-level aggregation would need to restructure the whole grouped query,
                     // which isn't supported.
                     CompiledAggregate::NeedsTwoLevelList(ListMode::All) => {
-                        Err(msg::aggregated_sort_in_grouped_list())
+                        let err = msg::aggregated_sort_in_grouped_list();
+                        let aggregated =
+                            ResolvedSort::find(&sorts, |k| matches!(k, SortKey::Aggregated(_)));
+                        Err(err.at(aggregated.unwrap_or(Loc::NONE)))
                     }
                     CompiledAggregate::NeedsTwoLevelList(ListMode::Top) => {
                         Err(msg::top_in_grouped_query())

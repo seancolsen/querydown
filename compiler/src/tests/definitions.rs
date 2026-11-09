@@ -3,16 +3,25 @@
 
 use super::corpus_loader::build_options;
 use super::get_test_resource;
-use crate::Compiler;
+use crate::{Compiler, Error};
 
-fn compile(input: &str) -> Result<String, String> {
+fn compile_located(input: &str) -> Result<String, Error> {
     let schema_json = get_test_resource("issue_schema.json");
     let options = build_options(crate::options::IdentifierResolution::Flexible, "postgres");
     let compiler = Compiler::new(&schema_json, options).unwrap();
-    compiler
-        .compile(input.to_string())
-        .map(|r| r.sql)
-        .map_err(|e| e.to_string())
+    compiler.compile(input.to_string()).map(|r| r.sql)
+}
+
+/// Compiles `input`, reporting only the message of any error.
+fn compile(input: &str) -> Result<String, String> {
+    compile_located(input).map_err(|e| e.message)
+}
+
+/// The byte offset in `input` at which compiling it fails, and the text located there.
+fn error_location(input: &str) -> (usize, &str) {
+    let err = compile_located(input).unwrap_err();
+    let span = err.span.expect("the error should be located");
+    (span.start.offset, &input[span.range()])
 }
 
 #[test]
@@ -147,6 +156,20 @@ fn constant_defined_in_terms_of_itself_is_rejected() {
     assert_eq!(err, "The constant `@a` is defined in terms of itself.");
     let err = compile("@a = @b\n@b = @a\n#issues $@a").unwrap_err();
     assert_eq!(err, "The constant `@a` is defined in terms of itself.");
+}
+
+#[test]
+fn self_reference_is_located_where_it_closes_the_cycle() {
+    // The reference within the definition itself, rather than the use of the definition.
+    assert_eq!(error_location("@a = 1 + @a\n#issues $@a"), (9, "@a"));
+    assert_eq!(
+        error_location("@@f = @x => @x|f\n#issues $id|f"),
+        (14, "|f")
+    );
+    assert_eq!(
+        error_location("#issues.foo = 1 + foo\n#issues $foo"),
+        (18, "foo")
+    );
 }
 
 #[test]

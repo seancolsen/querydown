@@ -51,12 +51,20 @@ fn syntax_error_prints_a_diagnostic_to_stderr() {
 }
 
 #[test]
-fn compile_error_prints_its_message_to_stderr() {
+fn compile_error_prints_a_diagnostic_to_stderr() {
     let output = querydown(&["compile", "-s", SCHEMA, "#issues $nope"]);
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output),
-        "compile error: Column `nope` not found within table `issues`.\n"
+        [
+            "compile error: Column `nope` not found within table `issues`.",
+            " --> line 1, column 10",
+            "  |",
+            "1 | #issues $nope",
+            "  |          ^^^^",
+            "",
+        ]
+        .join("\n")
     );
 }
 
@@ -74,6 +82,7 @@ fn json_format_prints_the_error_as_json_to_stdout() {
     assert_eq!(error["span"]["start"]["line"], 1);
     assert_eq!(error["span"]["start"]["column"], 17);
     assert_eq!(error["span"]["start"]["offset"], 16);
+    assert!(error["section"].is_null());
     assert_eq!(error["expected"][0], "an alias");
     assert_eq!(error["found"], "end of input");
     assert!(error["hint"].is_null());

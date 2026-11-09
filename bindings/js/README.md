@@ -264,10 +264,17 @@ API, whose offsets are in bytes; see [docs/errors.md](../../docs/errors.md).) A 
 (`start.offset === end.offset`), e.g. at an unexpected end of input, so widen it if your editor
 needs a non-empty range.
 
-**Section attribution:** for `compile_sections`, a syntax error's `section` names the input it came
-from (`"definitions"`, `"conditions"`, `"sorting"`, or `"display"`), and its `span` is relative to
-that section's text. Compile errors can't be attributed to one section and have `section: null`.
-For `compile`, `section` is always `null`.
+**Compile errors are located too:** a `"compile"` error's `span` points at the construct at fault,
+e.g. the reference to a column that doesn't exist, or the name of an unknown function. The only
+compile errors without a `span` are those about the `baseTable` argument of `compile_sections`,
+which isn't part of any section's text.
+
+**Section attribution:** for `compile_sections`, an error's `section` names the input its `span` is
+in (`"definitions"`, `"conditions"`, `"sorting"`, or `"display"`), and the `span` is relative to
+that section's text. This applies to compile errors as well as syntax errors. A compile error isn't
+necessarily in the section where the problem shows up: an unknown column in a constant's definition
+is reported in the definitions section, wherever the constant is used. `section` is `null` when
+there's no `span`, and always for `compile`.
 
 For example, to show an error as a marker in an editor, falling back to the message:
 
@@ -291,7 +298,7 @@ try {
       message: err.hint ? `${err.reason}\nHint: ${err.hint}` : err.reason,
     }]);
   } else {
-    showError(err.message); // e.g. "Column `nope` not found within table `issues`."
+    showError(err.message); // e.g. "Base table `nope` does not exist."
   }
 }
 ```

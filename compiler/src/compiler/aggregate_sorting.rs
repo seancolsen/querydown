@@ -14,14 +14,15 @@
 //!   so `list` rejects it.
 
 use querydown_parser::ast::{
-    AggregateSortExpr, AggregateSortKey, ComparisonSide, Expr, FunctionDimension, NullsSort,
-    PathPart, SortDirection,
+    AggregateSortExpr, AggregateSortKey, ComparisonSide, Expr, ExprKind, FunctionDimension, Loc,
+    NullsSort, PathPart, PathPartKind, SortDirection,
 };
 
 use crate::{
     compiler::{expr::convert_expr, paths::paths_resolve_alike, scope::Scope},
     errors::msg,
     sql::expr::SqlExpr,
+    Error,
 };
 
 pub enum SortKey {
@@ -37,6 +38,15 @@ pub struct ResolvedSort {
     pub key: SortKey,
     pub direction: SortDirection,
     pub nulls_sort: NullsSort,
+    /// Where the sorting entry was written.
+    pub loc: Loc,
+}
+
+impl ResolvedSort {
+    /// Where the first of `sorts` whose key satisfies `predicate` was written, if any does.
+    pub fn find(sorts: &[ResolvedSort], predicate: fn(&SortKey) -> bool) -> Option<Loc> {
+        sorts.iter().find(|s| predicate(&s.key)).map(|s| s.loc)
+    }
 }
 
 /// Classifies and compiles the sorting entries attached to an aggregate function.
@@ -49,7 +59,7 @@ pub fn resolve_aggregate_sorting(
     order_by: Vec<AggregateSortExpr>,
     value_path: &[PathPart],
     scope: &mut Scope,
-) -> Result<Vec<ResolvedSort>, String> {
+) -> Result<Vec<ResolvedSort>, Error> {
     order_by
         .into_iter()
         .map(|entry| {
@@ -57,9 +67,10 @@ pub fn resolve_aggregate_sorting(
                 AggregateSortKey::Value => SortKey::Value,
                 // `value_path` already carries the scope's path prefix (which is empty inside the
                 // CTE that aggregates a `#` path), so the sort path needs it too to compare alike.
-                AggregateSortKey::Expr(Expr::Path(parts))
-                    if paths_resolve_alike(scope.prefixed(&parts), value_path.to_vec(), scope) =>
-                {
+                AggregateSortKey::Expr(Expr {
+                    kind: ExprKind::Path(parts),
+                    ..
+                }) if paths_resolve_alike(scope.prefixed(&parts), value_path.to_vec(), scope) => {
                     SortKey::Value
                 }
                 AggregateSortKey::Expr(expr) => {
@@ -76,6 +87,7 @@ pub fn resolve_aggregate_sorting(
                 key,
                 direction: entry.direction,
                 nulls_sort: entry.nulls_sort,
+                loc: entry.loc,
             })
         })
         .collect()
@@ -86,28 +98,29 @@ pub fn resolve_aggregate_sorting(
 /// via a `#` path (e.g. `#reactions%count`), which has one value per record in the current context.
 fn contains_local_aggregate(expr: &Expr) -> bool {
     let either = |a: &Expr, b: &Expr| contains_local_aggregate(a) || contains_local_aggregate(b);
-    match expr {
-        Expr::Call(call) => match call.dimension {
-            FunctionDimension::Aggregate => match call.args.first() {
+    match &expr.kind {
+        ExprKind::Call(call) => match call.dimension {
+            FunctionDimension::Aggregate => match call.args.first().map(|arg| &arg.kind) {
                 None => true,
-                Some(Expr::Path(parts)) => !parts
+                Some(ExprKind::Path(parts)) => !parts
                     .iter()
-                    .any(|part| matches!(part, PathPart::TableWithMany(_))),
+                    .any(|part| matches!(part.kind, PathPartKind::TableWithMany(_))),
                 // Aggregates must be applied to a path. Classifying anything else as aggregated
                 // lets compilation report that problem rather than a misleading one about sorting.
                 Some(_) => true,
             },
             FunctionDimension::Scalar => call.args.iter().any(contains_local_aggregate),
         },
-        Expr::AnonymousFunctionCall(call) => call.args.iter().any(contains_local_aggregate),
-        Expr::Product(a, b) | Expr::Quotient(a, b) | Expr::Sum(a, b) | Expr::Difference(a, b) => {
-            either(a, b)
-        }
-        Expr::Not(inner) => contains_local_aggregate(inner),
-        Expr::Comparison(comparison) => [&comparison.left, &comparison.right]
+        ExprKind::AnonymousFunctionCall(call) => call.args.iter().any(contains_local_aggregate),
+        ExprKind::Product(a, b)
+        | ExprKind::Quotient(a, b)
+        | ExprKind::Sum(a, b)
+        | ExprKind::Difference(a, b) => either(a, b),
+        ExprKind::Not(inner) => contains_local_aggregate(inner),
+        ExprKind::Comparison(comparison) => [&comparison.left, &comparison.right]
             .into_iter()
             .any(|side| matches!(side, ComparisonSide::Expr(e) if contains_local_aggregate(e))),
-        Expr::Case(case) => {
+        ExprKind::Case(case) => {
             case.variants.iter().any(|v| either(&v.condition, &v.value))
                 || contains_local_aggregate(&case.fallback)
         }
@@ -183,23 +196,22 @@ pub fn compile_aggregate(
     value: SqlExpr,
     sorts: &[ResolvedSort],
     dialect: &dyn crate::Dialect,
-) -> Result<CompiledAggregate, String> {
-    let has = |predicate: fn(&SortKey) -> bool| sorts.iter().any(|s| predicate(&s.key));
-    let has_row = has(|k| matches!(k, SortKey::Row(_)));
-    let has_aggregated = has(|k| matches!(k, SortKey::Aggregated(_)));
+) -> Result<CompiledAggregate, Error> {
+    let row = ResolvedSort::find(sorts, |k| matches!(k, SortKey::Row(_)));
+    let aggregated = ResolvedSort::find(sorts, |k| matches!(k, SortKey::Aggregated(_)));
     match kind {
         AggregateKind::Wrapped(wrapper) => {
-            if has_aggregated {
-                return Err(msg::aggregated_sort_outside_list());
+            if let Some(loc) = aggregated {
+                return Err(msg::aggregated_sort_outside_list().at(loc));
             }
             let order_by = render_sorts(sorts, &value);
             Ok(CompiledAggregate::Expr(wrapper(value, order_by, dialect)))
         }
         AggregateKind::DistinctList => {
-            if has_row {
-                return Err(msg::list_sorted_by_row_expr());
+            if let Some(loc) = row {
+                return Err(msg::list_sorted_by_row_expr().at(loc));
             }
-            if has_aggregated {
+            if aggregated.is_some() {
                 return Ok(CompiledAggregate::NeedsTwoLevelList(ListMode::All));
             }
             let order_by = render_sorts(sorts, &value);
@@ -211,8 +223,8 @@ pub fn compile_aggregate(
             if sorts.is_empty() {
                 return Err(msg::top_without_sorting());
             }
-            if has_row {
-                return Err(msg::top_sorted_by_row_expr());
+            if let Some(loc) = row {
+                return Err(msg::top_sorted_by_row_expr().at(loc));
             }
             // Ranking the distinct values requires them as rows, even when they're only sorted by
             // the value itself.

@@ -10,6 +10,7 @@ use crate::{
         expr::SqlExpr,
         tree::{Column, SortEntry},
     },
+    Error,
 };
 
 use self::grouping::GroupingStack;
@@ -39,8 +40,8 @@ fn output_name_for_spec(alias: &Option<String>, expr: &Expr, index: usize) -> St
     if let Some(alias) = alias {
         return alias.clone();
     }
-    if let Expr::Path(parts) = expr {
-        if let Some(PathPart::Column(name)) = parts.last() {
+    if let ExprKind::Path(parts) = &expr.kind {
+        if let Some(PathPartKind::Column(name)) = parts.last().map(|part| &part.kind) {
             return name.clone();
         }
     }
@@ -52,37 +53,38 @@ fn output_name_for_spec(alias: &Option<String>, expr: &Expr, index: usize) -> St
 /// aggregate. A path that references many records (e.g. `#issues`) aggregates by default, as does a
 /// "has quantity" expression (e.g. `++#issues`).
 fn contains_aggregate(expr: &Expr) -> bool {
-    match expr {
-        Expr::Call(call) => {
+    match &expr.kind {
+        ExprKind::Call(call) => {
             matches!(call.dimension, FunctionDimension::Aggregate)
                 || call.args.iter().any(contains_aggregate)
         }
-        Expr::Path(parts) => parts
+        ExprKind::Path(parts) => parts
             .iter()
-            .any(|part| matches!(part, PathPart::TableWithMany(_))),
-        Expr::HasQuantity(_) => true,
-        Expr::Product(a, b) | Expr::Quotient(a, b) | Expr::Sum(a, b) | Expr::Difference(a, b) => {
-            contains_aggregate(a) || contains_aggregate(b)
-        }
-        Expr::Not(e) => contains_aggregate(e),
-        Expr::Case(case) => {
+            .any(|part| matches!(part.kind, PathPartKind::TableWithMany(_))),
+        ExprKind::HasQuantity(_) => true,
+        ExprKind::Product(a, b)
+        | ExprKind::Quotient(a, b)
+        | ExprKind::Sum(a, b)
+        | ExprKind::Difference(a, b) => contains_aggregate(a) || contains_aggregate(b),
+        ExprKind::Not(e) => contains_aggregate(e),
+        ExprKind::Case(case) => {
             case.variants
                 .iter()
                 .any(|v| contains_aggregate(&v.condition) || contains_aggregate(&v.value))
                 || contains_aggregate(&case.fallback)
         }
-        Expr::ConditionSet(cs) => cs.entries.iter().any(contains_aggregate),
-        Expr::ScopedConditionSet(s) => s.condition_set.entries.iter().any(contains_aggregate),
-        Expr::Comparison(c) => {
+        ExprKind::ConditionSet(cs) => cs.entries.iter().any(contains_aggregate),
+        ExprKind::ScopedConditionSet(s) => s.condition_set.entries.iter().any(contains_aggregate),
+        ExprKind::Comparison(c) => {
             comparison_side_contains_aggregate(&c.left)
                 || comparison_side_contains_aggregate(&c.right)
         }
         // A window function is not a GROUP BY aggregate, so it does not satisfy the grouping
         // requirement. Combining `\g` grouping with a window function in the same stage is not
         // supported; use a pipeline (`~~~`) to group the output of a window stage.
-        Expr::Window(_) => false,
+        ExprKind::Window(_) => false,
         // An anonymous function aggregates if any of its arguments or its body do.
-        Expr::AnonymousFunctionCall(c) => {
+        ExprKind::AnonymousFunctionCall(c) => {
             c.args.iter().any(contains_aggregate)
                 || c.body
                     .assignments
@@ -92,12 +94,12 @@ fn contains_aggregate(expr: &Expr) -> bool {
         }
         // A scalar subquery produces a single value for the outer query; it is not itself a GROUP BY
         // aggregate of the outer query's rows.
-        Expr::Subquery(_) => false,
-        Expr::Number(_)
-        | Expr::Date(_)
-        | Expr::Duration(_)
-        | Expr::String(_)
-        | Expr::Variable(_) => false,
+        ExprKind::Subquery(_) => false,
+        ExprKind::Number(_)
+        | ExprKind::Date(_)
+        | ExprKind::Duration(_)
+        | ExprKind::String(_)
+        | ExprKind::Variable(_) => false,
     }
 }
 
@@ -118,7 +120,7 @@ fn comparison_side_contains_aggregate(side: &ComparisonSide) -> bool {
 pub fn convert_sort_exprs(
     sorting: Vec<SortExpr>,
     scope: &mut Scope,
-) -> Result<Vec<SortEntry>, String> {
+) -> Result<Vec<SortEntry>, Error> {
     sorting
         .into_iter()
         .map(|sort_expr| {
@@ -134,15 +136,15 @@ pub fn convert_sort_exprs(
 pub fn convert_result_columns(
     result_columns: Vec<ResultColumnStatement>,
     scope: &mut Scope,
-) -> Result<ConvertedResultColumns, String> {
+) -> Result<ConvertedResultColumns, Error> {
     let mut columns = Vec::<Column>::new();
     let mut column_annotations = Vec::<Option<AnnotationValue>>::new();
     let mut output_names = Vec::<String>::new();
     let mut sorting_stack = SortingStack::new();
     let mut grouping_stack = GroupingStack::new();
-    // Whether the query emits a result column that is neither a grouping column nor an aggregate.
-    // Such a column is only valid when the query has no grouping at all.
-    let mut has_ungrouped_unaggregated = false;
+    // Where the first result column that is neither a grouping column nor an aggregate was written,
+    // if the query emits one. Such a column is only valid when the query has no grouping at all.
+    let mut ungrouped_unaggregated: Option<Loc> = None;
     for column_statement in result_columns {
         match column_statement {
             ResultColumnStatement::Spec(spec) => {
@@ -153,7 +155,7 @@ pub fn convert_result_columns(
                     &mut output_names,
                     &mut sorting_stack,
                     &mut grouping_stack,
-                    &mut has_ungrouped_unaggregated,
+                    &mut ungrouped_unaggregated,
                     scope,
                 )?;
             }
@@ -165,15 +167,15 @@ pub fn convert_result_columns(
                     &mut output_names,
                     &mut sorting_stack,
                     &mut grouping_stack,
-                    &mut has_ungrouped_unaggregated,
+                    &mut ungrouped_unaggregated,
                     scope,
                 )?;
             }
         }
     }
     let grouping: Vec<SqlExpr> = grouping_stack.into();
-    if !grouping.is_empty() && has_ungrouped_unaggregated {
-        return Err(msg::ungrouped_unaggregated_column());
+    if let Some(loc) = ungrouped_unaggregated.filter(|_| !grouping.is_empty()) {
+        return Err(msg::ungrouped_unaggregated_column().at(loc));
     }
     Ok(ConvertedResultColumns {
         columns,
@@ -192,9 +194,9 @@ fn handle_spec(
     output_names: &mut Vec<String>,
     sorting_stack: &mut SortingStack,
     grouping_stack: &mut GroupingStack,
-    has_ungrouped_unaggregated: &mut bool,
+    ungrouped_unaggregated: &mut Option<Loc>,
     scope: &mut Scope,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     let ColumnControl {
         sort,
         group,
@@ -204,6 +206,7 @@ fn handle_spec(
     let is_grouped = group.is_some();
     let is_aggregated = contains_aggregate(&spec.expr);
     let output_name = output_name_for_spec(&spec.alias, &spec.expr, columns.len());
+    let loc = spec.expr.loc;
     let expr = convert_expr(spec.expr, scope)?;
     let alias = spec.alias;
     if let Some(sort_spec) = sort {
@@ -217,7 +220,7 @@ fn handle_spec(
         grouping_stack.push(expr.clone(), group_spec);
     }
     if !is_grouped && !is_aggregated {
-        *has_ungrouped_unaggregated = true;
+        ungrouped_unaggregated.get_or_insert(loc);
     }
     columns.push(Column { expr, alias });
     column_annotations.push(spec.annotation);
@@ -233,10 +236,10 @@ fn handle_glob(
     output_names: &mut Vec<String>,
     sorting_stack: &mut SortingStack,
     grouping_stack: &mut GroupingStack,
-    has_ungrouped_unaggregated: &mut bool,
+    ungrouped_unaggregated: &mut Option<Loc>,
     scope: &mut Scope,
-) -> Result<(), String> {
-    scope.with_path_prefix(glob.head.clone(), |scope| -> Result<(), String> {
+) -> Result<(), Error> {
+    scope.with_path_prefix(glob.head.clone(), |scope| -> Result<(), Error> {
         for spec in glob.specs.iter() {
             if let Some(ref sort_spec) = spec.column_control.sort {
                 let sql_expr = convert_expr(spec.expr.clone(), scope)?;
@@ -255,14 +258,14 @@ fn handle_glob(
     } else {
         let clarified_path = clarify_path(glob.head, scope)?;
         if let Some(tail) = clarified_path.tail {
-            let err_msg = match tail {
+            let err = match tail {
                 ClarifiedPathTail::Column(col) => msg::column_glob_after_non_fk_column(&col),
                 ClarifiedPathTail::ChainToMany(_) => msg::column_glob_on_path_to_many(),
             };
-            return Err(err_msg);
+            return Err(err.at(glob.loc));
         }
         let Some(chain_to_one) = clarified_path.head else {
-            return Err(msg::empty_path());
+            return Err(msg::empty_path().at(glob.loc));
         };
         let table = scope
             .schema
@@ -279,13 +282,17 @@ fn handle_glob(
     let mut column_annotations_map: HashMap<usize, AnnotationValue> = HashMap::new();
 
     for spec in glob.specs {
-        if let Expr::Path(ref path) = spec.expr {
-            if let Ok(PathPart::Column(column_name)) = path.iter().exactly_one() {
+        if let ExprKind::Path(ref path) = spec.expr.kind {
+            if let Ok(PathPartKind::Column(column_name)) =
+                path.iter().map(|p| &p.kind).exactly_one()
+            {
                 let column_id = scope
                     .options
                     .resolve_identifier(&table.column_lookup, column_name)
                     .copied()
-                    .ok_or_else(|| msg::col_not_in_table(column_name, &table.name))?;
+                    .ok_or_else(|| {
+                        msg::col_not_in_table(column_name, &table.name).at(spec.expr.loc)
+                    })?;
                 if spec.column_control.is_hidden {
                     hidden_columns.insert(column_id);
                 }
@@ -309,7 +316,7 @@ fn handle_glob(
             // A glob emits raw table columns, which are not aggregates. In a grouped query each
             // such column must therefore be one of the grouping columns.
             if !grouped_columns.contains(&column.id) {
-                *has_ungrouped_unaggregated = true;
+                ungrouped_unaggregated.get_or_insert(glob.loc);
             }
             // The output name is the column's alias if one was given, otherwise the column name.
             let output_name = alias.clone().unwrap_or_else(|| column.name.clone());

@@ -16,7 +16,8 @@
 //! through `max` is still recognized as a datetime, for example.
 
 use querydown_parser::ast::{
-    AnonymousFunctionCall, Call, Case, Expr, FunctionBody, FunctionDimension, PathPart, WindowFn,
+    AnonymousFunctionCall, Call, Case, Expr, ExprKind, FunctionBody, FunctionDimension, PathPart,
+    WindowFn,
 };
 
 use crate::{
@@ -39,33 +40,33 @@ use crate::{
 /// anonymous function call requires temporarily binding its parameters, mirroring how the expression
 /// would actually be compiled.
 pub fn infer_type(expr: &Expr, scope: &mut Scope) -> ValueType {
-    match expr {
-        Expr::Number(_) => ValueType::Number,
-        Expr::Date(_) => ValueType::Date,
-        Expr::String(_) => ValueType::Text,
+    match &expr.kind {
+        ExprKind::Number(_) => ValueType::Number,
+        ExprKind::Date(_) => ValueType::Date,
+        ExprKind::String(_) => ValueType::Text,
         // A duration literal has no dedicated value type; it only ever appears as the right-hand side
         // of the date/duration comparison magic, which matches it structurally rather than by type.
-        Expr::Duration(_) => ValueType::Unknown,
-        Expr::Variable(name) => infer_variable(name, scope),
-        Expr::Path(parts) => infer_path(parts, scope),
-        Expr::ConditionSet(_)
-        | Expr::ScopedConditionSet(_)
-        | Expr::HasQuantity(_)
-        | Expr::Comparison(_)
-        | Expr::Not(_) => ValueType::Boolean,
-        Expr::Case(case) => infer_case(case, scope),
-        Expr::Call(call) => infer_call(call, scope),
+        ExprKind::Duration(_) => ValueType::Unknown,
+        ExprKind::Variable(name) => infer_variable(name, scope),
+        ExprKind::Path(parts) => infer_path(parts, scope),
+        ExprKind::ConditionSet(_)
+        | ExprKind::ScopedConditionSet(_)
+        | ExprKind::HasQuantity(_)
+        | ExprKind::Comparison(_)
+        | ExprKind::Not(_) => ValueType::Boolean,
+        ExprKind::Case(case) => infer_case(case, scope),
+        ExprKind::Call(call) => infer_call(call, scope),
         // Multiplication and division always yield numbers. Addition and subtraction preserve the
         // type of their left operand, so `date + interval` stays a date (the common, useful case).
         // `date - date` is really an interval, not a date, so this is an approximation — but it only
         // affects whether the date/duration comparison magic fires, never the SQL we emit.
-        Expr::Product(..) | Expr::Quotient(..) => ValueType::Number,
-        Expr::Sum(a, _) | Expr::Difference(a, _) => infer_type(a, scope),
-        Expr::Window(window) => infer_window(window, scope),
-        Expr::AnonymousFunctionCall(call) => infer_anonymous_function_call(call, scope),
+        ExprKind::Product(..) | ExprKind::Quotient(..) => ValueType::Number,
+        ExprKind::Sum(a, _) | ExprKind::Difference(a, _) => infer_type(a, scope),
+        ExprKind::Window(window) => infer_window(window, scope),
+        ExprKind::AnonymousFunctionCall(call) => infer_anonymous_function_call(call, scope),
         // A scalar subquery's type would require inferring the type of its single result column,
         // which we don't attempt.
-        Expr::Subquery(_) => ValueType::Unknown,
+        ExprKind::Subquery(_) => ValueType::Unknown,
     }
 }
 
