@@ -160,38 +160,6 @@ pub fn quoted<'src>(quote: char) -> impl Psr<'src, String> {
         .then_ignore(just(quote))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse_pad(s: &str) -> Result<(), ()> {
-        pad()
-            .then_ignore(end())
-            .parse(s)
-            .into_result()
-            .map_err(|_| ())
-    }
-
-    #[test]
-    fn test_pad_consumes_whitespace_and_comments() {
-        assert_eq!(parse_pad(""), Ok(()));
-        assert_eq!(parse_pad("   \n\t "), Ok(()));
-        assert_eq!(parse_pad("// line comment"), Ok(()));
-        assert_eq!(parse_pad("// line\n  // another\n"), Ok(()));
-        assert_eq!(parse_pad("/* block */"), Ok(()));
-        assert_eq!(parse_pad("  /* a */ // b\n /* c */ "), Ok(()));
-    }
-
-    #[test]
-    fn test_block_comments_nest() {
-        assert_eq!(parse_pad("/* outer /* inner */ outer */"), Ok(()));
-        assert_eq!(parse_pad("/* a /* b /* c */ b */ a */"), Ok(()));
-        // An unterminated block comment, including one whose nesting is unbalanced, fails.
-        assert_eq!(parse_pad("/* unterminated"), Err(()));
-        assert_eq!(parse_pad("/* /* only one close */"), Err(()));
-    }
-}
-
 pub fn escape<'src>(quote: char) -> impl Psr<'src, char> {
     just(STRING_ESCAPE_PREFIX).ignore_then(
         just(STRING_ESCAPE_PREFIX)
@@ -223,4 +191,36 @@ pub fn escape<'src>(quote: char) -> impl Psr<'src, char> {
             ))
             .labelled(crate::labels::ESCAPE_CHARACTER),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_pad(s: &str) -> Result<(), ()> {
+        pad()
+            .then_ignore(end())
+            .parse(s)
+            .into_result()
+            .map_err(|_| ())
+    }
+
+    #[test]
+    fn test_pad_consumes_whitespace_and_comments() {
+        assert_eq!(parse_pad(""), Ok(()));
+        assert_eq!(parse_pad("   \n\t "), Ok(()));
+        assert_eq!(parse_pad("// line comment"), Ok(()));
+        assert_eq!(parse_pad("// line\n  // another\n"), Ok(()));
+        assert_eq!(parse_pad("/* block */"), Ok(()));
+        assert_eq!(parse_pad("  /* a */ // b\n /* c */ "), Ok(()));
+    }
+
+    #[test]
+    fn test_block_comments_nest() {
+        assert_eq!(parse_pad("/* outer /* inner */ outer */"), Ok(()));
+        assert_eq!(parse_pad("/* a /* b /* c */ b */ a */"), Ok(()));
+        // An unterminated block comment, including one whose nesting is unbalanced, fails.
+        assert_eq!(parse_pad("/* unterminated"), Err(()));
+        assert_eq!(parse_pad("/* /* only one close */"), Err(()));
+    }
 }
