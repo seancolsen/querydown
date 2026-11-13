@@ -120,4 +120,19 @@ $title @{width:200 align:left tags:[a b] wrap:@true}`,
 #issues status:[open reopened] created_at:>@now - 7d
   \\created_at \d $title|upper $#comments%count -> n`,
   },
+  {
+    name: "annotations",
+    title: "Column and query annotations",
+    grammar: "query",
+    valid: true,
+    source: String.raw`#issues status:open
+  $title @{width:400}
+  $created_at @{format:'YYYY-MM-DD'}
+// The query annotation ends the query
+\\\{
+  view:board groupBy:status pageSize:50
+  highlight:{column:title color:"#fbc9ff"}
+  lanes:[open closed] editable:@false note:@null
+}`,
+  },
 ];
