@@ -88,8 +88,8 @@ Autocompletion lives in the compiler crate's [`completion`](compiler/src/compile
 module, since it needs the schema. It parses the source with a sentinel identifier in place of the
 word being typed, finds the sentinel in the syntax tree, and works out from its surroundings what it
 is and which table is in scope. The JS bindings expose it as `QuerydownCompleter`, and the CodeMirror
-package turns that into a completion source (completing column annotations from a JSON Schema
-itself). Its Rust tests mark the cursor with `‸` in each source and run with `cargo test`.
+package turns that into a completion source (completing column and query annotations from JSON
+Schemas itself). Its Rust tests mark the cursor with `‸` in each source and run with `cargo test`.
 
 When you change the grammar, think about both:
 

@@ -35,7 +35,7 @@ struct CompileArgs {
     #[arg(short, long)]
     schema: String,
     /// Output format. `sql` prints only the generated SQL. `json` prints a JSON object containing
-    /// the SQL along with the column annotation.
+    /// the SQL along with the column and query annotations.
     ///
     /// On failure, the `sql` format prints a human-readable diagnostic to stderr, while the `json`
     /// format prints `{"error": {...}}` to stdout, describing the error's kind, message, and location

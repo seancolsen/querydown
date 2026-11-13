@@ -196,6 +196,16 @@ test("annotations can be completed by a function", async ({ page }) => {
   await expect(labels(page)).toHaveText(["key:rules.0"]);
 });
 
+test("query annotations are completed from their own schema", async ({ page }) => {
+  await setup(page, { doc: "#issues $title @{width:100} " });
+  await page.keyboard.type("\\\\\\{");
+  await expect(labels(page)).toHaveText(["view", "pageSize"]);
+  await page.keyboard.type("v");
+  await page.keyboard.press("Enter");
+  expect(await doc(page)).toBe("#issues $title @{width:100} \\\\\\{view:");
+  await expect(labels(page)).toHaveText(["table", "board"]);
+});
+
 test("without an annotation schema, annotations aren't completed", async ({ page }) => {
   await setup(page, { doc: "#issues $title ", annotations: "none" });
   await page.keyboard.type("@{");

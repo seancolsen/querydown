@@ -67,7 +67,8 @@
       let sql = '';
       let markers: MonacoEditor.IMarkerData[] = [];
       try {
-        // `compile` also returns `columnAnnotations`, but the playground only displays the SQL.
+        // `compile` also returns `columnAnnotations` and `queryAnnotation`, but the playground only
+        // displays the SQL.
         sql = compile(schema_code, 'postgres', qd_code).sql;
       } catch (e) {
         if (is_querydown_error(e)) {

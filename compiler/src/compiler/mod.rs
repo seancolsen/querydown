@@ -43,7 +43,8 @@ use self::{
 /// `compile_stage`).
 const WINDOW_SOURCE_CTE_ALIAS: &str = "qdwin_src";
 
-/// The output of compiling Querydown code: the generated SQL plus column-level annotation.
+/// The output of compiling Querydown code: the generated SQL plus the annotations written in the
+/// query, which are passed through uninterpreted.
 ///
 /// `column_annotations` is positionally aligned with the columns of the result set — one entry per
 /// output column, in order, with `null` for any column that has no annotation.
@@ -52,6 +53,9 @@ pub struct CompileResult {
     pub sql: String,
     #[serde(rename = "columnAnnotations")]
     pub column_annotations: Vec<Option<AnnotationValue>>,
+    /// The query-level annotation (`\\\{…}`) that ends the query, if any.
+    #[serde(rename = "queryAnnotation")]
+    pub query_annotation: Option<AnnotationValue>,
 }
 
 pub struct Compiler {
@@ -75,7 +79,7 @@ impl Compiler {
         Ok(Self { options, schema })
     }
 
-    /// Compiles Querydown source code into SQL plus column annotations.
+    /// Compiles Querydown source code into SQL plus its column and query annotations.
     ///
     /// # Errors
     ///
@@ -89,7 +93,7 @@ impl Compiler {
         self.compile_query(parse(&input)?)
     }
 
-    /// Compiles an already-parsed [`Query`] into SQL plus column annotations.
+    /// Compiles an already-parsed [`Query`] into SQL plus its column and query annotations.
     ///
     /// This is the lower-level counterpart to [`Compiler::compile`], which parses source code
     /// before compiling it. It exists so that a consumer can parse the sections of a query
@@ -102,7 +106,8 @@ impl Compiler {
     /// compiled against the schema. Its [`span`](Error::span) locates the construct at fault, as
     /// recorded in the query's syntax tree: when the query was assembled from sections, the span is
     /// relative to the text of the error's [`section`](Error::section).
-    pub fn compile_query(&self, query: Query) -> Result<CompileResult, Error> {
+    pub fn compile_query(&self, mut query: Query) -> Result<CompileResult, Error> {
+        let query_annotation = query.annotation.take();
         let (udt_ctes, udt_tables) = self.compile_user_tables(&query.definitions.tables)?;
 
         let mut final_stage =
@@ -128,6 +133,7 @@ impl Compiler {
         Ok(CompileResult {
             sql: format!("{};", final_stage.select.render(&mut render_scope)),
             column_annotations: final_stage.column_annotations,
+            query_annotation,
         })
     }
 

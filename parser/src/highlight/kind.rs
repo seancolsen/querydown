@@ -67,7 +67,8 @@ pub enum TokenKind {
     Flag,
     /// The alias given to a result column, e.g. `total` in `$%count -> total`.
     Alias,
-    /// The `@` that introduces a column annotation, e.g. in `@{width:100}`.
+    /// What introduces an annotation: the `@` of a column annotation (`@{width:100}`), or the `\\\`
+    /// of a query annotation (`\\\{foo:100}`).
     Annotation,
     /// The key of an annotation object entry, e.g. `width` in `@{width:100}`.
     AnnotationKey,

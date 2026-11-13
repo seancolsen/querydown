@@ -607,6 +607,35 @@ fn outside_annotations() {
 }
 
 #[test]
+fn annotation_targets() {
+    let (position, _) = annotation("#issues $title @{‸");
+    assert_eq!(position.target, AnnotationTarget::Column);
+    let (position, from) = annotation("#issues $title \\\\\\{‸");
+    assert_eq!(position.target, AnnotationTarget::Query);
+    assert_eq!(
+        (position.path, position.slot),
+        (vec![], AnnotationSlot::Key)
+    );
+    assert_eq!(from, 19);
+    // After a column annotation, within the query annotation.
+    let (position, _) = annotation("#issues $title @{width:100} \\\\\\{a:1 b:[x ‸");
+    assert_eq!(position.target, AnnotationTarget::Query);
+    assert_eq!(position.path, [key("b"), AnnotationPathSegment::Index(1)]);
+    assert_eq!(position.slot, AnnotationSlot::Value);
+}
+
+#[test]
+fn outside_query_annotations() {
+    // Before its `{`, nothing is offered (whereas after `\\` a sort expression's columns are).
+    let completions = complete("#issues \\\\\\‸");
+    assert_eq!((completions.annotation, completions.items.len()), (None, 0));
+    assert_columns("#issues \\\\‸", &ISSUES);
+    // Nor once it is closed.
+    let completions = complete("#issues \\\\\\{a:1} ‸");
+    assert_eq!(completions.annotation, None);
+}
+
+#[test]
 fn offsets_are_bytes() {
     // `é` is two bytes.
     let completions = complete("#issues title:\"é\" $author.us‸");

@@ -5,8 +5,8 @@
 //! 1. **The site** ([`site`]). It finds the word being typed before the cursor and the sigil that
 //!    introduces it (`#` for a table, `|` for a function, `@` for a variable, and so on), using the
 //!    highlighting tokens. It also recognizes places where nothing should be offered, such as
-//!    strings, comments, numbers and flags, and it recognizes column annotations, whose keys and
-//!    values only the application knows ([`annotation`]).
+//!    strings, comments, numbers and flags, and it recognizes column and query annotations, whose
+//!    keys and values only the application knows ([`annotation`]).
 //!
 //! 2. **The target** ([`locate`]). It replaces the word with a _sentinel_ identifier and parses the
 //!    result with the real parser. Then it finds the sentinel in the syntax tree and works out what
@@ -43,7 +43,7 @@ use super::Compiler;
 use locate::{Found, TableCtx, Target};
 use site::{Sigil, SiteKind};
 
-pub use annotation::{AnnotationPathSegment, AnnotationPosition, AnnotationSlot};
+pub use annotation::{AnnotationPathSegment, AnnotationPosition, AnnotationSlot, AnnotationTarget};
 
 /// What to complete: a position within some Querydown source.
 #[derive(Debug, Clone, Copy)]
@@ -86,9 +86,10 @@ pub struct Completions {
     /// What could be typed, in no particular order. Filtering by what has been typed so far is left
     /// to the editor.
     pub items: Vec<CompletionItem>,
-    /// Set when the cursor is within a column annotation (`@{…}`). Querydown doesn't know what
-    /// annotations an application accepts, so it offers no items there; instead it says where in
-    /// the annotation the cursor is, for the application to complete from its own knowledge.
+    /// Set when the cursor is within an annotation: a column annotation (`@{…}`) or a query
+    /// annotation (`\\\{…}`). Querydown doesn't know what annotations an application accepts, so it
+    /// offers no items there; instead it says where in the annotation the cursor is, for the
+    /// application to complete from its own knowledge.
     pub annotation: Option<AnnotationPosition>,
 }
 

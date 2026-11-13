@@ -19,6 +19,15 @@ pub fn annotation<'src>() -> impl Psr<'src, AnnotationValue> {
     mark(TokenKind::Annotation, just(CONST_SIGIL)).ignore_then(object(value()))
 }
 
+/// Parses a query-level annotation: a top-level object introduced by `\\\`, e.g. `\\\{foo:100}`.
+/// Its object is written in the same JSON-like variant as a column annotation's (see
+/// [`annotation`]).
+pub fn query_annotation<'src>() -> impl Psr<'src, AnnotationValue> {
+    mark(TokenKind::Annotation, exactly(QUERY_ANNOTATION_PREFIX))
+        .ignore_then(object(value()))
+        .labelled(labels::QUERY_ANNOTATION)
+}
+
 /// A recursive parser for any annotation value (object, array, number, string, or `@`-constant).
 fn value<'src>() -> impl Psr<'src, AnnotationValue> {
     recursive(|value| {

@@ -143,6 +143,7 @@ See [case expressions](./language.md#case-expressions) docs.
 | -- | -- | -- |
 | `~~~` | [pipeline](./language.md#pipeline-of-multiple-queries) of multiple queries | ✅ |
 | `+++` | [union](./language.md#union-of-multiple-queries) of multiple queries | ❌ |
+| `\\\{ }` | [query annotation](./language.md#query-level-annotations) (written last in the query) | ✅ |
 
 ## Operator precedence
 

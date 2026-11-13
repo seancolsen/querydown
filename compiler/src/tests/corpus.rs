@@ -9,7 +9,7 @@ fn test_corpus() {
 
     fn test(case: TestCase<Opts>) {
         // Args are the fenced code blocks in document order: the Querydown input first, then the
-        // expected SQL, then optionally a JSON block with the expected column annotation.
+        // expected SQL, then optionally a JSON block with the expected annotations.
         let input = case.args.first().expect("missing input code block").clone();
         let expected_sql = case.args.get(1).expect("missing SQL code block").clone();
         let expected_json = case.args.get(2).cloned();
@@ -32,31 +32,44 @@ fn test_corpus() {
             panic!("Test corpus failure (SQL mismatch)");
         }
 
-        if let Some(expected_json) = expected_json {
-            // Compare only the `columnAnnotations` portion, parsed into `serde_json::Value` so the
-            // comparison is insensitive to whitespace.
-            let actual_meta = serde_json::to_value(&result.column_annotations).unwrap();
-            let expected_value: serde_json::Value = serde_json::from_str(&expected_json)
-                .expect("expected JSON block is not valid JSON");
-            let expected_meta = expected_value
-                .get("columnAnnotations")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
-            if actual_meta != expected_meta {
-                let actual_str = serde_json::to_string_pretty(&actual_meta).unwrap();
-                let expected_str = serde_json::to_string_pretty(&expected_meta).unwrap();
+        // Compare the annotations, parsed into `serde_json::Value` so the comparison is insensitive
+        // to whitespace. The column annotations are compared only if the case's JSON block lists
+        // them, whereas the query annotation is always compared: a case without one expects `null`.
+        let expected: serde_json::Value = expected_json.map_or_else(
+            || serde_json::json!({}),
+            |json| serde_json::from_str(&json).expect("expected JSON block is not valid JSON"),
+        );
+        let mut comparisons = vec![(
+            "queryAnnotation",
+            serde_json::to_value(&result.query_annotation).unwrap(),
+        )];
+        if expected.get("columnAnnotations").is_some() {
+            comparisons.push((
+                "columnAnnotations",
+                serde_json::to_value(&result.column_annotations).unwrap(),
+            ));
+        }
+        for (key, actual) in comparisons {
+            let expected = expected.get(key).cloned().unwrap_or_default();
+            if actual != expected {
                 println!(
                     "{}",
                     report(
                         &case,
                         &[
                             ("Input", input.clone()),
-                            ("Expected value", expected_str),
-                            ("Actual value", actual_str),
+                            (
+                                "Expected value",
+                                serde_json::to_string_pretty(&expected).unwrap()
+                            ),
+                            (
+                                "Actual value",
+                                serde_json::to_string_pretty(&actual).unwrap()
+                            ),
                         ],
                     )
                 );
-                panic!("Test corpus failure (annotation mismatch)");
+                panic!("Test corpus failure ({key} mismatch)");
             }
         }
     }

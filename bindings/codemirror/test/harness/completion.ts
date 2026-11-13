@@ -48,6 +48,15 @@ const annotationSchema: AnnotationSchema = {
   },
 };
 
+/** An application's query annotations, as a JSON Schema. */
+const queryAnnotationSchema: AnnotationSchema = {
+  type: "object",
+  properties: {
+    view: { enum: ["table", "board"], description: "How to show the results." },
+    pageSize: { type: "number" },
+  },
+};
+
 const theme = EditorView.theme(
   {
     "&": {
@@ -73,7 +82,10 @@ export interface Setup {
   grammar?: Grammar;
   baseTable?: string;
   definitions?: string;
-  /** Complete annotations with the schema above (the default), or by listing every key path. */
+  /**
+   * Complete column annotations with the schema above (the default), or by listing every key path.
+   * Query annotations are completed with their schema above, except with `"none"`.
+   */
   annotations?: "schema" | "function" | "none";
   /** Use a completer that throws, rather than the real one. */
   failing?: boolean;
@@ -108,6 +120,7 @@ const harness = {
       ...(setup.baseTable !== undefined ? { baseTable: setup.baseTable } : {}),
       ...(setup.definitions !== undefined ? { definitions: () => setup.definitions } : {}),
       annotations: annotations(setup),
+      ...(setup.annotations !== "none" ? { queryAnnotations: queryAnnotationSchema } : {}),
     };
     view = new EditorView({
       parent: document.getElementById("editor")!,

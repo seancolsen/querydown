@@ -161,10 +161,11 @@ The result:
   or `"variable"`), and possibly an `insert` text differing from the label (e.g. a name quoted with
   backticks), a `detail` (e.g. a column's type), an `info` (e.g. what a function does), and a
   `boost` that ranks it above (or below) equally good matches.
-- `annotation`: set when the cursor is within a [column annotation](../../docs/language.md#column-level-annotations),
-  whose keys and values only your application knows. It gives the `path` of keys and indices to the
-  object or array the cursor is in, the `slot` being typed (`"key"` or `"value"`), and the `keys`
-  the object already has. There are no items then.
+- `annotation`: set when the cursor is within a [column annotation](../../docs/language.md#column-level-annotations)
+  or a [query annotation](../../docs/language.md#query-level-annotations), whose keys and values
+  only your application knows. It gives the `target` (`"column"` or `"query"`), the `path` of keys
+  and indices to the object or array the cursor is in, the `slot` being typed (`"key"` or
+  `"value"`), and the `keys` the object already has. There are no items then.
 
 For CodeMirror 6, [`querydown-codemirror`](../codemirror/README.md#autocompletion) turns this into
 autocompletion, including completion of annotations from a JSON Schema.
@@ -181,6 +182,9 @@ interface CompileResult {
   sql: string;
   // One entry per output column, in order; null where a column has no annotation.
   columnAnnotations: (AnnotationValue | null)[];
+  // The query annotation (`\\\{…}`) that ends the query; null if there is none. Always null from
+  // `compile_sections`.
+  queryAnnotation: AnnotationValue | null;
 }
 
 type AnnotationValue =

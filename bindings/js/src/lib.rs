@@ -8,7 +8,8 @@ use wasm_bindgen::JsCast;
 /// appended to the generated `.d.ts` so the exported functions are typed as `CompileResult` rather
 /// than `any`, and so that consumers can work with thrown `QuerydownError`s in a typed way.
 /// `columnAnnotations` mirrors the compiler's `Vec<Option<AnnotationValue>>`: one entry per output
-/// column, in order, `null` for a column that carries no annotation.
+/// column, in order, `null` for a column that carries no annotation. `queryAnnotation` mirrors its
+/// `Option<AnnotationValue>`.
 ///
 /// These are held in their own constant, rather than written directly into the custom section
 /// below, so that a test can check them. (`wasm_bindgen` reads the constant in a way that the
@@ -17,7 +18,7 @@ use wasm_bindgen::JsCast;
 const TS_DECLARATIONS: &str = r#"
 /**
  * A value in Querydown's JSON-like annotation sub-language, carrying arbitrary
- * application-defined annotations for result columns.
+ * application-defined annotations for result columns or for the whole query.
  */
 export type AnnotationValue =
   | null
@@ -27,7 +28,9 @@ export type AnnotationValue =
   | AnnotationValue[]
   | { [key: string]: AnnotationValue };
 
-/** The result of compiling Querydown source: the generated SQL plus per-column annotations. */
+/**
+ * The result of compiling Querydown source: the generated SQL plus the annotations written in it.
+ */
 export interface CompileResult {
   /** The generated SQL query. */
   sql: string;
@@ -35,6 +38,11 @@ export interface CompileResult {
    * One entry per output column, in column order; `null` where a column has no annotation.
    */
   columnAnnotations: (AnnotationValue | null)[];
+  /**
+   * The query-level annotation (`\\\{…}`) that ends the query: an object, or `null` if the query
+   * has none. Always `null` from `compile_sections`, whose sections have no place to write one.
+   */
+  queryAnnotation: AnnotationValue | null;
 }
 
 /**
@@ -151,7 +159,8 @@ export type QuerydownGrammar = "query" | QuerydownSection;
  * - `"path-separator"`: `.` or `>>`
  * - `"result-column"`: `$`; `"sort"`: `\\`; `"flag"`: e.g. `\sd`
  * - `"alias"`: e.g. `total` in `-> total`
- * - `"annotation"`: the `@` of `@{...}`; `"annotation-key"`: e.g. `width` in `@{width:100}`
+ * - `"annotation"`: the `@` of `@{...}`, or the `\\\` of `\\\{...}`; `"annotation-key"`: e.g.
+ *   `width` in `@{width:100}`
  * - `"annotation-value"`: a scalar in an annotation, e.g. `100`; `"annotation-bracket"`: its `{ } [ ]`
  * - `"pipeline"`: `~~~`
  * - `"definition"`: `=` and `=>` in definitions
@@ -277,10 +286,13 @@ export interface QuerydownCompletionItem {
 }
 
 /**
- * Where the cursor is within a column annotation (`@{…}`). Querydown doesn't know which
- * annotations an application accepts, so it leaves completing them to the application.
+ * Where the cursor is within an annotation: a column annotation (`@{…}`) or a query annotation
+ * (`\\\{…}`). Querydown doesn't know which annotations an application accepts, so it leaves
+ * completing them to the application.
  */
 export interface QuerydownAnnotationPosition {
+  /** Which kind of annotation the cursor is in. */
+  target: "column" | "query";
   /**
    * The keys and array indices leading from the top-level annotation object to the object or array
    * the cursor is in. When a value is being typed, the last element is its key or index.
@@ -302,7 +314,7 @@ export interface QuerydownCompletions {
   /** Where the text the items would replace ends: the cursor. */
   to: number;
   items: QuerydownCompletionItem[];
-  /** Set when the cursor is within a column annotation, in which case there are no items. */
+  /** Set when the cursor is within an annotation, in which case there are no items. */
   annotation: QuerydownAnnotationPosition | null;
 }
 "#;
@@ -516,7 +528,7 @@ pub fn introspection_sql(dialect: &str) -> Result<String, JsValue> {
     Ok(parse_dialect(dialect)?.introspection_sql().to_string())
 }
 
-/// Compiles whole-query Querydown source into SQL plus column annotations, returning a typed
+/// Compiles whole-query Querydown source into SQL plus its annotations, returning a typed
 /// `CompileResult` object. Failures are thrown as `QuerydownError`s, whose spans refer to `input`.
 #[wasm_bindgen]
 pub fn compile(

@@ -48,8 +48,13 @@ export interface CompletionItem {
   boost: number;
 }
 
-/** Where the cursor is within a column annotation (`@{…}`). */
+/**
+ * Where the cursor is within an annotation: a column annotation (`@{…}`) or a query annotation
+ * (`\\\{…}`).
+ */
 export interface AnnotationPosition {
+  /** Which kind of annotation the cursor is in. */
+  target: "column" | "query";
   /**
    * The keys and array indices leading from the top-level annotation object to the object or array
    * the cursor is in. When a value is being typed, the last element is its key or index.
@@ -89,8 +94,8 @@ export interface Completer {
 // ------------------------------------------------------------------------------------------------
 
 /**
- * A JSON Schema describing the column annotations your application accepts, used to complete their
- * keys and values. The supported keywords are listed here; others are ignored.
+ * A JSON Schema describing the column (or query) annotations your application accepts, used to
+ * complete their keys and values. The supported keywords are listed here; others are ignored.
  *
  * ```ts
  * const annotations: AnnotationSchema = {
@@ -129,8 +134,8 @@ export interface AnnotationSchema {
 }
 
 /**
- * Completes column annotations from your own knowledge of them: called with where the cursor is
- * within an annotation, it returns the options to offer there (or null for none).
+ * Completes annotations from your own knowledge of them: called with where the cursor is within an
+ * annotation, it returns the options to offer there (or null for none).
  */
 export type AnnotationCompleter = (
   position: AnnotationPosition,
@@ -294,6 +299,11 @@ export interface QuerydownCompletionConfig {
    * Without this, annotations aren't completed.
    */
   annotations?: AnnotationSchema | AnnotationCompleter;
+  /**
+   * How to complete the query annotation (`\\\{…}`) that may end a query, in the same way as
+   * `annotations`. Without this, query annotations aren't completed.
+   */
+  queryAnnotations?: AnnotationSchema | AnnotationCompleter;
 }
 
 /** The CodeMirror type of each kind of item, which picks its icon. */
@@ -381,7 +391,8 @@ export function querydownCompletionSource(
     // that introduces something completable.
     if (!context.explicit && typed === "" && !triggers.has(trigger)) return null;
     if (annotation) {
-      const { annotations } = config;
+      const annotations =
+        annotation.target === "query" ? config.queryAnnotations : config.annotations;
       if (!annotations) return null;
       const options =
         typeof annotations === "function"

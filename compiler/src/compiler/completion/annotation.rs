@@ -1,4 +1,5 @@
-//! Where the cursor is within a column annotation (`@{…}`).
+//! Where the cursor is within an annotation: a column annotation (`@{…}`) or a query annotation
+//! (`\\\{…}`).
 //!
 //! Querydown passes annotations through without interpreting them, so it can't say what keys or
 //! values one may contain. It can say where the cursor is (at a key or a value, and along which
@@ -11,9 +12,11 @@
 use querydown_parser::highlight::{Token, TokenKind};
 use serde::Serialize;
 
-/// Where the cursor is within a column annotation.
+/// Where the cursor is within an annotation.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AnnotationPosition {
+    /// Which kind of annotation the cursor is in.
+    pub target: AnnotationTarget,
     /// The keys and array indices leading from the annotation's top-level object to the object or
     /// array the cursor is in, e.g. `["formattingConditions", 0]` within
     /// `@{formattingConditions:[{…}]}`. Empty within the top-level object itself.
@@ -22,6 +25,16 @@ pub struct AnnotationPosition {
     pub slot: AnnotationSlot,
     /// When a key is being typed, the keys the object already has before the cursor.
     pub keys: Vec<String>,
+}
+
+/// What an annotation is attached to. Serialized in kebab-case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AnnotationTarget {
+    /// A result column, annotated with `@{…}`.
+    Column,
+    /// The whole query, annotated with `\\\{…}` at its end.
+    Query,
 }
 
 /// One step into an annotation: an object's key, or an array's index. Serialized as a plain string
@@ -51,7 +64,7 @@ pub(super) fn position(
     tokens: &[Token],
 ) -> Option<Option<AnnotationPosition>> {
     // An annotation can't contain another, so only the last one begun before the cursor can contain
-    // it. The `@` of an annotation is always followed directly by its `{`.
+    // it. The `@` (or `\\\`) of an annotation is always followed directly by its `{`.
     let at = tokens
         .iter()
         .take_while(|token| token.span.end <= word_start)
@@ -63,7 +76,11 @@ pub(super) fn position(
     if !text.starts_with('{') {
         return None;
     }
-    scan(text)
+    let target = match source[at.span.clone()].starts_with('\\') {
+        true => AnnotationTarget::Query,
+        false => AnnotationTarget::Column,
+    };
+    scan(text, target)
 }
 
 enum Frame {
@@ -123,7 +140,7 @@ impl Frame {
 }
 
 /// Scans `text` (an annotation from its opening `{` to the cursor). See [`position`].
-fn scan(text: &str) -> Option<Option<AnnotationPosition>> {
+fn scan(text: &str, target: AnnotationTarget) -> Option<Option<AnnotationPosition>> {
     let mut stack: Vec<Frame> = vec![];
     let mut chars = text.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
@@ -220,6 +237,7 @@ fn scan(text: &str) -> Option<Option<AnnotationPosition>> {
             state: ObjectState::Key,
             ..
         } => AnnotationPosition {
+            target,
             path,
             slot: AnnotationSlot::Key,
             keys: keys.clone(),
@@ -231,6 +249,7 @@ fn scan(text: &str) -> Option<Option<AnnotationPosition>> {
         Frame::Object { .. } | Frame::Array { .. } => {
             path.extend(frame.child_segment());
             AnnotationPosition {
+                target,
                 path,
                 slot: AnnotationSlot::Value,
                 keys: vec![],

@@ -3,7 +3,7 @@
 Syntax highlighting and autocompletion for [Querydown](https://github.com/seancolsen/querydown) in
 [CodeMirror 6](https://codemirror.net/). The highlighting has light and dark palettes that follow the
 editor's theme and can be customized. Autocompletion offers your database's tables and columns,
-functions, variables, and (if you describe them) your application's column annotations.
+functions, variables, and (if you describe them) your application's column and query annotations.
 
 | Light | Dark |
 | -- | -- |
@@ -185,7 +185,7 @@ and, for a column, which table it belongs to:
 | `%` | Aggregate functions, or window functions after a `%%( … )` window definition |
 | `@` | Built-in constants, constants defined in the query, and the parameters and local assignments of the function the cursor is in |
 | `#table(` | The foreign keys of `table` that could link it |
-| `@{` | Your application's annotation keys and values, if you [describe them](#annotations) |
+| `@{`, `\\\{` | Your application's annotation keys and values, if you [describe them](#annotations) |
 
 The table in scope follows the language's rules: paths (`author.team.`), scoped conditions
 (`issue{…}`), filters on related records (`#comments{…}`), sorting within an aggregate
@@ -268,6 +268,21 @@ annotations: ({ path, slot, keys }) =>
 them being the value's own key or index, when typing a value), `slot` is `"key"` or `"value"`, and
 `keys` lists the keys the object already has.
 
+The [query annotation](../../docs/language.md#query-level-annotations) that may end a query
+(`\\\{…}`) is completed the same way, from its own schema (or function), passed as
+`queryAnnotations`:
+
+```ts
+completion: {
+  completer,
+  annotations: columnAnnotationSchema,
+  queryAnnotations: {
+    type: "object",
+    properties: { view: { enum: ["table", "board"] }, pageSize: { type: "number" } },
+  },
+},
+```
+
 ### Styling the options
 
 Each option's type gives it one of CodeMirror's standard icons (`class` for tables, `property` for
@@ -308,7 +323,7 @@ returns the options a JSON Schema offers at a position within an annotation.
 | `sort` | `\\` |
 | `flag` | `\sd`, `\g` |
 | `alias` | `total` in `-> total` |
-| `annotation`, `annotation-key` | the `@` and the `width` in `@{width:100}` |
+| `annotation`, `annotation-key` | the `@` and the `width` in `@{width:100}`, and the `\\\` of a query annotation |
 | `annotation-value` | the `100` in `@{width:100}`, including strings and `@true` |
 | `annotation-bracket` | the brackets in `@{tags:[a b]}` |
 | `pipeline` | `~~~` |

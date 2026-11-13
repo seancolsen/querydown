@@ -51,3 +51,4 @@ pub(crate) const SORT_FLAG: &str = "a sort flag (`d` or `n`)";
 // Annotations
 pub(crate) const ANNOTATION_KEY: &str = "an annotation key";
 pub(crate) const ANNOTATION_VALUE: &str = "an annotation value";
+pub(crate) const QUERY_ANNOTATION: &str = "a query annotation (`\\\\\\`)";

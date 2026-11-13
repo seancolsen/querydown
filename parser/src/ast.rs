@@ -183,6 +183,10 @@ pub struct Query {
     /// Where the base table was named (e.g. `#issues`).
     pub base_table_loc: Loc,
     pub transformations: Vec<Transformation>,
+    /// The query-level annotation written at the very end of the query, e.g. `\\\{foo:100}`. Like
+    /// a column annotation, it is passed through to the compiler output uninterpreted. Only a whole
+    /// query has one: a subquery (`#( ... )`) never does.
+    pub annotation: Option<AnnotationValue>,
 }
 
 impl Query {
@@ -197,6 +201,10 @@ impl Query {
     /// The base table is supplied separately because it is not part of any of the four sections; in
     /// a multi-input UI it is typically chosen on its own (e.g. via a dropdown) rather than typed.
     /// It therefore has no location.
+    ///
+    /// The query has no [annotation](Query::annotation): the sections have no place to write one,
+    /// and an application that splits a query into sections can keep its own query-level data
+    /// alongside them.
     pub fn from_parts(
         base_table: String,
         definitions: Definitions,
@@ -213,6 +221,7 @@ impl Query {
                 sorting,
                 result_columns: display,
             }],
+            annotation: None,
         }
     }
 }

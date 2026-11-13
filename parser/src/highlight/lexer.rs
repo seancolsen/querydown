@@ -190,6 +190,10 @@ impl Lexer<'_> {
                 }
             }
             '0'..='9' => self.number(),
+            // Before `\\`, which begins it.
+            _ if self.starts_with(QUERY_ANNOTATION_PREFIX) => {
+                self.emit(K::Annotation, QUERY_ANNOTATION_PREFIX.len(), Context::None)
+            }
             _ if self.starts_with(SORT_EXPR_PREFIX) => {
                 self.emit(K::Sort, SORT_EXPR_PREFIX.len(), Context::None)
             }

@@ -1688,13 +1688,40 @@ A few things to watch out for:
 
 ### Query-level annotations
 
-_(🚧 Not yet implemented)_
+You can also associate an annotation with the query as a whole, by writing an object prefixed with `\\\` at the very **end** of the query — after the result columns, and after the last stage of a [pipeline](#pipeline-of-multiple-queries).
 
 > Show all issues. Also associate `{"foo": 100}` as a JSON annotation with the query. This annotation will get passed through as output from the Querydown compiler, separate from the SQL output.
 
 ```qd
 #issues \\\{"foo": 100}
 ```
+
+In addition to the query SQL, this also produces the following annotation:
+
+```json
+{
+  "queryAnnotation": { "foo": 100 }
+}
+```
+
+`queryAnnotation` is `null` for a query without one. As with column annotations, the structure is entirely up to you, and the object is written in [Querydown's JSON variant](#querydowns-json-variant) — so it can span several lines and drop the quotes and commas:
+
+```qd
+#issues status:open
+$title @{width:400}
+$created_at
+\\\{
+  view:board
+  groupBy:status
+  pageSize:50
+}
+```
+
+A few rules:
+
+- The `{` must directly follow the `\\\`.
+- Only one query annotation is allowed, and nothing but whitespace and comments may follow it.
+- A [subquery](#user-defined-tables) (`#( … )`) can't have its own query annotation.
 
 ## Limit and offset
 

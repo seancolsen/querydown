@@ -7,8 +7,8 @@ use crate::tokens::*;
 
 use super::utils::*;
 use super::{
-    column_layout::result_columns, expr::comparison_operator, expr::condition_entry, expr::expr,
-    sorting::sorting,
+    annotation::query_annotation, column_layout::result_columns, expr::comparison_operator,
+    expr::condition_entry, expr::expr, sorting::sorting,
 };
 
 /// A pre-base-table definition. Several kinds of definition share the same position in the source
@@ -22,7 +22,39 @@ enum Definition {
 }
 
 pub fn query<'src>() -> impl Psr<'src, Query> {
-    pad().ignore_then(query_body().then_ignore(pad().then(end())))
+    pad()
+        .ignore_then(query_body())
+        // The query-level annotation must come last: after the final pipeline stage. It belongs to
+        // the whole query, so `query_body` (which also parses subqueries) doesn't accept one.
+        .then(
+            pad()
+                .ignore_then(query_annotation())
+                .then_ignore(pad().then(after_query_annotation()))
+                .or_not(),
+        )
+        .then_ignore(pad().then(end()))
+        .map(|(query, annotation)| Query {
+            annotation,
+            ..query
+        })
+}
+
+/// Reports anything (other than whitespace and comments) written after a query annotation. Without
+/// this, the error would merely say that the end of the input was expected.
+fn after_query_annotation<'src>() -> impl Psr<'src, ()> {
+    any()
+        .validate(|c: char, extra, emitter| {
+            emitter.emit(Rich::custom(
+                extra.span(),
+                format!(
+                    "Unexpected `{c}`. A query annotation must come at the very end of the query."
+                ),
+            ))
+        })
+        .then(any().repeated())
+        .ignored()
+        .or_not()
+        .ignored()
 }
 
 /// Parses the body of a query — its definitions, base table, and transformations — into a [`Query`],
@@ -55,6 +87,7 @@ fn query_body<'src>() -> impl Psr<'src, Query> {
                     base_table,
                     base_table_loc,
                     transformations,
+                    annotation: None,
                 },
             )
     })
@@ -138,10 +171,22 @@ fn table_def<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, TableD
 
 /// Parses a `#( query )` subquery into the [`Query`] it wraps.
 fn table_subquery<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Query> {
+    // A query annotation isn't allowed here, but one is parsed anyway so that it can be reported
+    // plainly, rather than as a malformed sort expression (since `\\\` begins with `\\`).
+    let misplaced_annotation = pad()
+        .ignore_then(query_annotation())
+        .validate(|_, extra, emitter| {
+            emitter.emit(Rich::custom(
+                extra.span(),
+                "A query annotation can only end the whole query, not a subquery.",
+            ))
+        })
+        .or_not();
     just(TABLE_SIGIL)
         .ignore_then(just(EXPR_PAREN_L))
         .ignore_then(pad())
         .ignore_then(query)
+        .then_ignore(misplaced_annotation)
         .then_ignore(pad())
         .then_ignore(just(EXPR_PAREN_R))
 }
@@ -346,8 +391,88 @@ mod tests {
                         annotation: None,
                     })],
                 }],
+                annotation: None,
             })
         );
+    }
+
+    fn query_annotation_of(source: &str) -> Option<AnnotationValue> {
+        query().parse(source).into_result().unwrap().annotation
+    }
+
+    fn foo_100() -> Option<AnnotationValue> {
+        Some(AnnotationValue::Object(vec![(
+            "foo".to_string(),
+            AnnotationValue::Number("100".to_string()),
+        )]))
+    }
+
+    #[test]
+    fn test_parse_query_annotation() {
+        assert_eq!(query_annotation_of("#issues"), None);
+        assert_eq!(query_annotation_of(r"#issues \\\{foo:100}"), foo_100());
+        // Written as in standard JSON, so long as there are no commas.
+        assert_eq!(query_annotation_of(r#"#issues \\\{"foo": 100}"#), foo_100());
+        // After every other part of the query, and surrounded by whitespace and comments.
+        assert_eq!(
+            query_annotation_of(
+                "#issues status:open \\\\created_at $title @{width:100} // columns\n  \\\\\\{foo:100} // the query\n"
+            ),
+            foo_100()
+        );
+        // After the last stage of a pipeline.
+        assert_eq!(
+            query_annotation_of(r"#issues $author \g ~~~ $author \\\{foo:100}"),
+            foo_100()
+        );
+        // The rest of the query is unaffected.
+        let with = query().parse(r"#issues $title \\\{foo:100}").into_result();
+        let without = query().parse(r"#issues $title").into_result();
+        assert_eq!(
+            with.map(|q| Query {
+                annotation: None,
+                ..q
+            }),
+            without
+        );
+    }
+
+    #[test]
+    fn test_parse_nested_query_annotation() {
+        assert_eq!(
+            query_annotation_of(r"#issues \\\{a:[1 {b:@true}] c:'x y'}"),
+            Some(AnnotationValue::Object(vec![
+                (
+                    "a".to_string(),
+                    AnnotationValue::Array(vec![
+                        AnnotationValue::Number("1".to_string()),
+                        AnnotationValue::Object(vec![(
+                            "b".to_string(),
+                            AnnotationValue::Bool(true)
+                        )]),
+                    ])
+                ),
+                ("c".to_string(), AnnotationValue::String("x y".to_string())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_query_annotation_placement() {
+        let fails = |source: &str| assert!(query().parse(source).has_errors(), "{source}");
+        // It must come last.
+        fails(r"#issues \\\{foo:100} $title");
+        fails(r"#issues \\\{foo:100} ~~~ $title");
+        // Only one is allowed.
+        fails(r"#issues \\\{a:1} \\\{b:2}");
+        // The top level must be an object.
+        fails(r"#issues \\\[1]");
+        fails(r"#issues \\\100");
+        // The `{` follows the `\\\` directly.
+        fails(r"#issues \\\ {foo:100}");
+        // A subquery can't have one.
+        fails(r"#t = #( #issues \\\{foo:100} ) #t");
+        fails(r"@n = #( #issues $%count \\\{foo:100} ) #issues");
     }
 
     #[test]

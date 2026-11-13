@@ -3925,6 +3925,8 @@ LEFT JOIN "projects" ON
 
 A test case may include an optional ` ```json ` block after the SQL block. When
 present, the harness compares its `columnAnnotations` against the compiler output.
+Its `queryAnnotation` is always compared, and is expected to be `null` unless the
+block says otherwise.
 
 ### Full example
 
@@ -4033,6 +4035,111 @@ FROM "issues";
     null,
     null
   ]
+}
+```
+
+## Query annotations
+
+### Query annotation
+
+> Show all issues, associating `{"foo": 100}` with the query. The annotation doesn't affect the SQL.
+
+```qd
+#issues \\\{"foo": 100}
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues";
+```
+
+```json
+{
+  "queryAnnotation": { "foo": 100 }
+}
+```
+
+### Query annotation alongside column annotations
+
+> The query annotation comes last, after the result columns and their annotations. It is written in
+> the same JSON variant as column annotations.
+
+```qd
+#issues status:open
+\\created_at \d
+$title @{width:400}
+$created_at
+\\\{
+  view:table
+  pageSize:50
+  highlight:{column:title color:'#fbc9ff'}
+  groups:[open closed]
+  editable:@false
+  note:@null
+}
+```
+
+```sql
+SELECT
+  "issues"."title",
+  "issues"."created_at"
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+ORDER BY
+  "issues"."created_at" DESC NULLS LAST;
+```
+
+```json
+{
+  "columnAnnotations": [{ "width": 400 }, null],
+  "queryAnnotation": {
+    "view": "table",
+    "pageSize": 50,
+    "highlight": { "column": "title", "color": "#fbc9ff" },
+    "groups": ["open", "closed"],
+    "editable": false,
+    "note": null
+  }
+}
+```
+
+### Query annotation after a pipeline
+
+> The query annotation belongs to the whole query, so it follows the last stage of a pipeline.
+
+```qd
+#issues $author \g $%count -> n ~~~ n:>5 $author \\\{chart:bar}
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."author" AS "author",
+      count(*) AS "n"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  )
+SELECT
+  "pipe0"."author"
+FROM "pipe0"
+WHERE
+  "pipe0"."n" > 5;
+```
+
+```json
+{
+  "queryAnnotation": { "chart": "bar" }
 }
 ```
 

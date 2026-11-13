@@ -249,6 +249,7 @@ impl Walker<'_> {
             base_table: query.base_table.clone(),
             base_table_loc: query.base_table_loc,
             transformations: query.transformations[..index].to_vec(),
+            annotation: None,
         };
         virtual_table(self.compiler, earlier_stages)
     }
@@ -604,6 +605,7 @@ pub(super) fn base_table_ctx(
                 base_table: name.to_string(),
                 base_table_loc: Loc::NONE,
                 transformations: vec![],
+                annotation: None,
             },
         );
     }

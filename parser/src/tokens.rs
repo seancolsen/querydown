@@ -71,6 +71,8 @@ pub(crate) const ANNOTATION_KEY_VALUE_SEPARATOR: char = ':';
 /// Prefix for boolean negation of an expression, e.g. `!foo:2` or `!is_deleted`.
 pub(crate) const NEGATE: char = '!';
 pub(crate) const PATH_SEPARATOR: char = '.';
+/// Introduces the query-level annotation that may end a query, e.g. the `\\\` in `\\\{foo:100}`.
+pub(crate) const QUERY_ANNOTATION_PREFIX: &str = "\\\\\\";
 pub(crate) const PATH_TO_TABLE_WITH_ONE_PREFIX: &str = ">>";
 /// Open a group of nested result column specs, written after a path head as `$issue.( ... )`.
 pub(crate) const RESULT_COLUMNS_NESTING_BRACE_L: char = '(';

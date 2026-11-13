@@ -209,8 +209,8 @@ export interface QuerydownConfig extends QuerydownLanguageConfig {
    */
   highlighting?: Extension | false;
   /**
-   * Autocompletion of tables, columns, functions, variables and (optionally) column annotations.
-   * Takes effect with CodeMirror's `autocompletion()` extension (part of `basicSetup`).
+   * Autocompletion of tables, columns, functions, variables and (optionally) column and query
+   * annotations. Takes effect with CodeMirror's `autocompletion()` extension (part of `basicSetup`).
    */
   completion?: QuerydownCompletionConfig;
 }

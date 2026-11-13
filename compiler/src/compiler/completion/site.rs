@@ -20,7 +20,7 @@ pub(super) struct Site {
 pub(super) enum SiteKind {
     /// Querydown code, with the sigil just before the word.
     Code(Sigil),
-    /// Within a column annotation, with the position the completion replaces from.
+    /// Within an annotation, with the position the completion replaces from.
     Annotation(AnnotationPosition, usize),
     /// Somewhere nothing is completed: a string, a comment, a number, a flag, and so on.
     Blocked,
@@ -104,6 +104,9 @@ fn site_kind(source: &str, cursor: usize, word_start: usize, tokens: &[Token]) -
         Sigil::Window
     } else if before.ends_with('%') {
         Sigil::Aggregate
+    } else if before.ends_with("\\\\\\") {
+        // A query annotation, before its `{`.
+        return SiteKind::Blocked;
     } else if before.ends_with("\\\\") {
         // A sorting expression.
         Sigil::None

@@ -159,6 +159,25 @@ fn test_result_columns() {
 }
 
 #[test]
+fn test_query_annotation() {
+    check(
+        Query,
+        "#issues \\\\created_at \\\\\\{foo:100 'a b':[x @null]}",
+        "#issues:base-table \\\\:sort created_at:column \\\\\\:annotation {:annotation-bracket \
+         foo:annotation-key ::punctuation 100:annotation-value 'a b':annotation-key \
+         ::punctuation [:annotation-bracket x:annotation-value @null:annotation-value \
+         ]:annotation-bracket }:annotation-bracket",
+    );
+    // An unfinished one is lexed as an annotation too, rather than as a sort expression followed by
+    // a stray `\`.
+    check(
+        Query,
+        "#issues \\\\\\",
+        "#issues:base-table \\\\\\:annotation",
+    );
+}
+
+#[test]
 fn test_sorting() {
     check(
         Sorting,

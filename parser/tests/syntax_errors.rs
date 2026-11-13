@@ -548,3 +548,48 @@ fn delimiters_in_strings_and_comments_are_ignored() {
     let err = parse("#issues title:'(' // ]\n body:").unwrap_err();
     assert_eq!(err.message, "Unexpected end of input. Expected a value.");
 }
+
+#[test]
+fn text_after_query_annotation() {
+    assert_render(
+        parse,
+        r"#issues \\\{foo:100} $title",
+        &[
+            "syntax error: Unexpected `$`. A query annotation must come at the very end of the query.",
+            " --> line 1, column 22",
+            "  |",
+            r"1 | #issues \\\{foo:100} $title",
+            "  |                      ^",
+        ],
+    );
+}
+
+#[test]
+fn query_annotation_in_subquery() {
+    assert_render(
+        parse,
+        r"#t = #( #issues \\\{foo:100} ) #t",
+        &[
+            "syntax error: A query annotation can only end the whole query, not a subquery.",
+            " --> line 1, column 17",
+            "  |",
+            r"1 | #t = #( #issues \\\{foo:100} ) #t",
+            "  |                 ^^^^^^^^^^^^",
+        ],
+    );
+}
+
+#[test]
+fn query_annotation_not_an_object() {
+    assert_render(
+        parse,
+        r"#issues \\\[1]",
+        &[
+            "syntax error: Unexpected `[`. Expected `{`.",
+            " --> line 1, column 12",
+            "  |",
+            r"1 | #issues \\\[1]",
+            "  |            ^",
+        ],
+    );
+}

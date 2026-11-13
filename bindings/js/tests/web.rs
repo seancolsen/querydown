@@ -46,12 +46,22 @@ fn compile_returns_typed_object() {
 
 #[wasm_bindgen_test]
 fn compile_returns_annotations() {
-    let result =
-        compile(SCHEMA, "postgres", "#t $id @{width:100} $name".to_string()).expect("compiles");
+    let result = compile(
+        SCHEMA,
+        "postgres",
+        r"#t $id @{width:100} $name \\\{view:table size:[1 2]}".to_string(),
+    )
+    .expect("compiles");
     let value: JsValue = result.unchecked_into();
-    // A plain object (not a `Map`), and `null` (not `undefined`) where a column has none.
     assert_eq!(get_num(&value, "columnAnnotations.0.width"), 100.0);
     assert!(get(&value, "columnAnnotations.1").is_null());
+    assert_eq!(get_str(&value, "queryAnnotation.view"), "table");
+    assert_eq!(get_num(&value, "queryAnnotation.size.1"), 2.0);
+
+    // Without a query annotation, `queryAnnotation` is `null` (not missing).
+    let result = compile(SCHEMA, "postgres", "#t $id".to_string()).expect("compiles");
+    let value: JsValue = result.unchecked_into();
+    assert!(get(&value, "queryAnnotation").is_null());
 }
 
 #[wasm_bindgen_test]
@@ -375,6 +385,13 @@ fn completer_reports_annotation_positions() {
     assert_eq!(get_str(&completions, "annotation.slot"), "key");
     let keys = js_sys::Array::from(&get(&completions, "annotation.keys"));
     assert_eq!(keys.get(0).as_string().as_deref(), Some("width"));
+    assert_eq!(get_str(&completions, "annotation.target"), "column");
+
+    let source = r"#t $id \\\{";
+    let completions = completer()
+        .complete(source, source.len(), None)
+        .expect("completes");
+    assert_eq!(get_str(&completions, "annotation.target"), "query");
 }
 
 #[wasm_bindgen_test]
