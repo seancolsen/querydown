@@ -167,8 +167,42 @@ impl Render for SortEntry {
     }
 }
 
+/// Indents each line of `s`, dropping any trailing newline. A line that begins within a quoted
+/// string literal or identifier is left alone, since indenting it would change the text it quotes.
 fn indent(s: String) -> String {
-    s.lines()
-        .map(|line| format!("{}{}", INDENT_SPACER, line))
-        .join("\n")
+    let mut indented = String::with_capacity(s.len());
+    let mut quote = None;
+    let s = s.trim_end_matches('\n');
+    if !s.is_empty() {
+        indented.push_str(INDENT_SPACER);
+    }
+    for c in s.chars() {
+        indented.push(c);
+        match quote {
+            // A doubled quote within a quoted string (an escaped quote) closes and reopens it.
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '\'' || c == '"' => quote = Some(c),
+            None if c == '\n' => indented.push_str(INDENT_SPACER),
+            None => {}
+        }
+    }
+    indented
+}
+
+#[cfg(test)]
+mod tests {
+    use super::indent;
+
+    #[test]
+    fn test_indent() {
+        assert_eq!(indent("a\nb\n".to_string()), "  a\n  b");
+        assert_eq!(indent("a\n\nb".to_string()), "  a\n  \n  b");
+        assert_eq!(indent(String::new()), "");
+        // Lines within quotes are left alone.
+        assert_eq!(
+            indent("x = 'a\nb''\nc'\n\"d\ne\" AND\ny".to_string()),
+            "  x = 'a\nb''\nc'\n  \"d\ne\" AND\n  y"
+        );
+    }
 }
