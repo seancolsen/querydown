@@ -17,7 +17,7 @@ pub struct Select {
     pub grouping: Vec<SqlExpr>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
-    /// Further queries whose results are combined with this one's via `UNION`. The columns, sorting,
+    /// Further queries whose results are combined with this one's via `UNION ALL`. The columns, sorting,
     /// limit, and offset of this select then name, sort, and paginate the union as a whole.
     pub unions: Vec<Select>,
 }

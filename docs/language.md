@@ -1363,7 +1363,7 @@ Notes:
 
 ## Union of multiple queries
 
-The `+++` operator performs an SQL `UNION`, combining the results of several queries into one result.
+The `+++` operator performs an SQL `UNION ALL`, appending the results of one query to the results of another.
 
 > List all the issues related to issue 1234, along with the way in which they are related
 
@@ -1395,7 +1395,7 @@ Notes:
 
 - Each query in a union must have the same number of result columns, and the types of the columns must be compatible across the queries.
 - Column names are taken from the last query in a union. Where the last query leaves a column unnamed (a computed column without an alias, e.g. `$title|length`), the first query's name for that column is used instead.
-- As with SQL's `UNION`, duplicate rows are removed from the result.
+- Duplicate rows are kept, as with SQL's `UNION ALL`. To remove them, group by every column in a [pipeline](#pipeline-of-multiple-queries) stage, e.g. `~~~ $id \g $title \g`.
 - The queries in a union can't be sorted, because a union doesn't keep the order of its queries' rows. To sort the result of a union, sort it in a [pipeline](#pipeline-of-multiple-queries) stage, as in the example above.
 - Union has higher precedence than pipeline (the union will be performed before the pipeline). [User-defined tables](#user-defined-tables) can be used if you need a pipeline within a union.
 - [Column annotations](#column-level-annotations) may be written in any query of a union. If more than one query annotates the same column, the last annotation wins.

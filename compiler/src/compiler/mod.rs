@@ -286,7 +286,7 @@ pub(super) fn convert_subquery(query: Query, scope: &mut Scope) -> Result<SqlExp
 /// own base table (resolved among the schema's tables and the user-defined tables in
 /// `extra_tables`). With a single member, this is simply that member's query.
 ///
-/// The union is a `UNION` of the members' selects. Its columns are named as in the last member
+/// The union is a `UNION ALL` of the members' selects, so it keeps any duplicate rows. Its columns are named as in the last member
 /// (wherever that member names a column, and otherwise as in the first), so the first member's
 /// columns — which name the columns of a SQL `UNION` — take those names as aliases. As in
 /// [`compile_stage`], a non-final stage's columns are all given explicit, unique aliases.

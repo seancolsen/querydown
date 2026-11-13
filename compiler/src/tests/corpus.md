@@ -5303,7 +5303,7 @@ WHERE
 
 ## Unions
 
-Queries separated by `+++` are combined with an SQL `UNION`. The union's columns are named by the last query, so the first query (whose columns name an SQL union's) takes those names as aliases. A union is performed before any pipeline stage that follows it.
+Queries separated by `+++` are combined with an SQL `UNION ALL`, which keeps duplicate rows. The union's columns are named by the last query, so the first query (whose columns name an SQL union's) takes those names as aliases. A union is performed before any pipeline stage that follows it.
 
 ### Union of two queries
 
@@ -5320,7 +5320,7 @@ SELECT
   "issues"."id",
   "issues"."title"
 FROM "issues"
-UNION
+UNION ALL
 SELECT
   "projects"."id",
   "projects"."name" AS "title"
@@ -5365,7 +5365,7 @@ WITH
     FROM "issues"
     WHERE
       "issues"."duplicate_of" = 1234
-    UNION
+    UNION ALL
     SELECT
       "blocking"."id",
       "blocking"."title",
@@ -5376,7 +5376,7 @@ WITH
       "blocks"."blocking" = "blocking"."id"
     WHERE
       "blocks"."blocker" = 1234
-    UNION
+    UNION ALL
     SELECT
       "blocker"."id" AS "id",
       "blocker"."title" AS "title",
@@ -5413,7 +5413,7 @@ SELECT
   "issues"."id" AS "project",
   char_length("issues"."title") AS "label"
 FROM "issues"
-UNION
+UNION ALL
 SELECT
   "projects"."id" AS "project",
   char_length("projects"."name")
@@ -5440,7 +5440,7 @@ WITH
       count(*) AS "n"
     FROM "issues"
     GROUP BY "issues"."project"
-    UNION
+    UNION ALL
     SELECT
       "issues"."project",
       count(*)
@@ -5483,7 +5483,7 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
 WHERE
   "cte0"."pk" IS NOT NULL
-UNION
+UNION ALL
 (
   WITH
     "cte0" AS (
@@ -5531,7 +5531,7 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
 WHERE
   "cte0"."pk" IS NOT NULL
-UNION
+UNION ALL
 (
   WITH
     "cte0" AS (
@@ -5575,7 +5575,7 @@ SELECT
 FROM "issues"
 WHERE
   "issues"."duplicate_of" IS NULL
-UNION
+UNION ALL
 SELECT
   "issues"."id",
   "issues"."title",
@@ -5607,7 +5607,7 @@ SELECT
   count(*) AS "n"
 FROM "issues"
 GROUP BY "issues"."author"
-UNION
+UNION ALL
 SELECT
   "comments"."user",
   count(*)
@@ -5635,7 +5635,7 @@ WITH
       "users"."id" AS "id",
       "users"."username" AS "name"
     FROM "users"
-    UNION
+    UNION ALL
     SELECT
       "projects"."id",
       "projects"."name"
@@ -5667,7 +5667,7 @@ limit = 5
 SELECT
   "issues"."title" AS "name"
 FROM "issues"
-UNION
+UNION ALL
 SELECT
   "projects"."name"
 FROM "projects"

@@ -187,7 +187,7 @@ pub struct Query {
     /// stage applies to the result of the stage before.
     pub transformations: Vec<Transformation>,
     /// The further queries of a union, each written after a `+++`. Their results are combined (via
-    /// SQL `UNION`) with the result of the first stage — the base table and the first
+    /// SQL `UNION ALL`) with the result of the first stage — the base table and the first
     /// transformation. A union binds more tightly than a pipeline: the union is performed first,
     /// and the later stages of [`transformations`](Query::transformations) then apply to its
     /// result. Empty when the query has no union.

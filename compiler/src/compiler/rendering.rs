@@ -59,9 +59,9 @@ impl Render for Select {
                 let sql = member.render(scope);
                 // A member's own CTEs must be scoped to it, which takes parentheses.
                 if member.ctes.is_empty() {
-                    format!("UNION\n{sql}")
+                    format!("UNION ALL\n{sql}")
                 } else {
-                    format!("UNION\n(\n{}\n)", indent(sql))
+                    format!("UNION ALL\n(\n{}\n)", indent(sql))
                 }
             })
             .join("\n");
