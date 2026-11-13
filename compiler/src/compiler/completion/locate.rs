@@ -14,6 +14,7 @@ use querydown_parser::{parse, parse_conditions, parse_definitions, parse_display
 
 use super::site::{open_brackets, Sigil, Site};
 use super::{section_definitions, CompletionRequest, Located};
+use crate::compiler::functions::aggregate_operand_path;
 use crate::compiler::Compiler;
 use crate::schema::links::Link;
 use crate::schema::TableId;
@@ -512,13 +513,26 @@ impl Walker<'_> {
                 FunctionDimension::Aggregate => Target::AggregateFunction,
             });
         }
-        if let Some(found) = call.args.iter().find_map(|e| self.expr(e, env, false)) {
+        let operand_path = match call.dimension {
+            FunctionDimension::Aggregate => call.args.first().and_then(aggregate_operand_path),
+            FunctionDimension::Scalar => None,
+        };
+        let found_in_args = match (operand_path, call.args.first()) {
+            // Functions applied to the aggregated column are evaluated from the table hosting it.
+            (Some(parts), Some(operand)) if !matches!(operand.kind, ExprKind::Path(_)) => {
+                let host_parts = &parts[..parts.len().saturating_sub(1)];
+                let host_env = env.with_table(self.follow(&env.table, host_parts));
+                self.aggregate_operand(operand, env, &host_env)
+            }
+            _ => call.args.iter().find_map(|e| self.expr(e, env, false)),
+        };
+        if let Some(found) = found_in_args {
             return Some(found);
         }
         // An aggregate's sorting entries are evaluated from the first `#` table of the aggregated
         // path, or from the current table when there is none.
-        let sort_table = match call.args.first().map(|arg| &arg.kind) {
-            Some(ExprKind::Path(parts)) => {
+        let sort_table = match operand_path {
+            Some(parts) => {
                 match parts
                     .iter()
                     .position(|part| matches!(part.kind, PathPartKind::TableWithMany(_)))
@@ -527,13 +541,46 @@ impl Walker<'_> {
                     None => env.table.clone(),
                 }
             }
-            _ => env.table.clone(),
+            None => env.table.clone(),
         };
         let sort_env = env.with_table(sort_table);
         call.order_by.iter().find_map(|sort| match &sort.key {
             AggregateSortKey::Expr(e) => self.expr(e, &sort_env, false),
             AggregateSortKey::Value => None,
         })
+    }
+
+    /// An aggregate's operand that applies scalar functions to a column (`#comments.body|length`).
+    /// The column's path starts from `env`'s table, but everything applied to the column is
+    /// evaluated from `host`, the table hosting the column.
+    fn aggregate_operand(&self, operand: &Expr, env: &Env, host: &Env) -> Option<Found> {
+        match &operand.kind {
+            ExprKind::Path(parts) => self.path(parts, env, false),
+            ExprKind::Call(call) => {
+                if is_sentinel(&call.name) {
+                    return env.found(Target::ScalarFunction);
+                }
+                let (input, rest) = call.args.split_first()?;
+                self.aggregate_operand(input, env, host)
+                    .or_else(|| rest.iter().find_map(|e| self.expr(e, host, false)))
+            }
+            ExprKind::AnonymousFunctionCall(call) => {
+                let (input, rest) = call.args.split_first()?;
+                if let Some(found) = self
+                    .aggregate_operand(input, env, host)
+                    .or_else(|| rest.iter().find_map(|e| self.expr(e, host, false)))
+                {
+                    return Some(found);
+                }
+                if call.params.iter().any(|p| is_sentinel(p)) {
+                    return env.found(Target::Nothing);
+                }
+                let mut host = host.clone();
+                host.locals.extend(call.params.iter().cloned());
+                self.function_body(&call.body, host)
+            }
+            _ => self.expr(operand, env, false),
+        }
     }
 
     /// Walks a path from `env`'s table, one part at a time.

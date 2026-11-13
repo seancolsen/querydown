@@ -19,7 +19,10 @@ use querydown_parser::ast::{
 };
 
 use crate::{
-    compiler::{expr::convert_expr, paths::paths_resolve_alike, scope::Scope},
+    compiler::{
+        expr::convert_expr, functions::aggregate_operand_path, paths::paths_resolve_alike,
+        scope::Scope,
+    },
     errors::msg,
     sql::expr::SqlExpr,
     Error,
@@ -54,10 +57,12 @@ impl ResolvedSort {
 /// The `scope`'s base table is the table from whose context the sorting expressions are evaluated,
 /// and `value_path` is the path to the aggregated value, relative to that same table. Comparing
 /// each sorting path against `value_path` is how a sort by the aggregated value itself is
-/// recognized, even when it's written as a path rather than as `\s`.
+/// recognized, even when it's written as a path rather than as `\s`. It's `None` when the
+/// aggregated value is computed from a column (`#comments.body|length%list`), which only `\s`
+/// names.
 pub fn resolve_aggregate_sorting(
     order_by: Vec<AggregateSortExpr>,
-    value_path: &[PathPart],
+    value_path: Option<&[PathPart]>,
     scope: &mut Scope,
 ) -> Result<Vec<ResolvedSort>, Error> {
     order_by
@@ -70,7 +75,10 @@ pub fn resolve_aggregate_sorting(
                 AggregateSortKey::Expr(Expr {
                     kind: ExprKind::Path(parts),
                     ..
-                }) if paths_resolve_alike(scope.prefixed(&parts), value_path.to_vec(), scope) => {
+                }) if value_path.is_some_and(|value_path| {
+                    paths_resolve_alike(scope.prefixed(&parts), value_path.to_vec(), scope)
+                }) =>
+                {
                     SortKey::Value
                 }
                 AggregateSortKey::Expr(expr) => {
@@ -109,14 +117,17 @@ pub fn contains_local_aggregate(expr: &Expr) -> bool {
     };
     match &expr.kind {
         ExprKind::Call(call) => match call.dimension {
-            FunctionDimension::Aggregate => match call.args.first().map(|arg| &arg.kind) {
+            FunctionDimension::Aggregate => match call.args.first() {
                 None => true,
-                Some(ExprKind::Path(parts)) => !parts
-                    .iter()
-                    .any(|part| matches!(part.kind, PathPartKind::TableWithMany(_))),
-                // Aggregates must be applied to a path. Classifying anything else as aggregated
-                // lets compilation report that problem rather than a misleading one about sorting.
-                Some(_) => true,
+                Some(operand) => match aggregate_operand_path(operand) {
+                    Some(parts) => !parts
+                        .iter()
+                        .any(|part| matches!(part.kind, PathPartKind::TableWithMany(_))),
+                    // Aggregates must be applied to a path. Classifying anything else as
+                    // aggregated lets compilation report that problem rather than a misleading one
+                    // about sorting.
+                    None => true,
+                },
             },
             FunctionDimension::Scalar => any(&call.args),
         },

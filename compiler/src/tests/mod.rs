@@ -1,3 +1,4 @@
+mod aggregated_expressions;
 mod corpus;
 pub(crate) mod corpus_loader;
 #[cfg(feature = "db-tests")]

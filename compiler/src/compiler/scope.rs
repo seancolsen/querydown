@@ -192,6 +192,9 @@ pub enum AggregateBan {
     Condition,
     /// The filter of a path to related records (`#comments{…}`).
     RelatedRecordsFilter,
+    /// The functions applied to each value that an aggregate function aggregates (the `|length` in
+    /// `#comments.body|length%avg`), which are evaluated before the values are aggregated.
+    AggregatedValue,
 }
 
 /// The record that the rows of a CTE's `SELECT` are related to: the one that a path to related

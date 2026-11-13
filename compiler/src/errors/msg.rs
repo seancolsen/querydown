@@ -269,8 +269,12 @@ pub fn value_sort_without_value(function_name: &str) -> Error {
     ))
 }
 
-pub fn aggregate_fn_applied_to_a_non_path() -> Error {
-    Error::compile("Aggregate functions must be applied directly to a column, without any intermediate computations. This restriction may be relaxed in future versions")
+pub fn aggregate_fn_not_applied_to_a_column() -> Error {
+    Error::compile(
+        "An aggregate function must be applied to a column, optionally followed by scalar \
+         functions that compute the value to aggregate for each record (e.g. \
+         `#comments.body|length%avg`). It can't be applied to another kind of expression.",
+    )
 }
 
 pub fn expected_one_arg() -> Error {
@@ -399,6 +403,16 @@ pub fn aggregate_in_condition() -> Error {
          used in a condition, because conditions choose the records that get aggregated. To \
          filter on an aggregate, compute it as a result column, and then filter on that column in \
          the next stage of a pipeline, e.g. `#issues $status \\g $%count -> n ~~~ n:>5`.",
+    )
+}
+
+pub fn aggregate_in_aggregated_value() -> Error {
+    Error::compile(
+        "An aggregate function can't be used within the value that another aggregate function \
+         aggregates (such as `body%max` in `#comments.body|concat(body%max)%list`, or in the \
+         definition of a computed column that's aggregated), because that value is computed for \
+         each record before the records are aggregated. An aggregate of records related to each \
+         one is fine, e.g. `#issues.title|concat(#comments)%list`.",
     )
 }
 

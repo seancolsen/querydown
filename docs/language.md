@@ -68,6 +68,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Mandatory aggregation](#mandatory-aggregation)
   - [Aggregate counts](#aggregate-counts)
   - [Specifying an aggregate function](#specifying-an-aggregate-function)
+    - [Aggregating a computed value](#aggregating-a-computed-value)
   - [Sorting within an aggregate function](#sorting-within-an-aggregate-function)
     - [Sorting by the aggregated value](#sorting-by-the-aggregated-value)
     - [The context of a sorting expression](#the-context-of-a-sorting-expression)
@@ -864,7 +865,7 @@ Grouping is indicated by the `g` flag, similar to sorting.
 
 - All ungrouped columns must contain an aggregate function. Otherwise the compiler reports an error.
 - `%count` can occur on its own (outside of a function pipeline), which is equivalent to `count(*)`.
-- Aggregate functions like `%max`, `%sum`, and `%avg` may be applied to columns on the base table (e.g. `created_at%max`) or on a related table reachable via a single record (e.g. `author.created_at%max`). A foreign key column is aggregated like any other column, e.g. `author%distinct` for the number of distinct authors.
+- Aggregate functions like `%max`, `%sum`, and `%avg` may be applied to columns on the base table (e.g. `created_at%max`) or on a related table reachable via a single record (e.g. `author.created_at%max`), and to [values computed from such a column](#aggregating-a-computed-value) (e.g. `title|length%max`). A foreign key column is aggregated like any other column, e.g. `author%distinct` for the number of distinct authors.
 - Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting. Columns without an explicit ordinal are grouped in the order they appear, after all columns that do specify an ordinal.
 - Grouping and sorting can be combined, e.g. `#issues $status \g $%count \sd` to sort the groups by their counts.
 - A [standalone sorting expression](#sorting-outside-of-result-columns) in a grouped query follows the same rule as a result column: it must either match a grouping column (`\\status` above) or contain an aggregate function (`\\created_at%max`). Otherwise the compiler reports an error.
@@ -1132,6 +1133,59 @@ Specific aggregate functions can be applied via `%` (similar to pipe syntax).
 ```
 
 _(See a list of [all aggregate functions](./functions.md#aggregate-functions).)_
+
+An aggregate function is applied to a column (reached by a path), or to a value computed from one —
+see below. It can't be applied to any other kind of expression, such as `(#issues.estimate * 2)%sum`.
+
+#### Aggregating a computed value
+
+Scalar functions piped between the column and the aggregate function compute a value from each
+record's column, and those values are what get aggregated.
+
+> For each user, the average length of their comments
+
+```
+#users $username $#comments.body|length%avg
+```
+
+The `%` marks where the per-record computation ends: the functions before it apply to each
+comment's `body`, and any functions after it apply to the aggregated result. So in
+`#issues.title|length%sum|plus(1)`, each title's length is summed, and then 1 is added to the sum.
+
+The value is computed exactly as if the pipeline were the definition of a
+[computed column](#computed-columns) on the table that holds the column — here, as if `comments` had
+a computed column `body|length`. That decides what the functions' arguments refer to: a column
+named in an argument is a column of that same record.
+
+> For each project, the most days any of its issues was given before it's due
+
+```
+#projects $name $#issues.due_date|minus(created_at)|days%max
+```
+
+Here `created_at` is each issue's, not the project's. Likewise, after a to-one link, as in
+`#issues.author.username|concat(email)%list`, an argument is a column of the record the link leads
+to (here, the author). To reach another table, use a path from there. Unlike a computed column's
+definition, though, the pipeline sees the [variables](#user-defined-functions) around it, which
+keep the meaning they had where they were bound.
+
+Aggregating a computed value works everywhere aggregating a column does: across a to-many path
+(including a [filtered one](#conditions-to-filter-aggregate-data), and one that continues through a
+to-one link), in a condition (`#projects #issues.created_at|year%distinct:>2`), and in a
+[grouped query](#grouping-and-aggregation) (`#issues $status \g $title|length%max`). A few more
+things to know:
+
+- [Sorting by the aggregated value](#sorting-by-the-aggregated-value) with `\s` sorts by the
+  computed value. A sorting expression that names the column itself, like `\\body`, sorts by the
+  column instead, so it doesn't count as a sort by the aggregated value.
+- `%count` counts the records whose computed value isn't NULL.
+- The computation can't use an aggregate of the records being aggregated, such as `title%max` in
+  `title|concat(title%max)%list`. An aggregate of records related to each one, like
+  `#issues.title|concat(#comments)%list`, is fine.
+- Only functions piped onto the column can compute the value. Arithmetic operators can't, but the
+  equivalent functions can: write `#issues.estimate|times(2)%sum` rather than
+  `(#issues.estimate * 2)%sum`. For anything else, define a [computed column](#computed-columns) and
+  aggregate that.
 
 ### Sorting within an aggregate function
 
@@ -1731,6 +1785,10 @@ and the results are aggregated:
 
 The definition may itself reach other tables, as `stage` does to count each issue's assignments.
 Without an aggregate function, `$#issues.stage` is an error, just as `$#issues.title` would be.
+
+For a computation needed only once, you can also write it inline, piping the column through scalar
+functions before the aggregate function: see
+[aggregating a computed value](#aggregating-a-computed-value).
 
 ### User-defined functions
 

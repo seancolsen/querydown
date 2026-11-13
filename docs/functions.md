@@ -336,7 +336,9 @@ Converts an interval into a number of seconds, compiling to `EXTRACT(epoch FROM 
 
 ## Aggregate functions
 
-Aggregate functions are applied with `%` and combine values across many related rows. They may be applied only to a **column path** (optionally reaching across a to-many relationship), not to an arbitrary computed expression. See [Specifying an aggregate function](./language.md#specifying-an-aggregate-function) for more.
+Aggregate functions are applied with `%` and combine values across many related rows. They may be applied to a **column path** (optionally reaching across a to-many relationship), or to a [value computed from that column](./language.md#aggregating-a-computed-value) by piping it through scalar functions first, e.g. `#comments.body|length%avg`. They can't be applied to any other kind of expression, such as `(#issues.estimate * 2)%sum`. See [Specifying an aggregate function](./language.md#specifying-an-aggregate-function) for more.
+
+Where the descriptions below say "the values of a column", that includes such computed values.
 
 ### `count`
 

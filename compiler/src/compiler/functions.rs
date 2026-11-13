@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 use querydown_parser::ast::{
-    AggregateSortExpr, AggregateSortKey, AnonymousFunctionCall, Assignment, Call, Expr, ExprKind,
-    FunctionDef, FunctionDimension, Loc, PathPartKind,
+    AggregateSortExpr, AggregateSortKey, AnonymousFunctionCall, Assignment, Call, CallSyntax, Expr,
+    ExprKind, FunctionDef, FunctionDimension, Loc, PathPart, PathPartKind,
 };
 
 use crate::{
@@ -12,7 +12,9 @@ use crate::{
             compile_aggregate, resolve_aggregate_sorting, AggregateKind, CompiledAggregate,
             ListMode, ResolvedSort, SortKey,
         },
-        expr::{convert_definition, convert_expr, resolve_computed_column},
+        expr::{
+            convert_definition, convert_definition_with_env, convert_expr, resolve_computed_column,
+        },
         paths::{clarify_value_path, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail},
         scope::{AggregateBan, Env, Expansion, Scope, WindowBan},
         temporal::{now_operand, reconcile, TemporalZone},
@@ -184,6 +186,7 @@ fn check_aggregate_ban(scope: &Scope) -> Result<(), Error> {
         None => Ok(()),
         Some(AggregateBan::Condition) => Err(msg::aggregate_in_condition()),
         Some(AggregateBan::RelatedRecordsFilter) => Err(msg::aggregate_in_related_records_filter()),
+        Some(AggregateBan::AggregatedValue) => Err(msg::aggregate_in_aggregated_value()),
     }
 }
 
@@ -394,6 +397,84 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         .collect()
 }
 
+/// The operand of an aggregate function, split into the path that names the column being
+/// aggregated and the scalar functions (if any) piped after it, which are applied to each record's
+/// value before the values are aggregated: `#comments.body` and `body|length` in
+/// `#comments.body|length%avg`.
+pub(super) struct AggregateOperand {
+    pub path: Vec<PathPart>,
+    /// The operand with its leading path cut down to that path's last part (the column), when
+    /// functions are piped after the path. This is compiled like the definition of a computed column
+    /// on the table hosting the column: it's evaluated once for each of that table's records being
+    /// aggregated, and any other paths within it start from there.
+    pub per_record: Option<Expr>,
+}
+
+impl AggregateOperand {
+    /// Splits an aggregate's operand, or returns `None` when it isn't a column path optionally
+    /// followed by piped scalar functions.
+    fn split(mut operand: Expr) -> Option<Self> {
+        if let ExprKind::Path(path) = operand.kind {
+            return Some(Self {
+                path,
+                per_record: None,
+            });
+        }
+        let path = take_pipeline_head(&mut operand)?;
+        Some(Self {
+            path,
+            per_record: Some(operand),
+        })
+    }
+}
+
+/// The path at the head of a pipeline of scalar functions (`#comments.body` in
+/// `#comments.body|length|plus(1)`), or the path itself when `expr` is a path. Returns `None` when
+/// `expr` is neither, which an aggregate function's operand may not be.
+pub fn aggregate_operand_path(expr: &Expr) -> Option<&[PathPart]> {
+    match &expr.kind {
+        ExprKind::Path(parts) => Some(parts),
+        _ => pipeline_input(expr).and_then(aggregate_operand_path),
+    }
+}
+
+/// The value piped into `expr`, when `expr` applies a scalar function (named or anonymous) via a
+/// pipe.
+fn pipeline_input(expr: &Expr) -> Option<&Expr> {
+    match &expr.kind {
+        ExprKind::Call(call)
+            if call.dimension == FunctionDimension::Scalar && call.syntax == CallSyntax::Piped =>
+        {
+            call.args.first()
+        }
+        ExprKind::AnonymousFunctionCall(call) => call.args.first(),
+        _ => None,
+    }
+}
+
+/// Like [`pipeline_input`], but mutable.
+fn pipeline_input_mut(expr: &mut Expr) -> Option<&mut Expr> {
+    match &mut expr.kind {
+        ExprKind::Call(call)
+            if call.dimension == FunctionDimension::Scalar && call.syntax == CallSyntax::Piped =>
+        {
+            call.args.first_mut()
+        }
+        ExprKind::AnonymousFunctionCall(call) => call.args.first_mut(),
+        _ => None,
+    }
+}
+
+/// Finds the path at the head of the pipeline `expr` (see [`aggregate_operand_path`]), cuts it
+/// down to its last part within `expr`, and returns the whole path.
+fn take_pipeline_head(expr: &mut Expr) -> Option<Vec<PathPart>> {
+    if let ExprKind::Path(parts) = &mut expr.kind {
+        let last = parts.last()?.clone();
+        return Some(std::mem::replace(parts, vec![last]));
+    }
+    take_pipeline_head(pipeline_input_mut(expr)?)
+}
+
 /// Used for an aggregate function that takes one argument
 fn agg_1(
     args: Vec<Expr>,
@@ -403,15 +484,20 @@ fn agg_1(
     coalesce_to_zero: bool,
 ) -> Result<SqlExpr, Error> {
     let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
-    let ExprKind::Path(path_parts) = arg0.kind else {
-        return Err(msg::aggregate_fn_applied_to_a_non_path().at(arg0.loc));
-    };
+    let arg0_loc = arg0.loc;
+    let AggregateOperand {
+        path: path_parts,
+        per_record,
+    } = AggregateOperand::split(arg0)
+        .ok_or_else(|| msg::aggregate_fn_not_applied_to_a_column().at(arg0_loc))?;
     // Resolve the path from the scope's current table, as `convert_path` does, so that an aggregate
     // inside a scoped condition set (`author{#comments.id%max:>5}`) starts from the scoped table
     // rather than the base table.
     let path_parts = scope.prefixed(&path_parts);
     // Sorting expressions are evaluated from the context of the first `#` table in the path (or
     // the current table, when there is none), so this is the aggregated value's path from there.
+    // When functions are applied to the column, no sorting path names the aggregated value (only
+    // `\s` sorts by it).
     let value_path = match path_parts
         .iter()
         .position(|part| matches!(part.kind, PathPartKind::TableWithMany(_)))
@@ -419,10 +505,18 @@ fn agg_1(
         Some(index) => path_parts[index + 1..].to_vec(),
         None => path_parts.clone(),
     };
+    let value_path = per_record.is_none().then_some(value_path);
+    // The parts leading to the table that hosts the aggregated column, from which the functions
+    // applied to it are evaluated.
+    let host_parts = path_parts[..path_parts.len().saturating_sub(1)].to_vec();
     // A computed column is resolved here, before `clarify_path` consumes the path, but expanded only
     // when the path doesn't traverse a to-many relationship. (Within an aggregated `#` path, the CTE
-    // that performs the aggregation expands it instead; see `build_cte_select`.)
-    let computed_column = resolve_computed_column(&path_parts, scope)?;
+    // that performs the aggregation expands it instead; see `build_cte_select`.) When functions are
+    // applied to the column, the column is compiled along with them instead.
+    let computed_column = match per_record {
+        None => resolve_computed_column(&path_parts, scope)?,
+        Some(_) => None,
+    };
     // The path names the value to aggregate, so a foreign key column at its end is that value
     // (e.g. `author%distinct` counts the distinct values of the `author` column).
     let ClarifiedPath { head, tail } = clarify_value_path(path_parts, scope)?;
@@ -435,6 +529,7 @@ fn agg_1(
             };
             let aggregate_expr_template = AggregateExprTemplate::new(
                 column_name,
+                per_record.map(|expr| (expr, scope.env())),
                 kind,
                 order_by,
                 coalesce_to_zero,
@@ -453,15 +548,26 @@ fn agg_1(
         Some(ClarifiedPathTail::Column(column_name)) => {
             check_aggregate_ban(scope)?;
             scope.with_window_ban(WindowBan::Aggregate, |scope| {
-                let reference = match computed_column {
+                let reference = match (per_record, computed_column) {
+                    // Functions applied to the column are evaluated relative to the table hosting
+                    // it, like a computed column's definition, but they see the variables of
+                    // wherever they're written.
+                    (Some(expr), _) => {
+                        let env = scope.env();
+                        scope.with_aggregate_ban(AggregateBan::AggregatedValue, |scope| {
+                            convert_definition_with_env(expr, host_parts, env, scope)
+                        })?
+                    }
                     // A computed column's definition is aggregated in its place, evaluated
                     // relative to the table hosting it (as `convert_path` does for an unaggregated
                     // reference).
-                    Some((head_parts, expr, expansion)) => {
+                    (None, Some((head_parts, expr, expansion))) => {
                         let _guard = scope.enter_expansion(expansion)?;
-                        convert_definition(expr, head_parts, scope)?
+                        scope.with_aggregate_ban(AggregateBan::AggregatedValue, |scope| {
+                            convert_definition(expr, head_parts, scope)
+                        })?
                     }
-                    None => {
+                    (None, None) => {
                         let table_name = match head {
                             Some(chain_to_one) => scope.join_chain_to_one(&chain_to_one),
                             None => scope.get_base_alias().to_owned(),
@@ -469,7 +575,7 @@ fn agg_1(
                         scope.table_column_expr(&table_name, &column_name)
                     }
                 };
-                let sorts = resolve_aggregate_sorting(order_by, &value_path, scope)?;
+                let sorts = resolve_aggregate_sorting(order_by, value_path.as_deref(), scope)?;
                 let dialect = scope.options.dialect.as_ref();
                 match compile_aggregate(kind, reference, &sorts, dialect)? {
                     CompiledAggregate::Expr(expr) => Ok(expr),

@@ -224,6 +224,23 @@ fn aggregate_sorting_is_relative_to_the_first_related_table() {
 }
 
 #[test]
+fn functions_applied_before_an_aggregate_are_relative_to_the_column_s_table() {
+    assert_columns("#issues $#comments.body|concat(‸)%list", &COMMENTS);
+    assert_columns("#projects $#issues.author.username|concat(‸)%list", &USERS);
+    assert_columns(
+        "#issues $status \\g $author.username|concat(‸)%list",
+        &USERS,
+    );
+    assert_columns("#issues $#comments.body|(@b => ‸)%list", &COMMENTS);
+    // The aggregated path itself, and the aggregate's sorting, are as without the functions.
+    assert_columns("#issues $#comments.‸|length%max", &COMMENTS);
+    assert_columns(
+        "#issues $#labels.name|length%list_all(\\\\‸)",
+        &["id", "name"],
+    );
+}
+
+#[test]
 fn column_globs() {
     assert_columns("#issues $*(‸)", &ISSUES);
     assert_columns("#issues $author.*(‸ \\h)", &USERS);

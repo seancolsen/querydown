@@ -1,5 +1,5 @@
 use querydown_parser::ast::{
-    AggregateSortExpr, ConditionSet, NullsSort, PathPart, SortDirection, SortExpr,
+    AggregateSortExpr, ConditionSet, Expr, NullsSort, PathPart, SortDirection, SortExpr,
 };
 
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
         },
         expr::{convert_condition_set, convert_expr},
         join_tree::make_join_from_link,
-        scope::{AggregateBan, Expansion, OuterRecord, Scope, WindowBan},
+        scope::{AggregateBan, Env, Expansion, OuterRecord, Scope, WindowBan},
     },
     errors::msg,
     schema::{
@@ -47,6 +47,11 @@ pub struct ValueViaCte {
 
 pub struct AggregateExprTemplate {
     column_name: String,
+    /// The scalar functions applied to the column before its values are aggregated (the
+    /// `body|length` of `#comments.body|length%avg`), when there are any: the operand, with its
+    /// leading path cut down to `column_name`, together with the variables visible where it's
+    /// written. See [`crate::compiler::functions::AggregateOperand`].
+    per_record: Option<(Expr, Env)>,
     /// How to compile the aggregate (see [`AggregateKind`]). When this AggregateExprTemplate
     /// instance is rendered within a CTE, the column_name is resolved to a table.column expression,
     /// and then the aggregate is compiled from that expression along with the resolved `order_by`
@@ -64,21 +69,24 @@ pub struct AggregateExprTemplate {
     /// columns of the path's final table.
     order_by_anchor_table_id: TableId,
     /// The aggregated path relative to the anchor table (the parts following the first `#` part),
-    /// used to recognize a sorting expression that sorts by the aggregated value itself.
-    value_path: Vec<PathPart>,
+    /// used to recognize a sorting expression that sorts by the aggregated value itself. `None`
+    /// when functions are applied to the column (see `per_record`).
+    value_path: Option<Vec<PathPart>>,
 }
 
 impl AggregateExprTemplate {
     pub fn new(
         column_name: String,
+        per_record: Option<(Expr, Env)>,
         kind: AggregateKind,
         order_by: Vec<AggregateSortExpr>,
         coalesce_to_zero: bool,
         order_by_anchor_table_id: TableId,
-        value_path: Vec<PathPart>,
+        value_path: Option<Vec<PathPart>>,
     ) -> Self {
         Self {
             column_name,
+            per_record,
             kind,
             order_by,
             coalesce_to_zero,
@@ -199,6 +207,7 @@ pub fn build_cte_select(
                 // `starting_alias` now holds the alias of the chain's final table.
                 let reference = aggregated_value(
                     &template.column_name,
+                    template.per_record,
                     ending_table,
                     &starting_alias,
                     &mut select,
@@ -223,7 +232,7 @@ pub fn build_cte_select(
                     );
                     let sorts = resolve_aggregate_sorting(
                         template.order_by,
-                        &template.value_path,
+                        template.value_path.as_deref(),
                         &mut ob_scope,
                     )?;
                     let (ob_joins, ob_ctes) = ob_scope.decompose_join_tree();
@@ -280,34 +289,47 @@ fn convert_filter(condition_set: ConditionSet, scope: &mut Scope) -> Result<SqlE
 /// final table, which the CTE's `select` addresses as `alias`.
 ///
 /// When `column_name` names a computed column, its definition is compiled in the context of that
-/// table, as though it were written in a filter on it. Any joins and nested CTEs the definition
-/// needs (e.g. for a `#assignments:>0` within it) are folded into `select`.
+/// table, as though it were written in a filter on it. So are the functions applied to the column
+/// (`per_record`), when there are any, except that they see the variables of wherever they're
+/// written rather than only the constants. Any joins and nested CTEs either needs (e.g. for a
+/// `#assignments:>0` within it) are folded into `select`.
 fn aggregated_value(
     column_name: &str,
+    per_record: Option<(Expr, Env)>,
     table: &Table,
     alias: &str,
     select: &mut Select,
     cte_scope: &mut Scope,
 ) -> Result<SqlExpr, Error> {
-    if let Some(column_id) = cte_scope
-        .options
-        .resolve_identifier(&table.column_lookup, column_name)
-    {
-        let column = table.columns.get(column_id).unwrap();
-        return Ok(cte_scope.table_column_expr(alias, &column.name));
-    }
-    let expr = cte_scope
-        .get_computed_column(&table.name, column_name)
-        .cloned()
-        .ok_or_else(|| msg::col_not_in_table(column_name, &table.name))?;
-    let _guard = cte_scope.enter_expansion(Expansion::ComputedColumn {
-        table: table.name.clone(),
-        column: column_name.to_owned(),
-    })?;
+    let (expr, env, _guard) = match per_record {
+        Some((expr, env)) => (expr, env, None),
+        None => {
+            if let Some(column_id) = cte_scope
+                .options
+                .resolve_identifier(&table.column_lookup, column_name)
+            {
+                let column = table.columns.get(column_id).unwrap();
+                return Ok(cte_scope.table_column_expr(alias, &column.name));
+            }
+            let expr = cte_scope
+                .get_computed_column(&table.name, column_name)
+                .cloned()
+                .ok_or_else(|| msg::col_not_in_table(column_name, &table.name))?;
+            let guard = cte_scope.enter_expansion(Expansion::ComputedColumn {
+                table: table.name.clone(),
+                column: column_name.to_owned(),
+            })?;
+            // A definition sees the constants, but none of the variables of wherever it's used.
+            (expr, cte_scope.globals(), Some(guard))
+        }
+    };
     let mut value_scope = cte_scope.spawn_with_aliases(table, alias, cte_scope.cloned_aliases());
-    // A definition sees the constants, but none of the variables of wherever it's used.
-    let globals = value_scope.globals();
-    let value = value_scope.with_env(globals, |scope| convert_expr(expr, scope))?;
+    // The value is computed for each record, before the records are aggregated.
+    let value = value_scope.with_env(env, |scope| {
+        scope.with_aggregate_ban(AggregateBan::AggregatedValue, |scope| {
+            convert_expr(expr, scope)
+        })
+    })?;
     let (joins, ctes) = value_scope.decompose_join_tree();
     select.joins.extend(joins);
     select.ctes.extend(ctes);

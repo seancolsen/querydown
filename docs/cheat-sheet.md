@@ -119,7 +119,7 @@ See [case expressions](./language.md#case-expressions) docs.
 | -- | -- | -- |
 | `+` `-` `*` `/` | basic arithmetic operators | ✅ |
 | <tt>&VerticalLine;</tt> | [pipe a value into a scalar function](./language.md#function-piping) | ✅ |
-| `%` | pipe a value to an aggregate function | ✅ |
+| `%` | [pipe a value to an aggregate function](./language.md#specifying-an-aggregate-function): a column, or a [value computed from one](./language.md#aggregating-a-computed-value) like `#comments.body\|length%avg` | ✅ |
 | `@@` | [call a scalar function without piping](./language.md#function-calling) | ✅ |
 | `%%( )` | [window definition](./language.md#window-functions) | ✅ |
 | `=>` | [anonymous scalar function](./language.md#anonymous-functions) | ✅ |

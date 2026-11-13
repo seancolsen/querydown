@@ -4742,6 +4742,227 @@ LEFT JOIN "cte0" ON
 GROUP BY "issues"."project";
 ```
 
+## Aggregating computed values
+
+### Aggregating a computed value across a to-many path
+
+> The average length of each user's comments. The functions piped between the column and the
+> aggregate function are applied to each comment's `body`, and the results are averaged, just as if
+> `body|length` were a computed column on `comments`.
+
+```qd
+#users $username $#comments.body|length%avg
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk",
+      avg(char_length("comments"."body")) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "users"."username",
+  "cte0"."v1"
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk";
+```
+
+### Counting distinct computed values
+
+> The number of distinct years in which each project had issues created
+
+```qd
+#projects $name $#issues.created_at|year%distinct
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(DISTINCT CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER)) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Aggregating a computed value through a to-one link
+
+> The longest username among the authors of each project's issues. The value is computed from the
+> column of the table that hosts it (`users`), which the CTE joins.
+
+```qd
+#projects $name $#issues.author.username|length%max
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      max(char_length("users"."username")) AS "v1"
+    FROM "issues"
+    JOIN "users" ON
+      "issues"."author" = "users"."id"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Aggregating a computed value in a condition
+
+> Projects whose issues were created across more than two years
+
+```qd
+#projects #issues.created_at|year%distinct:>2 $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(DISTINCT CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER)) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) > 2;
+```
+
+### Aggregating a computed value over filtered related records
+
+> The average length of each user's comments since 2024
+
+```qd
+#users $username $#comments{created_at:>@2024-01-01}.body|length%avg
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk",
+      avg(char_length("comments"."body")) AS "v1"
+    FROM "comments"
+    WHERE
+      "comments"."created_at" > DATE '2024-01-01'
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "users"."username",
+  "cte0"."v1"
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk";
+```
+
+### Aggregating a computed value whose function takes a column
+
+> The most days that any of each project's issues was given before it's due. A column that a
+> function takes as an argument (`created_at`) is a column of the record being aggregated, as in
+> a computed column's definition.
+
+```qd
+#projects $name $#issues.due_date|minus(created_at)|days%max
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      max(EXTRACT(epoch FROM "issues"."due_date" - "issues"."created_at") / 86400) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Listing computed values sorted by themselves
+
+> The distinct lengths of each user's comments, longest first. `\s` sorts by the computed value.
+
+```qd
+#users $username $#comments.body|length%list(\sd)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk",
+      array_agg(DISTINCT char_length("comments"."body") ORDER BY char_length("comments"."body") DESC NULLS LAST) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "users"."username",
+  "cte0"."v1"
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk";
+```
+
+### Aggregating a computed value in a grouped query
+
+> The longest issue title in each status
+
+```qd
+#issues $status \g $title|length%max
+```
+
+```sql
+SELECT
+  "issues"."status",
+  max(char_length("issues"."title"))
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Aggregating a computed value through a to-one link in a grouped query
+
+> The longest username among the authors of the issues in each status
+
+```qd
+#issues $status \g $author.username|length%max
+```
+
+```sql
+SELECT
+  "issues"."status",
+  max(char_length("users"."username"))
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+GROUP BY "issues"."status";
+```
+
 ## User-defined constants
 
 ### Constant inlined into a condition
