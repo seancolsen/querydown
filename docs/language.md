@@ -226,10 +226,9 @@ Any other character after a backslash is an error.
 
 ### Date literals
 
-Literal dates and timestamps can be written in [ISO-8601](https://en.wikipedia.org/wiki/ISO_8601) format with a `@` prefix. For example:
+Literal dates can be written in [ISO-8601](https://en.wikipedia.org/wiki/ISO_8601) format with a `@` prefix, e.g. `@2000-01-01`.
 
-- `@2000-01-01`
-- `@2000-01-01T08:30:00`
+There is no literal syntax for a time of day yet, so a timestamp like `@2000-01-01T08:30:00` is a syntax error. A date literal compared against a timestamp column means midnight at the start of that date.
 
 ### Duration literals
 
@@ -528,7 +527,7 @@ Here `foo` and `bar` are **string literals**, because they sit on the right-hand
 
 Here `status` and `title` are **column references**, because this is a [result column](#result-columns), not the right-hand-side of a comparison.
 
-This boundary even resets within a nested comparison. In `#issues description:(title:foo)`, the inner `title` is on the _left_ of its own comparison, so it is a column reference, while `foo` (on the inner right-hand-side) remains a string literal.
+This boundary even resets within a nested comparison. In `#projects is_active:(name:foo)`, the inner `name` is on the _left_ of its own comparison, so it is a column reference, while `foo` (on the inner right-hand-side) remains a string literal.
 
 It also resets within the `{ }` of a [formatted string](#the-f-flag). In `#issues description:^f"see {title}"`, `title` is a column reference.
 
@@ -554,7 +553,7 @@ In the above example, "feature" is parsed as a default text search term because 
 A bare word is _always_ a search term, even when it happens to match a column name — so `#issues title` searches for the literal text "title" rather than referencing the `title` column. If you instead want to reference a column as a bare condition (e.g. a boolean column), quote it with backticks, just as you would on the [right-hand side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison):
 
 ```qd
-#issues `is_blocked`
+#projects `is_active`
 ```
 
 You can search for any string using the default text search if you explicitly quote it:
@@ -979,7 +978,7 @@ A few details:
 
 - There must be **no space** between the path and the condition set. With a space, `#comments issue {id:7}` is instead a [default text search](#default-text-search) for "issue" (on `#comments`) alongside a separate condition set, exactly as before.
 - Scopes may be nested, and the paths compose: `issue{project{name:foo}}` is the same as `issue.project.name:foo`.
-- The path steps through _single_ related records (a column-name chain, or the `>>` form above). A path whose last step is a to-many table like `#comments{ ... }` is instead a [filter on those related records](#conditions-to-filter-aggregate-data), which is an existing, separate feature.
+- The path steps through _single_ related records (a column-name chain). A path whose last step is a to-many table like `#comments{ ... }` is instead a [filter on those related records](#conditions-to-filter-aggregate-data), which is an existing, separate feature.
 
 ## Referencing _multiple_ related records
 
@@ -1219,15 +1218,9 @@ In our schema, the following query does not work. Let's see why
 
 This query gives an error because the schema only permits each issue to have _one_ project (not multiple).
 
-A similar query would be this:
+To reach the _single_ related project, use a [column name chain](#single-related-records-via-column-name-chains) instead:
 
 > Show the project name for each issue
-
-```qd
-#issues $title $>>#projects.name
-```
-
-Here, we've used `>>` to [reference a single related record via table name](#single-related-records-via-table-name). This works. And could write that same query a bit more simply using [column name chains](#single-related-records-via-column-name-chains).
 
 ```qd
 #issues $title $project.name
@@ -1236,7 +1229,9 @@ Here, we've used `>>` to [reference a single related record via table name](#sin
 To summarize:
 
 - `#projects` refers to a related `projects` table with **many** records.
-- `>>#projects` refers to a related `projects` table with **one** record.
+- `project` (the column that links to the `projects` table) refers to the **one** related `projects` record.
+
+_(A `>>projects` syntax, for referencing a single related record by its table name instead of by the linking column, is reserved but not yet supported. Using it is an error.)_
 
 ### Ambiguous paths
 
