@@ -122,9 +122,13 @@ fn bare_word<'src>(continuation_chars: &'static str) -> impl Psr<'src, String> {
         just(TABLE_SIGIL).ignored(),
         path_to_one().ignored(),
     )));
+    // Likewise, `%%` begins a window function (`%%(project\p)%row_number`), which is a separate
+    // condition, whereas a single `%` pipes the word into an aggregate function (`foo %max`).
+    let window_prefix = exactly(WINDOW_DEFINITION_PREFIX);
     let continuation = any()
         .filter(move |c: &char| continuation_chars.contains(*c))
-        .and_is(has_quantity_prefix.not());
+        .and_is(has_quantity_prefix.not())
+        .and_is(window_prefix.not());
     // A condition-set brace *immediately* following the word (no space) marks a scoped comparison
     // (`issue{...}` / `issue[...]`, see `scoped_comparison`), so the word is not a lone search term
     // but the head of a larger expression. Unlike the `continuation` check, this deliberately does

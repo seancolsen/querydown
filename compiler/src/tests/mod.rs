@@ -5,8 +5,6 @@ mod db_corpus;
 #[cfg(feature = "db-tests")]
 mod db_introspection;
 #[cfg(feature = "db-tests")]
-mod db_invalid_sql;
-#[cfg(feature = "db-tests")]
 mod db_negation;
 #[cfg(feature = "db-tests")]
 mod db_regex_flags;

@@ -96,8 +96,17 @@ pub fn resolve_aggregate_sorting(
 /// True when `expr` contains an aggregate function that aggregates the records in the current
 /// context (e.g. `created_at%min` or `%count`), as opposed to one that aggregates a related table
 /// via a `#` path (e.g. `#reactions%count`), which has one value per record in the current context.
-fn contains_local_aggregate(expr: &Expr) -> bool {
+///
+/// This looks only at what's written in `expr`, not into the definitions it refers to (a computed
+/// column, say).
+pub fn contains_local_aggregate(expr: &Expr) -> bool {
     let either = |a: &Expr, b: &Expr| contains_local_aggregate(a) || contains_local_aggregate(b);
+    let any = |exprs: &[Expr]| exprs.iter().any(contains_local_aggregate);
+    let side = |side: &ComparisonSide| match side {
+        ComparisonSide::Expr(e) => contains_local_aggregate(e),
+        ComparisonSide::Expansion(cs) => any(&cs.entries),
+        ComparisonSide::Range(r) => either(&r.lower.expr, &r.upper.expr),
+    };
     match &expr.kind {
         ExprKind::Call(call) => match call.dimension {
             FunctionDimension::Aggregate => match call.args.first().map(|arg| &arg.kind) {
@@ -109,9 +118,17 @@ fn contains_local_aggregate(expr: &Expr) -> bool {
                 // lets compilation report that problem rather than a misleading one about sorting.
                 Some(_) => true,
             },
-            FunctionDimension::Scalar => call.args.iter().any(contains_local_aggregate),
+            FunctionDimension::Scalar => any(&call.args),
         },
-        ExprKind::AnonymousFunctionCall(call) => call.args.iter().any(contains_local_aggregate),
+        ExprKind::AnonymousFunctionCall(call) => {
+            any(&call.args)
+                || call
+                    .body
+                    .assignments
+                    .iter()
+                    .any(|a| contains_local_aggregate(&a.expr))
+                || contains_local_aggregate(&call.body.expr)
+        }
         ExprKind::Product(a, b)
         | ExprKind::Quotient(a, b)
         | ExprKind::Sum(a, b)
@@ -121,14 +138,24 @@ fn contains_local_aggregate(expr: &Expr) -> bool {
             .iter()
             .filter_map(|p| p.expr())
             .any(contains_local_aggregate),
-        ExprKind::Comparison(comparison) => [&comparison.left, &comparison.right]
-            .into_iter()
-            .any(|side| matches!(side, ComparisonSide::Expr(e) if contains_local_aggregate(e))),
+        ExprKind::Comparison(comparison) => side(&comparison.left) || side(&comparison.right),
         ExprKind::Case(case) => {
             case.variants.iter().any(|v| either(&v.condition, &v.value))
                 || contains_local_aggregate(&case.fallback)
         }
-        _ => false,
+        ExprKind::ConditionSet(cs) => any(&cs.entries),
+        ExprKind::ScopedConditionSet(s) => any(&s.condition_set.entries),
+        // A window function is not a `GROUP BY` aggregate, and a scalar subquery produces a single
+        // value of its own: neither aggregates the records in the current context.
+        ExprKind::Window(_)
+        | ExprKind::Subquery(_)
+        | ExprKind::Path(_)
+        | ExprKind::HasQuantity(_)
+        | ExprKind::Number(_)
+        | ExprKind::Date(_)
+        | ExprKind::Duration(_)
+        | ExprKind::String(_)
+        | ExprKind::Variable(_) => false,
     }
 }
 

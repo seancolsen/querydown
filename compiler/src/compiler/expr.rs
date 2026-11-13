@@ -9,13 +9,13 @@ use crate::{
 };
 
 use super::{
-    comparisons::convert_comparison,
+    comparisons::{convert_comparison, is_literal_value},
     constants::{
         DEFAULT_TEXT_SEARCH_COMPARISON_NAME, VAR_FALSE, VAR_INFINITY, VAR_NOW, VAR_NULL, VAR_TRUE,
     },
     functions::{convert_anonymous_function_call, convert_call},
     paths::{clarify_path, ClarifiedPathTail},
-    scope::{BindingKind, Expansion, Scope, VariableLookup},
+    scope::{Env, Expansion, Scope},
     temporal::{now_operand, reconcile, TemporalZone},
     typing::infer_type,
 };
@@ -70,7 +70,15 @@ fn convert_expr_kind(kind: ExprKind, loc: Loc, scope: &mut Scope) -> Result<SqlE
             Ok(math::subtract(left, right))
         }
         ExprKind::Comparison(c) => convert_comparison(*c, scope),
-        ExprKind::Not(e) => Ok(cond::not_true(convert_expr(*e, scope)?)),
+        ExprKind::Not(e) => {
+            // `!` negates a condition. A literal value isn't one (negating it would be a type
+            // error in SQL), and the likeliest cause is a `!` meant for a whole comparison, as in
+            // `status:[open !closed]`.
+            if is_literal_value(&scope.see_through_variables(&e)) {
+                return Err(msg::negated_value());
+            }
+            Ok(cond::not_true(convert_expr(*e, scope)?))
+        }
         ExprKind::Window(w) => super::window::convert_window(w, scope),
         ExprKind::AnonymousFunctionCall(c) => convert_anonymous_function_call(*c, scope),
         ExprKind::Subquery(q) => super::convert_subquery(*q, scope),
@@ -102,21 +110,12 @@ fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, Error>
         VAR_TRUE => value::true_(),
         VAR_FALSE => value::false_(),
         VAR_NULL => value::null(),
-        // A user-defined variable (constant or function parameter): inline its bound expression.
+        // A user-defined variable (constant or function parameter): inline its bound expression,
+        // which means what it meant where it was written.
         name => {
             return match scope.lookup_variable(name) {
-                VariableLookup::Found(expr, id) => {
-                    // While the bound expression is inlined, references within it to the same name
-                    // resolve to whatever this binding shadows. See `Scope::hide_binding`.
-                    let _guard = scope.hide_binding(id);
-                    convert_expr(expr, scope)
-                }
-                VariableLookup::OnlyHidden(BindingKind::Constant) => {
-                    Err(msg::constant_refers_to_itself(name))
-                }
-                VariableLookup::OnlyHidden(BindingKind::Local) | VariableLookup::NotFound => {
-                    Err(msg::unknown_variable(name))
-                }
+                Some(binding) => scope.convert_binding(name, &binding),
+                None => Err(msg::unknown_variable(name)),
             };
         }
     };
@@ -129,7 +128,7 @@ fn convert_path(parts: Vec<PathPart>, scope: &mut Scope) -> Result<SqlExpr, Erro
     // table that hosts it (the head of the path).
     if let Some((head_parts, expr, expansion)) = resolve_computed_column(&prefixed_parts, scope)? {
         let _guard = scope.enter_expansion(expansion)?;
-        return convert_expr_with_path_prefix(expr, head_parts, scope);
+        return convert_definition(expr, head_parts, scope);
     }
     let clarified_path = clarify_path(prefixed_parts, scope)?;
     match (clarified_path.head, clarified_path.tail) {
@@ -225,6 +224,34 @@ pub(super) fn convert_expr_with_path_prefix(
     result
 }
 
+/// Converts the expression of a definition (a computed column's, or a custom comparison's body),
+/// evaluated relative to the table that hosts it, which `path_prefix` leads to. A definition sees
+/// the constants, but none of the variables of wherever it's used — except those in `env`, when
+/// given (a custom comparison's parameter).
+pub(super) fn convert_definition(
+    expr: Expr,
+    path_prefix: Vec<PathPart>,
+    scope: &mut Scope,
+) -> Result<SqlExpr, Error> {
+    let env = scope.globals();
+    convert_definition_with_env(expr, path_prefix, env, scope)
+}
+
+pub(super) fn convert_definition_with_env(
+    expr: Expr,
+    path_prefix: Vec<PathPart>,
+    env: Env,
+    scope: &mut Scope,
+) -> Result<SqlExpr, Error> {
+    // The definition isn't within whichever scoped condition set it's used in.
+    let saved_loc = std::mem::replace(&mut scope.scoped_path_loc, Loc::NONE);
+    let result = scope.with_env(env, |scope| {
+        convert_expr_with_path_prefix(expr, path_prefix, scope)
+    });
+    scope.scoped_path_loc = saved_loc;
+    result
+}
+
 /// Compiles a scoped condition set (`issue{title:dashboard}`) by evaluating its condition set with
 /// the scope's path prefix extended by the scoped path. Every entry — a comparison, a bare default
 /// text search, a nested scope, and so on — is then compiled exactly as it would be at the top level
@@ -238,8 +265,15 @@ fn convert_scoped_condition_set(
     scope: &mut Scope,
 ) -> Result<SqlExpr, Error> {
     let extended_prefix = scope.prefixed(&scoped.path);
+    let path_loc = match (scoped.path.first(), scoped.path.last()) {
+        (Some(first), Some(last)) => first.loc.to(last.loc),
+        _ => Loc::NONE,
+    };
     let condition_set = ExprKind::ConditionSet(scoped.condition_set).into();
-    convert_expr_with_path_prefix(condition_set, extended_prefix, scope)
+    let saved_loc = std::mem::replace(&mut scope.scoped_path_loc, path_loc);
+    let result = convert_expr_with_path_prefix(condition_set, extended_prefix, scope);
+    scope.scoped_path_loc = saved_loc;
+    result
 }
 
 pub fn convert_condition_set(
@@ -266,10 +300,32 @@ pub fn convert_condition_set(
 /// layers are peeled recursively so the search interpretation still reaches the inner term (and
 /// repeated negation like `!!backend` works). Every other entry — including `Not` of a non-search
 /// expression such as a negated column or condition set — falls through to `convert_expr` unchanged.
+///
+/// A variable bound to a string (e.g. a constant, `@term = "backend"`) is a search term too, since
+/// a variable stands for whatever it's bound to. Any other literal value — a number, a date, or a
+/// duration — isn't a condition at all, and is reported as an error rather than handed to the
+/// database to reject.
 fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let loc = entry.loc;
+    let form = match &entry.kind {
+        ExprKind::Variable(_) => Some(scope.see_through_variables(&entry)),
+        _ => None,
+    };
+    let literal_kind = match form.as_ref().map_or(&entry.kind, |form| &form.kind) {
+        ExprKind::Number(_) => Some("number"),
+        ExprKind::Date(_) => Some("date"),
+        ExprKind::Duration(_) => Some("duration"),
+        _ => None,
+    };
+    if let Some(literal_kind) = literal_kind {
+        return Err(msg::literal_as_condition(literal_kind).at(loc));
+    }
+    let is_search_term =
+        |kind: &ExprKind| matches!(kind, ExprKind::String(_) | ExprKind::FormatString(_));
     match entry.kind {
-        kind @ (ExprKind::String(_) | ExprKind::FormatString(_)) => {
+        kind if is_search_term(&kind) => convert_default_text_search(kind, loc, scope),
+        // The variable itself is the term, so that it's compiled in its own context.
+        kind @ ExprKind::Variable(_) if form.is_some_and(|form| is_search_term(&form.kind)) => {
             convert_default_text_search(kind, loc, scope)
         }
         ExprKind::Not(inner) => Ok(cond::not_true(convert_condition_set_entry(*inner, scope)?)),
@@ -278,7 +334,8 @@ fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr
     .map_err(|err| err.or_at(loc))
 }
 
-/// Compiles a default text search for `term` (a string or format string) against the scope's current table — the base table, or,
+/// Compiles a default text search for `term` (a string, a format string, or a variable bound to
+/// one) against the scope's current table — the base table, or,
 /// when a [scoped condition set](convert_scoped_condition_set) is being compiled, the related table
 /// the scope points at. If that table has a `__querydown_default_text_search` custom comparison
 /// defined, that comparison configures the search. Otherwise the search is an `OR` across all of the
@@ -346,10 +403,13 @@ fn convert_default_text_search(
 /// the right table. Errors (at the prefix) if the prefix does not lead to exactly one related record
 /// (e.g. it ends at a column, or traverses a to-many relationship).
 fn get_prefix_table<'a>(scope: &'a Scope) -> Result<&'a Table, Error> {
-    let (Some(first), Some(last)) = (scope.path_prefix.first(), scope.path_prefix.last()) else {
+    if scope.path_prefix.is_empty() {
         return Ok(scope.get_base_table());
-    };
-    let prefix_loc = first.loc.to(last.loc);
+    }
+    // The prefix may have been assembled from paths written in different places (e.g. a scope in
+    // the query, and another within the definition of a computed column used inside it), so its
+    // first and last parts don't delimit anything. The innermost scope's path is what's at fault.
+    let prefix_loc = scope.scoped_path_loc;
     let clarified = clarify_path(scope.path_prefix.clone(), scope)?;
     match (clarified.head, clarified.tail) {
         (Some(chain_to_one), None) => Ok(scope

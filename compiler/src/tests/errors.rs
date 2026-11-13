@@ -215,6 +215,27 @@ fn compile_error_about_an_assembled_base_table_has_no_location() {
     assert_eq!((err.span, err.section), (None, None));
 }
 
+/// An error within a computed column's definition is located in the definition, wherever the
+/// computed column is used. (When it was reached through a scope, the error's span used to run from
+/// the scope's path in the query to the end of the path in the definition: two unrelated places,
+/// the first of which comes after the second.)
+#[test]
+fn error_in_a_computed_column_reached_through_a_scope_is_located_in_the_definition() {
+    let definition = "#issues.is_open = status[open reopened]\n";
+
+    let input = format!("{definition}#issues `is_open` $id");
+    assert_eq!(located(&input, &compile_error(&input)), "status");
+
+    let input = format!("{definition}#comments issue{{`is_open`}} $id");
+    let err = compile_error(&input);
+    let span = err.span.unwrap();
+    assert!(
+        span.start.offset <= span.end.offset,
+        "the span starts after it ends: {span:?}"
+    );
+    assert_eq!(located(&input, &err), "status");
+}
+
 // ------------------------------------------------------------------------------------------------
 // Paths
 // ------------------------------------------------------------------------------------------------
@@ -298,57 +319,34 @@ fn table_with_one_path_is_an_error_rather_than_a_crash() {
     );
 }
 
+/// A table produced by a pipeline stage or a user-defined table has no relationships, so a to-many
+/// path from one can't be resolved. (This used to panic, on an `unwrap` while clarifying the path.)
+#[test]
+fn to_many_path_from_a_table_without_relationships_is_an_error_rather_than_a_crash() {
+    for (input, at) in [
+        ("#issues $id $author ~~~ ++#comments", "#comments"),
+        ("#issues $id $author ~~~ $#comments", "#comments"),
+        ("#t = #( #issues $id $author )\n#t ++#comments", "#comments"),
+        (
+            "#t = #( #issues $id $author )\n#t $id $#comments.created_at%max",
+            "#comments",
+        ),
+    ] {
+        let err = compile_error(input);
+        assert_eq!(located(input, &err), at, "for {input}");
+        assert!(
+            err.message.starts_with(
+                "`#comments` can't be used here, because the result of an earlier pipeline stage"
+            ),
+            "for {input}: {}",
+            err.message
+        );
+    }
+}
+
 // ------------------------------------------------------------------------------------------------
 // Sorting within aggregate functions
 // ------------------------------------------------------------------------------------------------
-
-/// An error within a computed column's definition is located in the definition, wherever the
-/// computed column is used.
-///
-/// KNOWN FAILURE: when the computed column is reached through a scope, the error's span runs from
-/// the scope's path in the query to the end of the path in the definition: two unrelated places,
-/// the first of which comes after the second. (Found by `mutated_corpus_inputs_fail_gracefully`,
-/// which fails for the same reason.)
-#[test]
-fn error_in_a_computed_column_reached_through_a_scope_is_located_in_the_definition() {
-    let definition = "#issues.is_open = status[open reopened]\n";
-
-    let input = format!("{definition}#issues `is_open` $id");
-    assert_eq!(located(&input, &compile_error(&input)), "status");
-
-    let input = format!("{definition}#comments issue{{`is_open`}} $id");
-    let err = compile_error(&input);
-    let span = err.span.unwrap();
-    assert!(
-        span.start.offset <= span.end.offset,
-        "the span starts after it ends: {span:?}"
-    );
-    assert_eq!(located(&input, &err), "status");
-}
-
-/// A table produced by a pipeline stage or a user-defined table has no relationships, so a to-many
-/// path from one can't be resolved. That should be reported as an error.
-///
-/// KNOWN FAILURE: the compiler panics instead (an `unwrap` on `None` while clarifying the path).
-#[test]
-fn to_many_path_from_a_table_without_relationships_is_an_error_rather_than_a_crash() {
-    let inputs = [
-        "#issues $id $author ~~~ ++#comments",
-        "#issues $id $author ~~~ $#comments",
-        "#t = #( #issues $id $author )\n#t ++#comments",
-        "#t = #( #issues $id $author )\n#t $id $#comments.created_at%max",
-    ];
-    let failures: Vec<String> = inputs
-        .iter()
-        .filter_map(|input| match std::panic::catch_unwind(|| compile(input)) {
-            Ok(Err(err)) if err.kind == ErrorKind::Compile => None,
-            Ok(Err(err)) => Some(format!("{input:?} gave the wrong kind of error: {err}")),
-            Ok(Ok(sql)) => Some(format!("{input:?} compiled to:\n{sql}")),
-            Err(_) => Some(format!("{input:?} panicked")),
-        })
-        .collect();
-    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
-}
 
 #[test]
 fn list_sorted_by_a_per_record_expression_is_an_error() {
@@ -603,6 +601,236 @@ fn window_conditions_combine_with_grouping() {
     // Window conditions filter the rows before they're grouped, so they work in a grouped stage.
     assert!(
         compile(r"#issues %%(project\p created_at\sd)%row_number:1 $status \g $%count").is_ok()
+    );
+}
+
+// ------------------------------------------------------------------------------------------------
+// Conditions and values that SQL would reject
+// ------------------------------------------------------------------------------------------------
+
+/// Asserts that each input fails to compile with an error located at the given text, whose message
+/// starts with `prefix`.
+#[track_caller]
+fn assert_errors(inputs: &[(&str, &str)], prefix: &str) {
+    for (input, at) in inputs {
+        let err = compile_error(input);
+        assert_eq!(located(input, &err), *at, "for {input}");
+        assert!(
+            err.message.starts_with(prefix),
+            "for {input}: {}",
+            err.message
+        );
+    }
+}
+
+#[test]
+fn aggregate_of_the_queried_records_in_a_condition_is_an_error() {
+    // SQL doesn't permit an aggregate in `WHERE`.
+    assert_errors(
+        &[
+            (r"#issues %count:>5 $status \g", "%count"),
+            (r"#issues created_at%max:<1w $status \g", "created_at%max"),
+            (
+                r"#issues !author.last_seen%max:@null $id",
+                "author.last_seen%max",
+            ),
+            // In a later stage of a pipeline, and in a condition of a window-wrapped stage.
+            (r"#issues $id ~~~ id%max:5", "id%max"),
+            (r"#issues id%max:5 %%(project\p)%row_number:1 $id", "id%max"),
+            // Reached through a computed column or a function's body.
+            (
+                "#issues.newest = created_at%max\n#issues newest:<1w",
+                "created_at%max",
+            ),
+            ("@@many = @n => %count:>@n\n#issues 5|many", "%count"),
+        ],
+        "An aggregate of the records being queried (like `%count` or `created_at%max`) can't be \
+         used in a condition",
+    );
+    // An aggregate of *related* records is fine in a condition, as is an aggregate of the queried
+    // records anywhere else.
+    assert!(compile("#issues #comments.created_at%max:<1w $id").is_ok());
+    assert!(compile(r"#issues $status \g $%count:>5 $created_at%max:<1w").is_ok());
+    assert!(compile(r"#issues \\%count \d $status \g").is_ok());
+    // That includes the sorting of an aggregate within a condition.
+    assert!(compile(r"#issues #comments.user.username%list(\\%count \d):x $id").is_ok());
+}
+
+#[test]
+fn aggregate_of_related_records_in_their_own_filter_is_an_error() {
+    assert_errors(
+        &[
+            ("#projects ++#issues{%count:>5}", "%count"),
+            ("#projects $#issues{created_at%max:<1w}", "created_at%max"),
+            (
+                "#clients $#projects.#issues{author.last_seen%max:<1w}.title%list",
+                "author.last_seen%max",
+            ),
+        ],
+        "An aggregate of the related records themselves (like `%count` or `created_at%max`) \
+         can't be used within their own filter",
+    );
+    // An aggregate of records related to *them* is fine.
+    assert!(compile("#projects ++#issues{#comments:>5}").is_ok());
+    assert!(compile("#projects ++#issues{#comments.created_at%max:<1w}").is_ok());
+}
+
+#[test]
+fn literal_value_as_a_condition_is_an_error() {
+    assert_errors(
+        &[("#issues 5", "5"), ("#issues id:1,2 $id", "2")],
+        "A number can't stand alone as a condition.",
+    );
+    assert_errors(
+        &[("#issues [@2024-01-01 title:x]", "@2024-01-01")],
+        "A date can't stand alone as a condition.",
+    );
+    // A literal that arrives through a constant is no more a condition.
+    assert_errors(
+        &[("@n = 1w\n#issues @n", "@n")],
+        "A duration can't stand alone as a condition.",
+    );
+    // A string is a search term, also through a constant.
+    assert!(compile("@term = \"foo\"\n#issues @term \"bar\" !@term").is_ok());
+}
+
+#[test]
+fn negated_value_is_an_error() {
+    assert_errors(
+        &[
+            ("#issues status:[open !closed] $id", "!closed"),
+            ("#issues id:[1 !2] $id", "!2"),
+            ("#issues $!\"x\"", "!\"x\""),
+            (
+                "@closed = \"closed\"\n#issues status:[open !@closed]",
+                "!@closed",
+            ),
+        ],
+        "`!` negates a condition, but this is a value.",
+    );
+    // Negated conditions within a set are fine, as are negated search terms.
+    assert!(compile("#projects is_active:[@true !`is_pro_bono`] $id").is_ok());
+    assert!(compile("#issues [status:open !status:closed] !foo [bar !baz] $id").is_ok());
+}
+
+#[test]
+fn set_of_values_that_is_not_an_expansion_is_an_error() {
+    assert_errors(
+        &[
+            // Held by a constant.
+            (
+                "@statuses = [open reopened]\n#issues status:@statuses $id",
+                "@statuses",
+            ),
+            (
+                "@statuses = [open reopened]\n#issues [title status]:@statuses",
+                "@statuses",
+            ),
+            // Passed as an argument.
+            ("@@f = @v => status:@v\n#issues [open closed]|f", "@v"),
+            // Wrapped in parentheses, or joined by a comma within them.
+            ("#issues title:([open closed])", "([open closed])"),
+            ("#issues id:(1,2)", "(1,2)"),
+            // Passed to a custom comparison.
+            (
+                "@statuses = [open reopened]\n\
+                 #issues.comment:@x = ++#comments{body:@x}\n\
+                 #issues comment:@statuses",
+                "@x",
+            ),
+        ],
+        "A set of values can only expand a comparison when it's written directly in the comparison",
+    );
+    // A set held by a constant is still a condition in its own right.
+    assert!(compile("@terms = [open reopened]\n#issues @terms !@terms $id").is_ok());
+    // And a set of conditions can still be compared, as the boolean it is.
+    assert!(compile("@ok = [is_active is_pro_bono]\n#projects is_active:@ok").is_ok());
+}
+
+// ------------------------------------------------------------------------------------------------
+// Variables
+// ------------------------------------------------------------------------------------------------
+
+#[test]
+fn constant_defined_in_terms_of_itself_is_an_error() {
+    for input in [
+        "@a = @a + 1\n#issues $@a",
+        "@a = @b\n@b = @a\n#issues $@a",
+        "@a = @b\n@b = @a\n#issues title:@a",
+    ] {
+        let err = compile_error(input);
+        assert!(
+            err.message.contains("is defined in terms of itself"),
+            "for {input}: {}",
+            err.message
+        );
+    }
+}
+
+#[test]
+fn recursive_function_is_an_error() {
+    for input in [
+        "@@f = @x => @x|f\n#issues $id|f",
+        "@@f = @x => @x|g\n@@g = @x => @x|f\n#issues $id|f",
+        // Recursion through a local assignment, which is expanded lazily.
+        "@@f = @x =>\n  @s = @x|f\n  @s\n#issues $id|f",
+    ] {
+        let err = compile_error(input);
+        assert!(
+            err.message.contains("functions can't be recursive"),
+            "for {input}: {}",
+            err.message
+        );
+    }
+    // Applying a function to its own result isn't recursion.
+    assert!(compile("@@inc = @x => @x + 1\n#issues $id|inc|inc|inc $@@inc(@@inc(id))").is_ok());
+}
+
+#[test]
+fn definitions_do_not_see_the_variables_of_their_callers() {
+    // A named function's body sees the constants and its own parameters, not the variables that
+    // happen to be in scope where it's called.
+    let input = "@@f = @y => @x + @y\n#issues $id|(@x => @x|f)";
+    let err = compile_error(input);
+    assert_eq!(located(input, &err), "@x");
+    assert_eq!(err.message, "Unknown variable `@x`.");
+    // Likewise a computed column and a custom comparison.
+    for input in [
+        "#issues.n = id + @x\n#issues $id|(@x => n)",
+        "#issues.near:@v = id:@v + @x\n#issues 1|(@x => near:2)",
+    ] {
+        let err = compile_error(input);
+        assert_eq!(err.message, "Unknown variable `@x`.", "for {input}");
+    }
+    // An anonymous function, being written within an expression, does see what's around it.
+    assert!(compile("#issues $id|(@x => @x|(@y => @x + @y))").is_ok());
+}
+
+#[test]
+fn argument_whose_record_cannot_be_reached_is_an_error() {
+    assert_errors(
+        &[
+            // Two levels of related records away from the record the argument belongs to.
+            (
+                "@@f = @u => ++#issues{++#comments{user:@u}}\n#projects product|f $id",
+                "@u",
+            ),
+            // Related records of a different record: the author's comments, not the issue's.
+            (
+                "@@f = @u => ++author.#comments{issue:@u}\n#issues id|f $id",
+                "@u",
+            ),
+            (
+                "#users.wrote:@x = ++#comments{body:@x}\n#issues author.wrote:`title` $id",
+                "@x",
+            ),
+        ],
+        "A value passed to a function or a custom comparison is being used somewhere that its \
+         record can't be reached from",
+    );
+    // A value that doesn't refer to its record can be used anywhere.
+    assert!(
+        compile("@@f = @u => ++#issues{++#comments{user:@u}}\n#projects 5|f @now|f $id").is_ok()
     );
 }
 

@@ -134,6 +134,35 @@ mod tests {
     }
 
     #[test]
+    fn a_search_term_may_precede_a_window_condition() {
+        // `%%` begins a window function, which is a condition of its own, whereas a single `%`
+        // pipes the word before it (as a column) to an aggregate function.
+        let conditions = parse_conditions(r"foo %%(project\p)%row_number:1").unwrap();
+        assert_eq!(conditions.entries.len(), 2);
+        assert_eq!(
+            conditions.entries[0],
+            ExprKind::String("foo".to_string()).into()
+        );
+        assert!(matches!(
+            conditions.entries[1].kind,
+            ExprKind::Comparison(_)
+        ));
+
+        let conditions = parse_conditions("foo %max:1").unwrap();
+        assert_eq!(conditions.entries.len(), 1);
+        let ExprKind::Comparison(comparison) = &conditions.entries[0].kind else {
+            panic!("expected a comparison, got {:?}", conditions.entries[0]);
+        };
+        assert!(matches!(
+            &comparison.left,
+            ComparisonSide::Expr(Expr {
+                kind: ExprKind::Call(_),
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn works_inside_an_outer_condition_set() {
         // A scoped comparison nests inside `[ ]`/`{ }` like any other boolean expression. The
         // top-level conditions are an implicit AND set whose sole entry here is the explicit `[ ]`.

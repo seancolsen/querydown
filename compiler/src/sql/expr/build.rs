@@ -3,13 +3,17 @@ use querydown_parser::ast::Conjunction;
 
 use super::{SqlExpr, SqlExprPrecedence};
 
+/// A left-associative binary operation, such as `a - b`. The right operand is parenthesized when it
+/// binds as tightly as the operator itself, since `a - (b + c)` is not `a - b + c`. (For `+` and
+/// `*` the parentheses are sometimes redundant mathematically, but not always in SQL: adding two
+/// intervals to a date is valid where adding a date to a date isn't.)
 fn binary_op(a: SqlExpr, op: &str, b: SqlExpr, precedence: SqlExprPrecedence) -> SqlExpr {
     SqlExpr {
         content: format!(
             "{} {} {}",
             a.for_precedence(precedence),
             op,
-            b.for_precedence(precedence)
+            b.for_tighter_precedence(precedence)
         ),
         precedence,
         never_null: false,
@@ -152,8 +156,21 @@ pub mod cmp {
             .unwrap_or_else(super::value::false_)
     }
 
+    /// A comparison such as `a = b`. SQL's comparison operators can't be chained (`a = b = c` is
+    /// a syntax error in Postgres), so an operand that is itself a comparison is parenthesized,
+    /// whichever side it's on.
     pub fn comparison(a: SqlExpr, op: &str, b: SqlExpr) -> SqlExpr {
-        binary_op(a, op, b, SqlExprPrecedence::Comparison)
+        let precedence = SqlExprPrecedence::Comparison;
+        SqlExpr {
+            content: format!(
+                "{} {} {}",
+                a.for_tighter_precedence(precedence),
+                op,
+                b.for_tighter_precedence(precedence)
+            ),
+            precedence,
+            never_null: false,
+        }
     }
 
     pub fn eq(a: SqlExpr, b: SqlExpr) -> SqlExpr {
@@ -181,6 +198,7 @@ pub mod cmp {
     }
 
     pub fn is_null(a: SqlExpr) -> SqlExpr {
+        let a = a.for_tighter_precedence(SqlExprPrecedence::Comparison);
         SqlExpr {
             content: format!("{} IS NULL", a.content),
             precedence: SqlExprPrecedence::Comparison,
@@ -189,6 +207,7 @@ pub mod cmp {
     }
 
     pub fn is_not_null(a: SqlExpr) -> SqlExpr {
+        let a = a.for_tighter_precedence(SqlExprPrecedence::Comparison);
         SqlExpr {
             content: format!("{} IS NOT NULL", a.content),
             precedence: SqlExprPrecedence::Comparison,

@@ -56,6 +56,14 @@ pub fn no_path_to_table(from_table: &str, to_table: &str) -> Error {
     ))
 }
 
+pub fn no_relationships_from_derived_table(to_table: &str) -> Error {
+    Error::compile(format!(
+        "`#{to_table}` can't be used here, because the result of an earlier pipeline stage (or a \
+         user-defined table) has no relationships to other tables. Compute what you need from \
+         `#{to_table}` in the stage that reads the original table, and output it as a result column."
+    ))
+}
+
 pub fn no_path_from_table_to_itself(table: &str) -> Error {
     Error::compile(format!(
         "The table `{table}` has no foreign key that refers to `{table}` itself, so `#{table}` \
@@ -348,4 +356,74 @@ pub fn scope_is_not_a_single_related_record() -> Error {
     Error::compile("The path before a scoped condition set (e.g. the `issue` in `issue{ ... }`) must lead to a \
      single related record."
         )
+}
+
+pub fn outer_record_unreachable() -> Error {
+    Error::compile(
+        "A value passed to a function or a custom comparison is being used somewhere that its \
+         record can't be reached from. A value that refers to a record (to one of its columns, \
+         say) can be used within a filter on that record's related records, like `#comments{…}`, \
+         but no deeper: not within a filter nested inside that one, nor within a filter on the \
+         related records of some other record (as in `author.#comments{…}`).",
+    )
+}
+
+pub fn condition_set_as_value() -> Error {
+    Error::compile(
+        "A set of values can only expand a comparison when it's written directly in the \
+         comparison, as in `status:[open reopened]`. A set that gets there some other way (held by \
+         a constant, passed as an argument, or wrapped in parentheses) is a single condition \
+         instead, which can't be compared with a value. Write the set out in the comparison.",
+    )
+}
+
+pub fn negated_value() -> Error {
+    Error::compile(
+        "`!` negates a condition, but this is a value. To negate a comparison, put the `!` before \
+         the whole comparison, e.g. `!status:closed`. Within an expansion, write each comparison \
+         out instead: `[status:open !status:closed]`.",
+    )
+}
+
+pub fn literal_as_condition(kind: &str) -> Error {
+    Error::compile(format!(
+        "A {kind} can't stand alone as a condition. If it follows a comma, note that a comma \
+         separates whole conditions: to compare one column with several values, use an expansion \
+         like `id:[1 2]`."
+    ))
+}
+
+pub fn aggregate_in_condition() -> Error {
+    Error::compile(
+        "An aggregate of the records being queried (like `%count` or `created_at%max`) can't be \
+         used in a condition, because conditions choose the records that get aggregated. To \
+         filter on an aggregate, compute it as a result column, and then filter on that column in \
+         the next stage of a pipeline, e.g. `#issues $status \\g $%count -> n ~~~ n:>5`.",
+    )
+}
+
+pub fn aggregate_in_related_records_filter() -> Error {
+    Error::compile(
+        "An aggregate of the related records themselves (like `%count` or `created_at%max`) \
+         can't be used within their own filter, because the filter chooses the records that get \
+         aggregated. An aggregate of records related to *them* is fine, e.g. \
+         `#comments{#reactions:>5}`.",
+    )
+}
+
+pub fn related_aggregate_in_grouped_query() -> Error {
+    Error::compile(
+        "A count or aggregate of related records (like `#comments`) has a value for each record, \
+         not for each group, so in a grouped query it must either be a grouping column (marked \
+         with `\\g`) or be aggregated across the group. To aggregate it, name it with a computed \
+         column first, e.g. define `#issues.comment_count = #comments` and then use \
+         `$comment_count%sum`.",
+    )
+}
+
+pub fn ungrouped_unaggregated_sort() -> Error {
+    Error::compile(
+        "In a grouped query, the result can only be sorted by a grouping column (one marked with \
+         `\\g`) or by an expression that contains an aggregate function.",
+    )
 }

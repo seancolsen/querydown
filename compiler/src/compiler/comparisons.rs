@@ -1,7 +1,7 @@
 use querydown_parser::ast::*;
 
 use crate::{
-    compiler::expr::{convert_expr, convert_expr_with_path_prefix},
+    compiler::expr::{convert_definition_with_env, convert_expr},
     errors::msg,
     schema::ValueType,
     sql::{
@@ -15,7 +15,7 @@ use crate::{
 use super::{
     constants::LINKED_RECORD_COMPARISON_NAME,
     paths::{clarify_path, ClarifiedPathTail},
-    scope::{Expansion, Scope, VariableLookup},
+    scope::{BindingContext, Expansion, Scope},
     temporal::{now_operand, reconcile, TemporalZone},
     typing::infer_type,
 };
@@ -23,13 +23,36 @@ use super::{
 pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, Error> {
     use ComparisonSide::{Expansion as CmpExpansion, Expr as CmpExpr, Range as CmpRange};
 
+    // An expansion on the left distributes the whole comparison across its entries. Each entry is
+    // then compared just as it would be if it were written alone on the left, so it may name a
+    // custom comparison or a linked record. (With an expansion on the right too, this makes the
+    // left one the outer of the two.)
+    let left = match c.left {
+        CmpExpansion(conditions) => {
+            let exprs = conditions
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    let comparison = Comparison {
+                        left: CmpExpr(entry),
+                        operator: c.operator,
+                        right: c.right.clone(),
+                    };
+                    convert_comparison(comparison, scope)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(cmp::condition_set(exprs, &conditions.conjunction));
+        }
+        left => left,
+    };
+
     // A custom comparison is invoked when the left-hand side is a path naming a registered custom
     // comparison. When one matches, its body is expanded in place of the whole comparison.
     if scope.has_custom_comparisons() {
         if let ComparisonSide::Expr(Expr {
             kind: ExprKind::Path(parts),
             ..
-        }) = &c.left
+        }) = &left
         {
             let prefixed = scope.prefixed(parts);
             if let Some((head_parts, def)) = resolve_custom_comparison(&prefixed, scope)? {
@@ -46,7 +69,7 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, E
 
     let mut simple = |l: &Expr, r: &Expr| convert_simple_comparison(l, c.operator, r, scope);
 
-    match (c.left, c.right) {
+    match (left, c.right) {
         // Two expressions
         (CmpExpr(left), CmpExpr(right)) => simple(&left, &right),
 
@@ -57,31 +80,6 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, E
             .map(|right| simple(left, right))
             .collect::<Result<Vec<_>, _>>()
             .map(|exprs| cmp::condition_set(exprs, &conditions.conjunction)),
-        (CmpExpansion(conditions), CmpExpr(ref right)) => conditions
-            .entries
-            .iter()
-            .map(|left| simple(left, right))
-            .collect::<Result<Vec<_>, _>>()
-            .map(|exprs| cmp::condition_set(exprs, &conditions.conjunction)),
-
-        // Dual expansion
-        (CmpExpansion(left_conditions), CmpExpansion(right_conditions)) => {
-            let mut outer_entries = vec![];
-            for left in left_conditions.entries.iter() {
-                let mut inner_entries = vec![];
-                for right in right_conditions.entries.iter() {
-                    inner_entries.push(simple(left, right)?);
-                }
-                outer_entries.push(cmp::condition_set(
-                    inner_entries,
-                    &right_conditions.conjunction,
-                ));
-            }
-            Ok(cmp::condition_set(
-                outer_entries,
-                &left_conditions.conjunction,
-            ))
-        }
 
         // Range vs Expr
         (CmpRange(range), CmpExpr(expr)) | (CmpExpr(expr), CmpRange(range)) => {
@@ -92,7 +90,7 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, E
         }
 
         // Range vs Expansion
-        (CmpExpansion(conditions), CmpRange(r)) | (CmpRange(r), CmpExpansion(conditions)) => {
+        (CmpRange(r), CmpExpansion(conditions)) => {
             if !matches!(c.operator, Operator::Eq | Operator::EqCi | Operator::Match) {
                 return Err(msg::compare_range_without_eq());
             }
@@ -106,7 +104,34 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, E
 
         // Two ranges
         (CmpRange(_), CmpRange(_)) => Err(msg::compare_two_ranges()),
+
+        // A left expansion was distributed above.
+        (CmpExpansion(_), _) => unreachable!("a left expansion is distributed before this"),
     }
+}
+
+/// Whether `expr` is a literal that isn't a condition: text, a number, a date, or a duration.
+pub(super) fn is_literal_value(expr: &Expr) -> bool {
+    matches!(
+        expr.kind,
+        ExprKind::String(_)
+            | ExprKind::FormatString(_)
+            | ExprKind::Number(_)
+            | ExprKind::Date(_)
+            | ExprKind::Duration(_)
+    )
+}
+
+/// Whether a condition set evidently holds values (as the expansion `[open reopened]` does) rather
+/// than conditions: whether any of its entries is a literal value, negated or not.
+fn holds_values(condition_set: &ConditionSet) -> bool {
+    condition_set.entries.iter().any(|entry| {
+        let mut entry = entry;
+        while let ExprKind::Not(inner) = &entry.kind {
+            entry = inner;
+        }
+        is_literal_value(entry)
+    })
 }
 
 fn convert_simple_comparison(
@@ -117,39 +142,60 @@ fn convert_simple_comparison(
 ) -> Result<SqlExpr, Error> {
     use Operator::*;
 
+    // A few literals have a special meaning in a comparison: zero, `@null`, a duration, and an
+    // empty string. They keep that meaning when they arrive through a constant or a parameter, so
+    // the checks below look at what each side stands for.
+    let left_form = scope.see_through_variables(left);
+    let right_form = scope.see_through_variables(right);
+
+    // Only a set written directly in a comparison is an expansion. One that arrives some other way
+    // (through a constant, say) is a single boolean value, which is surely not what was meant when
+    // it lists values.
+    for (side, form) in [(left, &left_form), (right, &right_form)] {
+        if matches!(&form.kind, ExprKind::ConditionSet(set) if holds_values(set)) {
+            return Err(msg::condition_set_as_value().at(side.loc));
+        }
+    }
+
     // The match operator (`:`) and the case-insensitive equality operator (`:=`, `EqCi`) both behave
     // like `Eq` for all the special cases below; they only diverge from strict equality for plain
     // text value comparisons (handled in the final dispatch).
     let eq_like = matches!(operator, Eq | EqCi | Match);
 
-    if left.is_zero() && eq_like {
+    if left_form.is_zero() && eq_like {
         return convert_expression_vs_zero(right, ComparisonVsZero::Eq, scope);
     }
-    if left.is_zero() && operator == Lt {
+    if left_form.is_zero() && operator == Lt {
         return convert_expression_vs_zero(right, ComparisonVsZero::Gt, scope);
     }
-    if right.is_zero() && eq_like {
+    if right_form.is_zero() && eq_like {
         return convert_expression_vs_zero(left, ComparisonVsZero::Eq, scope);
     }
-    if right.is_zero() && operator == Gt {
+    if right_form.is_zero() && operator == Gt {
         return convert_expression_vs_zero(left, ComparisonVsZero::Gt, scope);
     }
 
-    if right.is_null() && eq_like {
+    if right_form.is_null() && eq_like {
         return convert_expr(left.to_owned(), scope).map(cmp::is_null);
     }
-    if left.is_null() && eq_like {
+    if left_form.is_null() && eq_like {
         return convert_expr(right.to_owned(), scope).map(cmp::is_null);
     }
 
-    // Date/duration magic: comparing a date-like value on the left against a duration literal on the
-    // right means "within that duration of now" — i.e. `ABS(now - date) <op> duration` — which reads
+    let left_type = infer_type(left, scope);
+    let right_type = infer_type(right, scope);
+
+    // Date/duration magic: comparing a date-like value on the left against a duration on the right
+    // means "within that duration of now" — i.e. `ABS(now - date) <op> duration` — which reads
     // intuitively whether the date lies in the past or the future. The reversed order (duration on
     // the left, date on the right) is deliberately left alone, producing the usual database type
     // error just as a direct date-vs-duration comparison does today.
-    if is_date_like(left, scope) && matches!(right.kind, ExprKind::Duration(_)) {
+    //
+    // Both sides are recognized by their inferred types, so the date may be any expression that
+    // works out to one (`created_at%max`), and likewise the duration (`1w + 1d`, or a constant).
+    if left_type.is_temporal() && right_type == ValueType::Duration {
         if let Some(build_cmp) = numeric_comparison(operator) {
-            let date_zone = TemporalZone::of(&infer_type(left, scope));
+            let date_zone = TemporalZone::of(&left_type);
             let date = convert_expr(left.to_owned(), scope)?;
             let duration = convert_expr(right.to_owned(), scope)?;
             // Reconcile `@now` and the date so the subtraction is valid on dialects that can't mix a
@@ -172,8 +218,8 @@ fn convert_simple_comparison(
     // Reconcile the operands when a comparison mixes a zoned and a naive temporal value (e.g.
     // `created_at < @now|minus(6y)`), so the comparison is valid on dialects that can't mix the
     // two. This is a no-op for non-temporal comparisons and for dialects that reconcile natively.
-    let left_zone = TemporalZone::of(&infer_type(left, scope));
-    let right_zone = TemporalZone::of(&infer_type(right, scope));
+    let left_zone = TemporalZone::of(&left_type);
+    let right_zone = TemporalZone::of(&right_type);
     let (left_converted, right_converted) = reconcile(
         (left_converted, left_zone),
         (right_converted, right_zone),
@@ -186,7 +232,7 @@ fn convert_simple_comparison(
         // case-insensitively (mirroring the normalization the match operator applies); otherwise
         // fall back to strict equality.
         EqCi => {
-            if infer_type(left, scope) == ValueType::Text {
+            if left_type == ValueType::Text {
                 Ok(scope
                     .options
                     .dialect
@@ -201,9 +247,11 @@ fn convert_simple_comparison(
         Lte => Ok(cmp::lte(left_converted, right_converted)),
         Like => Ok(cmp::like(left_converted, right_converted)),
         RegexMatch(flags) => {
-            let pattern = match string_literal(right, scope) {
-                Some(s) => RegexPattern::Literal(s),
-                None => RegexPattern::Expr(right_converted),
+            // A pattern that is a string literal (or a variable bound to one, e.g. a custom
+            // comparison's parameter) is kept apart, so that the dialect can write flags into it.
+            let pattern = match right_form.kind {
+                ExprKind::String(s) => RegexPattern::Literal(s),
+                _ => RegexPattern::Expr(right_converted),
             };
             Ok(scope
                 .options
@@ -216,8 +264,9 @@ fn convert_simple_comparison(
         // use strict equality instead, making `description:""` find rows with an empty description
         // (mirroring `description:=""`).
         Match => {
-            let right_is_empty_string = matches!(&right.kind, ExprKind::String(s) if s.is_empty());
-            if !right_is_empty_string && infer_type(left, scope) == ValueType::Text {
+            let right_is_empty_string =
+                matches!(&right_form.kind, ExprKind::String(s) if s.is_empty());
+            if !right_is_empty_string && left_type == ValueType::Text {
                 Ok(scope
                     .options
                     .dialect
@@ -227,30 +276,6 @@ fn convert_simple_comparison(
             }
         }
     }
-}
-
-/// The text of `expr` when it is a string literal, seeing through any variables (e.g. a custom
-/// comparison's parameter) bound to one, just as [`convert_expr`] inlines them.
-fn string_literal(expr: &Expr, scope: &Scope) -> Option<String> {
-    match &expr.kind {
-        ExprKind::String(s) => Some(s.clone()),
-        ExprKind::Variable(name) => match scope.lookup_variable(name) {
-            VariableLookup::Found(bound, id) => {
-                let _guard = scope.hide_binding(id);
-                string_literal(&bound, scope)
-            }
-            VariableLookup::OnlyHidden(_) | VariableLookup::NotFound => None,
-        },
-        _ => None,
-    }
-}
-
-/// Whether `expr` is statically inferred to be a date or datetime value. Used to recognize the date
-/// side of the date/duration magic in [`convert_simple_comparison`]. The inference propagates
-/// through functions, arithmetic, and so on (see [`infer_type`]), so e.g. `created_at%max` (a
-/// datetime run through `max`) is recognized as a datetime.
-fn is_date_like(expr: &Expr, scope: &mut Scope) -> bool {
-    infer_type(expr, scope).is_temporal()
 }
 
 /// Maps a comparison operator to the SQL builder for comparing two numeric (epoch-second) operands,
@@ -430,6 +455,9 @@ fn convert_custom_comparison(
     right: ComparisonSide,
     scope: &mut Scope,
 ) -> Result<SqlExpr, Error> {
+    // The value belongs to the call, so its context is recorded before the comparison's expansion
+    // is entered.
+    let context = scope.context();
     let _guard = scope.enter_expansion(Expansion::CustomComparison {
         table: def.table.clone(),
         name: def.name.clone(),
@@ -437,7 +465,7 @@ fn convert_custom_comparison(
     let body = switched_body(&def, call_operator)?;
     match right {
         ComparisonSide::Expr(value) => {
-            convert_custom_comparison_body(&def.param, value, body, &head_parts, scope)
+            convert_custom_comparison_body(&def.param, value, &context, body, &head_parts, scope)
         }
         // An expansion on the right binds the parameter to each entry in turn, combining the
         // results with the expansion's conjunction (e.g. `comment:["a" "b"]`).
@@ -449,6 +477,7 @@ fn convert_custom_comparison(
                     convert_custom_comparison_body(
                         &def.param,
                         value,
+                        &context,
                         body.clone(),
                         &head_parts,
                         scope,
@@ -461,17 +490,26 @@ fn convert_custom_comparison(
     }
 }
 
+/// Compiles a custom comparison's `body`, relative to the table that hosts the comparison (which
+/// `head_parts` leads to), with its parameter bound to `value`. The value means what it meant where
+/// the comparison was called, which `context` records: a column it refers to is one of the table
+/// the call was made on, not of the host table, nor of any table the body goes on to reach.
 fn convert_custom_comparison_body(
     param: &str,
     value: Expr,
+    context: &BindingContext,
     body: Expr,
     head_parts: &[PathPart],
     scope: &mut Scope,
 ) -> Result<SqlExpr, Error> {
-    let bindings = vec![(param.to_string(), value)];
-    scope.with_variable_bindings(bindings, |scope| {
-        convert_expr_with_path_prefix(body, head_parts.to_vec(), scope)
-    })
+    let env = scope.bind(
+        &scope.globals(),
+        param.to_string(),
+        value,
+        scope.env(),
+        context.clone(),
+    );
+    convert_definition_with_env(body, head_parts.to_vec(), env, scope)
 }
 
 /// Returns the custom comparison's body, with its `:` (match) operators rewritten to `call_operator`

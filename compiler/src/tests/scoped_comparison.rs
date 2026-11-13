@@ -259,9 +259,10 @@ fn aggregate_in_scope_is_scoped_to_the_related_table() {
         "#issues author{#comments.body%list(\\\\body):x} $id",
         "#issues author.#comments.body%list(\\\\body):x $id",
     );
-    // A local aggregate of the scoped table's own column.
+    // A local aggregate of the scoped table's own column. (As a result column, since an aggregate
+    // of the records being queried can't be used in a condition.)
     assert_equivalent(
-        "#issues author{username%max:z} $id",
-        "#issues author.username%max:z $id",
+        "#issues $author{username%max:z}",
+        "#issues $author.username%max:z",
     );
 }

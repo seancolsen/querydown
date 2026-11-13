@@ -4,7 +4,7 @@ use super::{
     dialect::{duration_part, Dialect, NormalizedDuration, RegexPattern},
     expr::{
         build::{cmp::comparison, sql_func},
-        SqlExpr,
+        SqlExpr, SqlExprPrecedence,
     },
     Postgres,
 };
@@ -117,10 +117,15 @@ impl Dialect for DuckDB {
     fn unit_hash(&self, arg: SqlExpr) -> SqlExpr {
         // `hash` returns an unsigned 64-bit integer (UBIGINT); dividing by its maximum value maps
         // it onto a uniform double in [0, 1].
-        SqlExpr::atom(format!(
-            "CAST(hash({a}) AS DOUBLE) / 18446744073709551615.0",
-            a = arg.content
-        ))
+        SqlExpr {
+            content: format!(
+                "CAST(hash({a}) AS DOUBLE) / 18446744073709551615.0",
+                a = arg.content
+            ),
+            // A division, so that a surrounding operation parenthesizes it where needed.
+            precedence: SqlExprPrecedence::Multiplication,
+            never_null: false,
+        }
     }
 
     fn year_month(&self, arg: SqlExpr) -> SqlExpr {

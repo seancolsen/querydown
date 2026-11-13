@@ -389,10 +389,12 @@ fn string<'src>() -> impl Psr<'src, String> {
 /// references.
 ///
 /// A bare word is treated as a string only when it stands alone. If it is the head of a longer path
-/// (e.g. `foo.bar`), the whole path is parsed as a column reference instead.
+/// (e.g. `foo.bar`), the whole path is parsed as a column reference instead. The `..` of a range is
+/// not a path separator, so the bounds of `title:a..m` are both strings.
 fn comparison_rhs_value<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, ExprKind> {
+    let path_separator = just(PATH_SEPARATOR).then(just(PATH_SEPARATOR).not());
     let bare_string = mark(TokenKind::String, ident())
-        .then_ignore(pad().then(just(PATH_SEPARATOR)).not())
+        .then_ignore(pad().then(path_separator).not())
         .map(|s: &str| ExprKind::String(s.to_string()));
     choice((bare_string, path(expr).map(ExprKind::Path)))
 }
@@ -1211,6 +1213,64 @@ mod tests {
                 right: ComparisonSide::Expr(ExprKind::String("open".to_string()).into()),
             }))
             .into())
+        );
+    }
+
+    #[test]
+    fn test_bare_words_as_range_bounds() {
+        let p = |s: &str| {
+            expr()
+                .then_ignore(end())
+                .parse(s)
+                .into_result()
+                .map_err(|_| ())
+        };
+        let range = |lower: ExprKind, lower_exclusivity, upper: ExprKind, upper_exclusivity| {
+            Ok(ExprKind::Comparison(Box::new(Comparison {
+                left: ComparisonSide::Expr(
+                    ExprKind::Path(vec![PathPartKind::Column("title".to_string()).into()]).into(),
+                ),
+                operator: Operator::Match,
+                right: ComparisonSide::Range(Range {
+                    lower: RangeBound {
+                        expr: lower.into(),
+                        exclusivity: lower_exclusivity,
+                    },
+                    upper: RangeBound {
+                        expr: upper.into(),
+                        exclusivity: upper_exclusivity,
+                    },
+                }),
+            }))
+            .into())
+        };
+        let string = |s: &str| ExprKind::String(s.to_string());
+        use Exclusivity::*;
+
+        // The `..` of a range isn't a path separator, so a bare word before it is a string literal
+        // like any other bare word on the right-hand side.
+        assert_eq!(
+            p("title:a..m"),
+            range(string("a"), Inclusive, string("m"), Inclusive)
+        );
+        assert_eq!(
+            p("title:a<..<m"),
+            range(string("a"), Exclusive, string("m"), Exclusive)
+        );
+        assert_eq!(p("title:a .. m"), p("title:a..m"));
+        assert_eq!(p("title:a..m"), p("title:'a'..'m'"));
+        // A bound that is a multi-part path is still a column reference.
+        assert_eq!(
+            p("title:a.b..m"),
+            range(
+                ExprKind::Path(vec![
+                    PathPartKind::Column("a".to_string()).into(),
+                    PathPartKind::Column("b".to_string()).into(),
+                ]),
+                Inclusive,
+                string("m"),
+                Inclusive
+            )
         );
     }
 

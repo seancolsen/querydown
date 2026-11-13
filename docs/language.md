@@ -52,6 +52,8 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Multiple sorting](#multiple-sorting)
   - [Sorting NULL values](#sorting-null-values)
   - [Grouping and aggregation](#grouping-and-aggregation)
+    - [Grouping with related records](#grouping-with-related-records)
+    - [Filtering on an aggregate](#filtering-on-an-aggregate)
   - [Column globs](#column-globs)
   - [Column glob on related table](#column-glob-on-related-table)
   - [Hiding columns within a glob](#hiding-columns-within-a-glob)
@@ -139,6 +141,7 @@ Base table          Conditions               Result columns       */
     - include only letters, numbers, and underscores.
 - Unlike SQL, column names like `group` and `year` don't need quotes because there are no keywords and functions names are always clear to the parser from other syntax.
 - Note that a bare (unquoted) word on the [right-hand-side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison) is parsed as a string literal, not a column reference. Use backticks there if you need to reference a column.
+- Likewise, an unquoted word made up of only letters and digits that stands alone as a condition is a [default text search](#default-text-search) term, not a column reference.
 
 ### Flexible identifiers
 
@@ -412,7 +415,7 @@ The comparison operators `:<` `:<=` `:>` `:>=` also allow you to perform inequal
 
 ### Comparing dates with durations
 
-When you compare a date or datetime against a [duration literal](#duration-literals), Querydown interprets the comparison as a question about how far the date lies from _now_, in either direction. The comparison `date:<duration` matches when the date falls within `duration` of the present moment &mdash; whether the date is in the past or the future.
+When you compare a date or datetime against a [duration](#duration-literals), Querydown interprets the comparison as a question about how far the date lies from _now_, in either direction. The comparison `date:<duration` matches when the date falls within `duration` of the present moment &mdash; whether the date is in the past or the future.
 
 > Find issues created within the past 6 months:
 
@@ -430,13 +433,31 @@ Both queries use `:<`, even though one date lies in the past and the other in th
 
 The date must be on the **left** and the duration on the **right**. The reversed order is an error, just as comparing a datetime against a duration directly would be.
 
-The left-hand side doesn't need to be a plain date column. Querydown infers the type of the expression, propagating it through functions, so any expression that works out to a date or datetime can be compared against a duration. For example, a datetime run through an aggregate function is still a datetime:
+Neither side needs to be written literally. Querydown infers the type of each expression, propagating it through functions, arithmetic, and [variables](#variables), so any expression that works out to a date or datetime can be compared against any expression that works out to a duration. For example, a datetime run through an aggregate function is still a datetime:
 
 > Find issues whose most recent comment was made within the past week:
 
 ```qd
 #issues #comments.created_at%max:<1w
 ```
+
+And a sum of durations is still a duration, as is a [constant](#user-defined-constants) that holds one:
+
+> Find issues created within the past 8 days:
+
+```qd
+#issues created_at:<1w + 1d
+```
+
+The _difference_ between two dates is a duration too, not a date. So comparing it against a duration is an ordinary comparison of two durations, with nothing measured from now:
+
+> Find issues that were given more than a week to complete:
+
+```qd
+#issues due_date - created_at:>1w
+```
+
+The types that this relies on come from the schema, so the comparison works on any column of a table. It also works on the columns of an earlier [pipeline](#pipeline-of-multiple-queries) stage or a [user-defined table](#user-defined-tables), which keep their date, datetime, and duration types.
 
 If you actually want to account for the direction of the difference, compare against a datetime instead of a duration. For example, to find issues that are more than 1 week overdue:
 
@@ -501,13 +522,16 @@ A bare (unquoted) word on the **right-hand-side** of a comparison is interpreted
 
 The query above is equivalent to `#issues title:"performance"`.
 
+Here, "word" means any unquoted identifier, so it may contain underscores: `#issues status:in_progress` compares against the text "in_progress". (That's unlike a [default text search](#default-text-search) term, which is made up of letters and digits only.)
+
 #### The rule applies at any depth
 
 This is not limited to a bare word standing alone immediately after the operator. **Every** bare word _anywhere_ within the right-hand-side expression — at any depth of nesting — is a string literal. For example, the bare words inside the following right-hand-sides are all string literals:
 
 - an [expansion](#comparison-expansion): `#issues title:~[color colour]` searches for "color" or "colour"
 - a [function pipeline](#function-piping): `#issues title:foo|concat(bar)` builds the string from the literals "foo" and "bar"
-- parentheses, [ranges](#ranges), arithmetic, and so on — the same rule reaches into all of them
+- a [range](#ranges): `#issues title:a..m` finds the titles that sort between "a" and "m"
+- parentheses, arithmetic, and so on — the same rule reaches into all of them
 
 The motivation is to make the most common case — searching for literal text — both the shortest to type and the most intuitive to read.
 
@@ -548,12 +572,24 @@ If you need to reference a column on the right-hand-side, you can either:
 
 The default text search is a simple way to give users a low-friction search across many columns at once. The reason the above example searches in `title`, `description` and `status` is because those are the only text-like columns in the `issues` base table — but you can see the next section to learn how to customize this behavior.
 
-In the above example, "feature" is parsed as a default text search term because it comes before any display columns and it does not have a comparison operator. Bare strings (without quotes) will only work if they begin with a letter and contain only alphanumeric characters.
+In the above example, "feature" is parsed as a default text search term because it comes before any display columns and it does not have a comparison operator.
 
-A bare word is _always_ a search term, even when it happens to match a column name — so `#issues title` searches for the literal text "title" rather than referencing the `title` column. If you instead want to reference a column as a bare condition (e.g. a boolean column), quote it with backticks, just as you would on the [right-hand side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison):
+Only a **bare word** is a search term: an unquoted word that begins with a letter and contains only letters and digits. A bare word is _always_ a search term, even when it happens to match a column name — so `#issues title` searches for the literal text "title" rather than referencing the `title` column.
+
+Anything else that looks like a name is a column reference, as it is elsewhere in a query. In particular, a name containing an **underscore** isn't a bare word:
+
+> Find active projects (`is_active` is a boolean column)
 
 ```qd
-#projects `is_active`
+#projects is_active
+```
+
+So `#issues in_progress` doesn't search for "in_progress": it refers to a column named `in_progress`, and fails because there isn't one. To search for such text, quote it (`#issues "in_progress"`).
+
+Going the other way, to use a column whose name _is_ a bare word as a condition, quote it with backticks, just as you would on the [right-hand side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison). If `projects` had a boolean column named `archived`, then `#projects archived` would search for the text "archived", while this would find the archived projects:
+
+```qd
+#projects `archived`
 ```
 
 You can search for any string using the default text search if you explicitly quote it:
@@ -568,6 +604,8 @@ Because the comma is shorthand for an [OR condition set](#or-condition-sets), ba
 #issues foo,bar
 ```
 
+Each side of a comma is a whole condition, so the same is true after a comparison: `#issues status:open,closed` finds issues whose status contains "open", _or_ that mention "closed" in any text column. See [OR condition sets](#or-condition-sets) for how to compare one column with several values.
+
 You can _negate_ a search term by prefixing it with `!`, to find records that do **not** contain the term in any of their text columns:
 
 ```qd
@@ -580,10 +618,13 @@ Negation works on individual comma operands too, so you can mix positive and neg
 #issues foo,!bar
 ```
 
-Just as a bare word is always a search term (never a column reference), a `!`-prefixed bare word is always a _negated_ search term. To negate a bare _column_ condition (e.g. a boolean column) instead, quote it with backticks:
+Just as a bare word is always a search term (never a column reference), a `!`-prefixed bare word is always a _negated_ search term. A name that isn't a bare word is a column, negated or not, so `#projects !is_active` finds the projects that aren't active. To negate a column whose name is a bare word, quote it with backticks, e.g. ``#projects !`archived` ``.
+
+A [constant](#user-defined-constants) that holds a string is a search term too, since a constant stands for its value:
 
 ```qd
-#projects !`is_active`
+@term = "localhost:3000"
+#issues @term
 ```
 
 #### Configuring the default text search
@@ -634,6 +675,13 @@ A shorthand syntax is also available using the comma `,` operator:
 #issues status:"open",created_at:>@2023-03-04
 ```
 
+The comma has the lowest [precedence](./cheat-sheet.md#operator-precedence) of any operator, so it always separates whole conditions. It never separates the values of one comparison:
+
+- `status:open,closed` is the comparison `status:open`, _or_ a [default text search](#default-text-search) for "closed" in every text column.
+- `id:1,2` is an error, because the `2` stands alone, and a number isn't a condition.
+
+To compare one column with several values, use [comparison expansion](#comparison-expansion) instead: `status:[open closed]` or `id:[1 2]`.
+
 ### Nested condition sets
 
 Conditions can be nested
@@ -649,7 +697,7 @@ Conditions can be nested
 
 ### Negation
 
-Prefix a comparison, a condition set, or any other condition with `!` to negate it. `!X` finds exactly the records that `X` doesn't.
+Prefix a comparison, a condition set, or any other condition with `!` to negate it. `!X` finds exactly the records that `X` doesn't. Only a condition can be negated: applying `!` to a literal value, such as a string or a number, is an error.
 
 > Issues that aren't in the "Website" project
 
@@ -699,6 +747,22 @@ Because an expansion on the right-hand-side is part of the right-hand-side, its 
 #projects {is_pro_bono is_active}:@false
 ```
 
+The entries of an expansion are the things being compared, not conditions, so an entry can't be negated with `!`. Writing `status:[open !closed]` is an error, since `!` would apply to the value "closed" rather than to a comparison. Either [negate](#negation) the whole comparison, or write the comparisons out:
+
+> Issues whose status is neither "closed" nor "done"
+
+```qd
+#issues !status:[closed done]
+```
+
+> Issues whose status contains "open", or doesn't contain "closed"
+
+```qd
+#issues [status:open !status:closed]
+```
+
+A condition set expands a comparison only when it's written directly in the comparison. A set that arrives some other way isn't an expansion: one held by a [constant](#user-defined-constants), passed as an argument to a function, or wrapped in parentheses is a single (boolean) condition, and comparing a value with it is an error.
+
 #### Without comparison expansion
 
 Because a condition set on either side of a comparison is _always_ expanded, you cannot use a condition set to form a boolean value to be compared. If for some reason you need to perform boolean logic on expressions _before_ they are compared, then you can use functions:
@@ -732,6 +796,14 @@ The range `2010..2019` **includes** both 2010 and 2019. You can use `<` on eithe
 - `2010<..2019` means _"greater than 2010 and less or equal to 2019"._
 - `2010..<2019` means _"greater or equal to 2010 and less than 2019"._
 - `2010<..<2019` means _"greater than 2010 and less than 2019"._
+
+A few details:
+
+- A range is compared with `:`. The ordering and pattern operators (`:<`, `:~`, and so on) can't be used with one.
+- Each bound is a **single value**: a literal (`2010`, `@2024-01-01`, `1w`), a [constant](#user-defined-constants) or built-in like `@now`, a column, or an expression in parentheses. The `..` binds more tightly than arithmetic and function pipes, so a computed bound needs parentheses: write `id:(1 + 1)..(2 * 3)` and `created_at:(@now|minus(1w))..@now`, not `id:1 + 1..2 * 3`.
+- As everywhere on the [right-hand-side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison), a bare word is a string literal: `title:a..m` finds titles from "a" to "m". Use backticks for a column: ``created_at:`due_date`..@now``.
+- A range is written directly on one side of a comparison. It can't be an entry of an [expansion](#comparison-expansion) (`id:[1 3..5]`), nor be wrapped in parentheses (`id:(1..5)`); both are syntax errors. To combine a range with other values, write the comparisons out: `[id:1 id:3..5]`.
+- The other side of the comparison may be an expansion: `[created_at due_date]:@2024-01-01..@now`.
 
 
 ## Result columns
@@ -792,9 +864,49 @@ Grouping is indicated by the `g` flag, similar to sorting.
 
 - All ungrouped columns must contain an aggregate function. Otherwise the compiler reports an error.
 - `%count` can occur on its own (outside of a function pipeline), which is equivalent to `count(*)`.
-- Aggregate functions like `%max`, `%sum`, and `%avg` may be applied to columns on the base table (e.g. `created_at%max`) or on a related table reachable via a single record (e.g. `author.created_at%max`).
+- Aggregate functions like `%max`, `%sum`, and `%avg` may be applied to columns on the base table (e.g. `created_at%max`) or on a related table reachable via a single record (e.g. `author.created_at%max`). A foreign key column is aggregated like any other column, e.g. `author%distinct` for the number of distinct authors.
 - Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting. Columns without an explicit ordinal are grouped in the order they appear, after all columns that do specify an ordinal.
 - Grouping and sorting can be combined, e.g. `#issues $status \g $%count \sd` to sort the groups by their counts.
+- A [standalone sorting expression](#sorting-outside-of-result-columns) in a grouped query follows the same rule as a result column: it must either match a grouping column (`\\status` above) or contain an aggregate function (`\\created_at%max`). Otherwise the compiler reports an error.
+
+#### Grouping with related records
+
+A count or other aggregate of [related records](#referencing-multiple-related-records), such as `#comments` or `#comments.created_at%max`, is computed separately for each record of the base table. So within a grouped query it behaves like a plain column, not like an aggregate: it has a value for each issue, not one for each group of issues. Using one as an ungrouped result column is an error:
+
+```qd
+#issues $status \g $#comments // ERROR!
+```
+
+There are two things you can do with it instead. You can group by it:
+
+> The number of issues having each number of comments
+
+```qd
+#issues $#comments \g $%count
+```
+
+Or you can aggregate it across each group, by first giving it a name with a [computed column](#computed-columns):
+
+> For each status, the total number of comments on the issues with that status
+
+```qd
+#issues.comment_count = #comments
+#issues $status \g $comment_count%sum
+```
+
+#### Filtering on an aggregate
+
+Conditions choose which records get grouped and aggregated, so a condition can't itself use an aggregate of those records. Writing `#issues %count:>5 $status \g` is an error. To filter on an aggregate, compute it in one stage of a [pipeline](#pipeline-of-multiple-queries), and filter on it in the next:
+
+> Statuses that have more than 5 issues
+
+```qd
+#issues $status \g $%count -> issue_count
+~~~
+issue_count:>5
+```
+
+This restriction only concerns aggregates of the records being queried. An aggregate of _related_ records is fine in a condition, e.g. `#issues #comments.created_at%max:<1w`.
 
 ### Column globs
 
@@ -825,6 +937,8 @@ Use `\h` to hide a column.
 ```
 #issues $*(description \h)
 ```
+
+The `\h` flag only has an effect within the parentheses of a glob. On an ordinary result column it does nothing, so `#issues $id \h $title` still shows the `id` column. To leave such a column out, simply don't list it. (And to sort by a value without showing it, use a [standalone sorting expression](#sorting-outside-of-result-columns).)
 
 ### Sorting columns within a glob
 
@@ -867,6 +981,7 @@ $issue.project.name
 Everything else about the nested columns — aliases, control flags like `\s` and `\h`, and annotations — works exactly as it does outside of nesting.
 
 - Each nested column must begin with a column reference, so that the outer path has somewhere to attach. The reference may sit behind a pipe (`$title|upper` becomes `issue.title|upper`), arithmetic (`$id * 2`), a comparison (`$status:closed`), a `!` prefix, or a `++`/`--` prefix (`$++#labels` becomes `++issue.#labels`). A column that starts with none of these — e.g. a literal like `$8`, or a standalone `$%count` — cannot be nested.
+- The path is applied **only** to that leading column reference. Any other column reference within the same nested column is left as written, relative to the base table: `#comments $issue.( $id + id )` is `issue.id + id`, which adds the comment's own `id` to the issue's. Write the path out where you need it again (`$id + issue.id`). This is unlike a [scoped comparison](#scoped-comparisons), in which everything inside the braces is relative to the related record.
 - Groups can be nested within groups, and the paths compose: `$issue.( $project.( $name ) )` is the same as `$issue.project.name`.
 - [Column globs](#column-globs) work inside a group: `$issue.( $project.* )` is the same as `$issue.project.*`.
 - The path before `.( )` may traverse to-many relationships: `$#comments.( $created_at%max )` is the same as `$#comments.created_at%max`.
@@ -924,6 +1039,7 @@ The path before `.( )` is applied to the start of every sorting expression insid
 Everything else about the nested expressions — the `\d` and `\n` flags — works exactly as it does outside of scoping.
 
 - Each nested sorting expression must begin with a column reference, so that the outer path has somewhere to attach. The reference may sit behind a pipe (`\\name|upper` becomes `\\project.name|upper`), arithmetic (`\\id * 2`), a comparison (`\\status:closed`), a `!` prefix, or a `++`/`--` prefix (`\\++#labels` becomes `\\++project.#labels`). An expression that starts with none of these — e.g. a literal like `\\8`, or a standalone `\\%count` — cannot be scoped.
+- As with [nested result columns](#nesting-result-columns), the path is applied only to that leading column reference. Any other column reference in the expression stays relative to the base table.
 - Groups can be nested within groups, and the paths compose: `\\project.( \\product.( \\name ) )` is the same as `\\project.product.name`.
 - The path before `.( )` may traverse to-many relationships: `\\#comments.( \\created_at%max )` is the same as `\\#comments.created_at%max`.
 
@@ -979,6 +1095,13 @@ A few details:
 - There must be **no space** between the path and the condition set. With a space, `#comments issue {id:7}` is instead a [default text search](#default-text-search) for "issue" (on `#comments`) alongside a separate condition set, exactly as before.
 - Scopes may be nested, and the paths compose: `issue{project{name:foo}}` is the same as `issue.project.name:foo`.
 - The path steps through _single_ related records (a column-name chain). A path whose last step is a to-many table like `#comments{ ... }` is instead a [filter on those related records](#conditions-to-filter-aggregate-data), which is an existing, separate feature.
+- **Everything** inside the braces is relative to the related record — column references on the right-hand side of a comparison included — and there is no syntax for referring back to the record outside. In ``#comments issue{author.username:=`user`.username}``, `user` is looked up on the issue (which has no such column), not on the comment. To compare the two records with each other, write the comparison without a scope:
+
+    > Comments made by the author of their issue
+
+    ```qd
+    #comments issue.author.username:=user.username
+    ```
 
 ## Referencing _multiple_ related records
 
@@ -1188,6 +1311,26 @@ You can add a condition block after any aggregated table
 #projects --#issues{status:"open"}
 ```
 
+Inside the block, everything is relative to the related table (here `issues`), just as it would be in a query whose base table is `#issues`. A few details:
+
+- The block belongs to the `#table` that it **directly** follows. A block written after a column is not a filter on the related records: `#issues ++#comments.user{id:5}` is the condition `++#comments.user` followed by a separate condition set, `{id:5}`, which applies to the issue. To filter the comments by a column of their user, put the path inside the comments' block instead:
+
+    > Issues that have a comment by user 5
+
+    ```qd
+    #issues ++#comments{user.id:5}
+    ```
+
+- The block can't refer to the base record by its own column names. But each related record links back to it through a foreign key column, which you can follow like any other:
+
+    > For each issue, count the comments made more than a week after the issue was created
+
+    ```qd
+    #issues $id $#comments{created_at:>issue.created_at|plus(1w)}
+    ```
+
+- The block can't use an aggregate of the very records it filters (e.g. `#issues{%count:>5}`), since it decides which records those are. An aggregate of records related to _them_ is fine, e.g. `#projects ++#issues{#comments:>5}`.
+
 ### Transitive relationships
 
 You can refer to distantly-related tables
@@ -1375,8 +1518,10 @@ GROUP BY "pipe0"."project";
 
 Notes:
 
-- A stage's output columns become plain columns of the next stage's base table. They have no relationships, so you can reference them directly but cannot traverse to related records from them.
-- Because the intermediate columns are untyped, the match operator (`:`) compares them using exact equality rather than type-aware matching (e.g. case-insensitive "contains" for text).
+- A stage's output columns become plain columns of the next stage's base table. They have no relationships, so you can reference them directly but cannot traverse to related records from them. Using a path like `#comments` in a later stage is an error: compute what you need from related records in the first stage, and output it as a column.
+- The intermediate columns are mostly untyped. As a result, the match operator (`:`) compares them using exact equality rather than type-aware matching (e.g. case-insensitive "contains" for text).
+- The exception is dates, datetimes, and durations, which keep their types from one stage to the next. So [comparing a date with a duration](#comparing-dates-with-durations) means the same thing in a later stage as in the first: `created_at:<1w` finds the rows whose `created_at` lies within a week of now.
+- Only the [column annotations](#column-level-annotations) of the last stage appear in the output. An annotation written in an earlier stage is dropped, even when its column passes through the later stages unchanged.
 
 
 ## Union of multiple queries
@@ -1521,7 +1666,27 @@ rn:1 $id $title $project
 
 A constant is defined before the base table with `@name = expr`. Its value is **inlined** into the
 generated SQL wherever the constant is referenced (as `@name`). A constant's definition may itself
-reference an earlier constant.
+reference another constant.
+
+A constant stands for its value, so a value with a special meaning keeps that meaning when it
+arrives through a constant:
+
+```qd
+@recent = 1w
+@none = @null
+#issues created_at:<@recent description:@none
+```
+
+Here `created_at:<@recent` is a [comparison of a date with a duration](#comparing-dates-with-durations),
+and `description:@none` finds the issues with no description, exactly as if `1w` and `@null` had
+been written in place. Likewise, a constant holding a string is a
+[default text search](#default-text-search) term when it stands alone as a condition.
+
+A constant holds a **single** value (or condition). It can't hold a set of values with which to
+[expand a comparison](#comparison-expansion): only a set written directly in a comparison expands
+it. Given `@statuses = [open reopened]`, the comparison `status:@statuses` is an error. (Standing
+alone, `@statuses` is an ordinary [OR condition set](#or-condition-sets), in which the bare words are
+search terms: `#issues @statuses` finds the issues that mention "open" or "reopened" anywhere.)
 
 ### Defining a constant using the result of a query
 
@@ -1581,6 +1746,31 @@ a built-in scalar function: it can be applied via a pipe (`value|name`) or with 
 (`value|name(extra)`), where the piped-in value becomes the first argument. When applied, the
 arguments are bound to the parameters and the body is **inlined** into the generated SQL. (Built-in
 functions take precedence over a user-defined function of the same name.)
+
+Although the body is inlined, each piece of it keeps the meaning it had where it was written:
+
+- The function's **body** sees its own parameters and the [constants](#user-defined-constants), but
+  not the variables of whichever expression calls it. Column names within the body refer to the
+  table that the function is called on.
+- An **argument** is evaluated where the function is called, not where the body uses the parameter.
+  That matters when the body uses a parameter within a
+  [filter on related records](#conditions-to-filter-aggregate-data):
+
+    > Find issues that their own author has commented on
+
+    ```qd
+    @@has_comment_by = @u => ++#comments{user:@u}
+    #issues author|has_comment_by
+    ```
+
+    Here `author` is a column of the issue, even though `@u` is used inside `#comments{ }`, where a
+    column name written directly would be looked up on the comment.
+
+One limitation: an argument that refers to its record like this (to its columns, or to records
+related to it) can be used within a filter on that record's related records, but no deeper. It can't
+be used within a filter that is nested inside another filter, nor within a filter on the related
+records of some other record (as in `author.#comments{ }`). The compiler reports an error if it is.
+An argument that doesn't refer to its record, such as a literal, can be used anywhere.
 
 ### Function with multiple parameters
 
@@ -1662,6 +1852,18 @@ If the custom comparison is defined with any comparisons that are not just `:`, 
 
 With this definition, attempting to call `participant:~"david"` will fail.
 
+A few more things to know:
+
+- A custom comparison is used in place of a column on the left-hand side of a comparison, which
+  includes the entries of a left-hand [expansion](#comparison-expansion): `[comment title]:workaround`
+  finds issues with "workaround" in a comment or in the title.
+- The right-hand side may be an expansion too (`comment:[workaround hack]`), but not a
+  [range](#ranges).
+- The value on the right-hand side is evaluated where the comparison is used, in the same way as an
+  [argument to a function](#user-defined-functions). So ``comment:`title` `` finds issues having a
+  comment that mentions the issue's own title: `title` is a column of the issue, even though the
+  definition uses `@x` within `#comments{ }`.
+
 ### Linked record comparisons
 
 Normally, comparing against a linked record requires naming a column on that record. For example, to
@@ -1699,12 +1901,28 @@ can also be any expression — for instance, matching on either of two columns:
 An application incorporating Querydown might prepend these definitions for its users as a convenience,
 so that comparing against a linked record "just works" without needing to know which column to match.
 
+Once a linked record comparison is defined for a table, it applies to **every** comparison made
+directly against a link to that table. That includes comparisons that would otherwise have compared
+the foreign key itself: with the definition above, `author:5` no longer finds the issues whose
+`author` column is 5, because it now compares the author's username. To compare the key, name the
+column it refers to:
+
+```
+#issues author.id:5
+```
+
+`author:@null` goes through the comparison as well, becoming `author.username:@null`. That still finds
+the issues with no author (which have no username to speak of), along with any whose author has no
+username.
+
 ### User-defined tables
 
 A user-defined table is defined before the base table with `#name = #( query )`. It names a
 subquery, which compiles to a CTE. The name can then be used as the base table of the query — or of a
 later user-defined table. Each user-defined table's output columns become the columns available
-wherever it is used as a base table.
+wherever it is used as a base table. As with the result of a [pipeline](#pipeline-of-multiple-queries)
+stage, those columns have no relationships, and only the dates, datetimes, and durations among them
+keep their types.
 
 > For each project, count the number of months in which at least 10 issues were created
 
@@ -1755,7 +1973,17 @@ The exact structure of the annotation is entirely up to you. Querydown does not 
 
 #### The annotation output
 
-The `columnAnnotations` array is **positional**: it has one entry per output column, in the same order as the columns in the result set. A column with no annotation gets `null` in its slot. This means a column glob like `$*` contributes one `null` (or its adjustment annotation) per expanded column, and hidden columns (`\h`) contribute nothing.
+The `columnAnnotations` array is **positional**: it has one entry per output column, in the same order as the columns in the result set. A column with no annotation gets `null` in its slot. This means a column glob like `$*` contributes one `null` (or its adjustment annotation) per expanded column, and columns [hidden from a glob](#hiding-columns-within-a-glob) (`\h`) contribute nothing.
+
+The annotations describe the columns of the final result, so in a [pipeline](#pipeline-of-multiple-queries) only those written in the **last** stage are output. An annotation on a column of an earlier stage is dropped, even when a later stage passes the column through unchanged with `$*`. Annotate the column in the last stage instead, which a glob lets you do without listing the other columns:
+
+```qd
+#issues $id $title $#comments -> comments
+~~~
+comments:>5 $*(title @{width:400})
+```
+
+(In a [union](#union-of-multiple-queries), by contrast, an annotation may be written in any of the queries, since they all describe the same result columns.)
 
 #### Querydown's JSON variant
 

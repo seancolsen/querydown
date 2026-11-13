@@ -19,11 +19,9 @@ fn distinct_outputs(input: &str) -> BTreeSet<String> {
 }
 
 /// When a query follows two or more to-one links out of the same table, the joins to the linked
-/// tables should be rendered in the same order every time.
-///
-/// KNOWN FAILURE: sibling joins are kept in a `HashMap` (`JoinTree::dependents`), so their order
-/// varies from one compilation to the next. Until that's fixed, the corpus can't hold any case
-/// with sibling to-one joins, because its expected SQL would match only some of the time.
+/// tables are rendered in the same order every time: the order in which the query first refers to
+/// them. (They were once kept in a hash map, whose order varies from one compilation to the next.
+/// The corpus pins the order itself, under "Combinations: several to-one paths from one table".)
 #[test]
 fn sibling_joins_are_rendered_in_a_stable_order() {
     for input in [
@@ -32,6 +30,8 @@ fn sibling_joins_are_rendered_in_a_stable_order() {
         "#comments issue{title:foo} user{username:bar} $id",
         "#issues $author.* $duplicate_of.*",
         "#projects $#issues{author.username:a project.name:b}",
+        "#blocks $blocker.author.username $blocking.project.name $blocker.project.name",
+        "#issues $author.#comments $project.#issues $duplicate_of.#comments",
     ] {
         let outputs = distinct_outputs(input);
         assert!(

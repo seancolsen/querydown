@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use querydown_parser::ast::{
     AggregateSortExpr, AggregateSortKey, AnonymousFunctionCall, Assignment, Call, Expr, ExprKind,
-    FunctionBody, FunctionDef, FunctionDimension, Loc, PathPartKind,
+    FunctionDef, FunctionDimension, Loc, PathPartKind,
 };
 
 use crate::{
@@ -12,9 +12,9 @@ use crate::{
             compile_aggregate, resolve_aggregate_sorting, AggregateKind, CompiledAggregate,
             ListMode, ResolvedSort, SortKey,
         },
-        expr::{convert_expr, convert_expr_with_path_prefix, resolve_computed_column},
-        paths::{clarify_path, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail},
-        scope::{Expansion, Scope, WindowBan},
+        expr::{convert_definition, convert_expr, resolve_computed_column},
+        paths::{clarify_value_path, AggregateExprTemplate, ClarifiedPath, ClarifiedPathTail},
+        scope::{AggregateBan, Env, Expansion, Scope, WindowBan},
         temporal::{now_operand, reconcile, TemporalZone},
         typing::infer_type,
     },
@@ -43,6 +43,12 @@ pub enum TypeRule {
     /// The function returns an array whose element type is that of the argument at this index (e.g.
     /// the `list` aggregate).
     ArrayOfArg(usize),
+    /// The function adds its two arguments, so it returns what `+` does for them (see
+    /// [`crate::compiler::typing::sum_type`]).
+    Sum,
+    /// The function subtracts its second argument from its first, so it returns what `-` does for
+    /// them (see [`crate::compiler::typing::difference_type`]).
+    Difference,
 }
 
 pub fn convert_call(call: Call, scope: &mut Scope) -> Result<SqlExpr, Error> {
@@ -85,29 +91,41 @@ fn convert_user_function_call(
     args: Vec<Expr>,
     scope: &mut Scope,
 ) -> Result<SqlExpr, Error> {
+    // The arguments belong to the call, so they are bound before the function's expansion is
+    // entered: an argument that itself calls the function (`id|inc|inc`) isn't recursion. The body
+    // of a named function sees the constants, but none of the caller's variables.
+    let env = bind_params(&def.name, def.params, args, scope.globals(), scope)?;
     let _guard = scope.enter_expansion(Expansion::Function(def.name.clone()))?;
-    apply_function(&def.name, def.params, def.body, args, scope)
+    let env = bind_assignments(def.body.assignments, env, scope);
+    scope.with_env(env, |scope| convert_expr(def.body.expr, scope))
 }
 
 /// Applies an inline anonymous function (e.g. `value|(@d => @d:<0)`). This works exactly like
 /// applying a user-defined function: the parameters are bound to the arguments and the body is
-/// inlined. The only difference is that an anonymous function has no name.
+/// inlined. The differences are that an anonymous function has no name, and that — being written
+/// within an expression — its body can see the variables visible around it.
 pub fn convert_anonymous_function_call(
     call: AnonymousFunctionCall,
     scope: &mut Scope,
 ) -> Result<SqlExpr, Error> {
-    apply_function("(anonymous)", call.params, call.body, call.args, scope)
+    let env = bind_params("(anonymous)", call.params, call.args, scope.env(), scope)?;
+    let env = bind_assignments(call.body.assignments, env, scope);
+    scope.with_env(env, |scope| convert_expr(call.body.expr, scope))
 }
 
-/// Shared logic for applying a function (named or anonymous): bind its parameters to the arguments
-/// and its local assignments, then compile its body expression.
-fn apply_function(
+/// Extends `body_env` (the variables that a function's body can see from where it was written)
+/// with the function's parameters, bound to the arguments of a call being made within `scope`.
+///
+/// An argument means what it meant at the call: it sees the caller's variables rather than the
+/// function's, and a column it refers to is one of the table that the call was made on, even where
+/// the body uses the parameter within a filter on related records.
+pub(super) fn bind_params(
     name: &str,
     params: Vec<String>,
-    body: FunctionBody,
     args: Vec<Expr>,
-    scope: &mut Scope,
-) -> Result<SqlExpr, Error> {
+    body_env: Env,
+    scope: &Scope,
+) -> Result<Env, Error> {
     if args.len() != params.len() {
         return Err(msg::function_wrong_arg_count(
             name,
@@ -115,16 +133,21 @@ fn apply_function(
             args.len(),
         ));
     }
-    let bindings: Vec<(String, Expr)> = params
-        .into_iter()
-        .zip(args)
-        .chain(
-            body.assignments
-                .into_iter()
-                .map(|a: Assignment| (a.name, a.expr)),
-        )
-        .collect();
-    scope.with_variable_bindings(bindings, |scope| convert_expr(body.expr, scope))
+    let mut env = body_env;
+    for (param, arg) in params.into_iter().zip(args) {
+        env = scope.bind(&env, param, arg, scope.env(), scope.context());
+    }
+    Ok(env)
+}
+
+/// Extends `env` (which holds a function's parameters) with the function body's local assignments.
+/// Each sees the parameters and the assignments before it.
+pub(super) fn bind_assignments(assignments: Vec<Assignment>, env: Env, scope: &Scope) -> Env {
+    let mut env = env;
+    for Assignment { name, expr } in assignments {
+        env = scope.bind(&env, name, expr, env.clone(), scope.context());
+    }
+    env
 }
 
 /// Compiles an aggregate function call. An unknown function, or one that needs an argument it
@@ -143,6 +166,7 @@ fn convert_aggregate_call(
             return Err(msg::value_sort_without_value(name).at(value_sort.loc));
         }
         if name == "count" {
+            check_aggregate_ban(s).map_err(|err| err.at(name_loc))?;
             return Ok(build::agg::count_star());
         }
         return Err(msg::aggregate_fn_without_argument(name).at(name_loc));
@@ -151,6 +175,16 @@ fn convert_aggregate_call(
         .get_aggregate_function(name)
         .ok_or_else(|| unknown_aggregate_function(name).at(name_loc))?;
     (func.call)(e, order_by, s)
+}
+
+/// Fails if an aggregate of the rows being queried can't be used where `scope` is compiling,
+/// because SQL would reject it there.
+fn check_aggregate_ban(scope: &Scope) -> Result<(), Error> {
+    match scope.aggregate_ban() {
+        None => Ok(()),
+        Some(AggregateBan::Condition) => Err(msg::aggregate_in_condition()),
+        Some(AggregateBan::RelatedRecordsFilter) => Err(msg::aggregate_in_related_records_filter()),
+    }
 }
 
 pub type ScalarFuncMap = HashMap<String, ScalarFunction>;
@@ -310,24 +344,23 @@ fn year_month(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     use TypeRule::*;
     use ValueType::*;
-    // Each row pairs a function's compiler with the rule for the type it returns. The duration-
-    // producing functions (`age`, `countdown`, `days`, …) report `Unknown` because there is no
-    // dedicated duration value type. Addition and subtraction preserve their left operand's type so
-    // that `date|plus(1w)` stays a date.
+    // Each row pairs a function's compiler with the rule for the type it returns. `age` and
+    // `countdown` produce durations, which `days`, `hours`, and so on turn into numbers. `plus` and
+    // `minus` are typed like the operators they stand for, so that `date|plus(1w)` stays a date.
     #[rustfmt::skip]
     let templates: [(&str, ScalarFunc, TypeRule); 38] = [
         ("abs",         |e, s| args_1(e, s, abs),                    SameAsArg(0)),
-        ("age",         |e, s| temporal_age(e, s),                  Fixed(Unknown)),
+        ("age",         |e, s| temporal_age(e, s),                  Fixed(Duration)),
         ("and",         |e, s| args_v(e, s, build::cmp::and),        Fixed(Boolean)),
         ("ceil",        |e, s| args_1(e, s, ceil),                   Fixed(Number)),
         ("concat",      |e, s| args_v(e, s, concat),                 Fixed(Text)),
-        ("countdown",   |e, s| temporal_countdown(e, s),            Fixed(Unknown)),
+        ("countdown",   |e, s| temporal_countdown(e, s),            Fixed(Duration)),
         ("day",         |e, s| calendar_field(e, s, "day"),          Fixed(Number)),
-        ("days",        |e, s| args_1(e, s, days),                   Fixed(Unknown)),
+        ("days",        |e, s| args_1(e, s, days),                   Fixed(Number)),
         ("divide",      |e, s| args_2(e, s, divide),                 Fixed(Number)),
         ("exp",         |e, s| args_1(e, s, exp),                    Fixed(Number)),
         ("floor",       |e, s| args_1(e, s, floor),                  Fixed(Number)),
-        ("hours",       |e, s| args_1(e, s, hours),                  Fixed(Unknown)),
+        ("hours",       |e, s| args_1(e, s, hours),                  Fixed(Number)),
         ("if_null",     |e, s| args_v(e, s, coalesce),               UnifyArgs),
         ("keep_above",  |e, s| args_v(e, s, greatest),               UnifyArgs),
         ("keep_below",  |e, s| args_v(e, s, least),                  UnifyArgs),
@@ -336,15 +369,15 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("max",         |e, s| args_v(e, s, greatest),               UnifyArgs),
         ("md5",         |e, s| args_1(e, s, md5),                    Fixed(Text)),
         ("min",         |e, s| args_v(e, s, least),                  UnifyArgs),
-        ("minus",       |e, s| temporal_minus(e, s),                SameAsArg(0)),
-        ("minutes",     |e, s| args_1(e, s, minutes),                Fixed(Unknown)),
+        ("minus",       |e, s| temporal_minus(e, s),                Difference),
+        ("minutes",     |e, s| args_1(e, s, minutes),                Fixed(Number)),
         ("mod",         |e, s| args_2(e, s, modulo),                 Fixed(Number)),
         ("month",       |e, s| calendar_field(e, s, "month"),        Fixed(Number)),
         ("not",         |e, s| args_1(e, s, not_true),               Fixed(Boolean)),
         ("or",          |e, s| args_v(e, s, build::cmp::or),         Fixed(Boolean)),
-        ("plus",        |e, s| args_2(e, s, add),                    SameAsArg(0)),
+        ("plus",        |e, s| args_2(e, s, add),                    Sum),
         ("pow",         |e, s| args_2(e, s, power),                  Fixed(Number)),
-        ("seconds",     |e, s| args_1(e, s, seconds),                Fixed(Unknown)),
+        ("seconds",     |e, s| args_1(e, s, seconds),                Fixed(Number)),
         ("sqrt",        |e, s| args_1(e, s, sqrt),                   Fixed(Number)),
         ("times",       |e, s| args_2(e, s, multiply),               Fixed(Number)),
         ("trim",        |e, s| args_1(e, s, trim),                   Fixed(Text)),
@@ -353,7 +386,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("xor",         |e, s| args_v(e, s, build::cmp::xor),        Fixed(Boolean)),
         ("year",        |e, s| calendar_field(e, s, "year"),         Fixed(Number)),
         ("year_month",  |e, s| year_month(e, s),                     Fixed(Text)),
-        ("years",       |e, s| args_1(e, s, years),                  Fixed(Unknown)),
+        ("years",       |e, s| args_1(e, s, years),                  Fixed(Number)),
     ];
     templates
         .into_iter()
@@ -390,7 +423,9 @@ fn agg_1(
     // when the path doesn't traverse a to-many relationship. (Within an aggregated `#` path, the CTE
     // that performs the aggregation expands it instead; see `build_cte_select`.)
     let computed_column = resolve_computed_column(&path_parts, scope)?;
-    let ClarifiedPath { head, tail } = clarify_path(path_parts, scope)?;
+    // The path names the value to aggregate, so a foreign key column at its end is that value
+    // (e.g. `author%distinct` counts the distinct values of the `author` column).
+    let ClarifiedPath { head, tail } = clarify_value_path(path_parts, scope)?;
     match tail {
         // Aggregating data that joins many records (e.g. `#issues.created_at%max`). This is handled
         // by building a CTE that performs the aggregation grouped by the linking column.
@@ -416,6 +451,7 @@ fn agg_1(
         // Aggregating a column on the base table or a to-one related table (e.g. `created_at%max`).
         // This produces a direct SQL aggregate expression used in conjunction with `GROUP BY`.
         Some(ClarifiedPathTail::Column(column_name)) => {
+            check_aggregate_ban(scope)?;
             scope.with_window_ban(WindowBan::Aggregate, |scope| {
                 let reference = match computed_column {
                     // A computed column's definition is aggregated in its place, evaluated
@@ -423,7 +459,7 @@ fn agg_1(
                     // reference).
                     Some((head_parts, expr, expansion)) => {
                         let _guard = scope.enter_expansion(expansion)?;
-                        convert_expr_with_path_prefix(expr, head_parts, scope)?
+                        convert_definition(expr, head_parts, scope)?
                     }
                     None => {
                         let table_name = match head {

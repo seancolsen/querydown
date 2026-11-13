@@ -125,6 +125,9 @@ pub enum ValueType {
     Time {
         has_tz: bool,
     },
+    /// A length of time (SQL's `interval`), e.g. a duration literal like `1w`, or the difference
+    /// between two timestamps.
+    Duration,
     Boolean,
     Array(Box<ValueType>),
     Unknown,
@@ -158,6 +161,7 @@ impl ValueType {
             | "timestamp_s"
             | "datetime"
             | "timestamp without time zone" => ValueType::Time { has_tz: false },
+            "interval" => ValueType::Duration,
             "boolean" | "bool" => ValueType::Boolean,
             _ => ValueType::Unknown,
         }
@@ -169,8 +173,8 @@ impl ValueType {
             .unwrap_or(ValueType::Unknown)
     }
 
-    /// Whether this is a temporal type (a date or a timestamp). Durations are not included; they
-    /// have no dedicated value type.
+    /// Whether this is a temporal type (a date or a timestamp): a point in time, as opposed to a
+    /// [`ValueType::Duration`], which is a length of it.
     pub fn is_temporal(&self) -> bool {
         matches!(self, ValueType::Date | ValueType::Time { .. })
     }

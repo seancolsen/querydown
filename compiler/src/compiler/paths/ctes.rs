@@ -1,4 +1,6 @@
-use querydown_parser::ast::{AggregateSortExpr, NullsSort, PathPart, SortDirection, SortExpr};
+use querydown_parser::ast::{
+    AggregateSortExpr, ConditionSet, NullsSort, PathPart, SortDirection, SortExpr,
+};
 
 use crate::{
     compiler::{
@@ -13,12 +15,12 @@ use crate::{
         },
         expr::{convert_condition_set, convert_expr},
         join_tree::make_join_from_link,
-        scope::{Expansion, Scope, WindowBan},
+        scope::{AggregateBan, Expansion, OuterRecord, Scope, WindowBan},
     },
     errors::msg,
     schema::{
         chain::Chain,
-        links::{FilteredLink, Link},
+        links::{FilteredLink, Link, LinkToOne},
         Table, TableId,
     },
     sql::expr::build,
@@ -99,7 +101,10 @@ pub fn render_order_by(order_by: Vec<SortExpr>, scope: &mut Scope) -> Result<Str
     Ok(parts.join(", "))
 }
 
+/// Builds the `SELECT` of the CTE that reaches the related records at the end of `chain`, which
+/// starts from the record that `head` leads to (from `parent_scope`'s base table).
 pub fn build_cte_select(
+    head: &[LinkToOne],
     chain: Chain<FilteredLink>,
     aggregate_expr_template_opt: Option<AggregateExprTemplate>,
     parent_scope: &Scope,
@@ -108,18 +113,30 @@ pub fn build_cte_select(
     let schema = parent_scope.schema;
     let mut links_iter = chain.into_iter();
     let first_link = links_iter.next().unwrap();
+    let start = first_link.get_start();
     let end = first_link.get_end();
     let base_table = schema.tables.get(&end.table_id).unwrap();
     let base_column = base_table.columns.get(&end.column_id).unwrap();
     let mut cte_scope = parent_scope.spawn(base_table);
     // Everything compiled for this CTE lands in its `WHERE` clause or within an aggregate.
     cte_scope.ban_windows(WindowBan::RelatedRecords);
+    // Each of the CTE's rows is related to one record of the starting table (the CTE groups them
+    // by it), which lets an expression about that record be compiled within the CTE.
+    let starting_table = schema.tables.get(&start.table_id).unwrap();
+    cte_scope.set_outer_record(OuterRecord::new(
+        parent_scope,
+        head,
+        starting_table,
+        schema.get_referenced_column_name(&start),
+        base_table.name.clone(),
+        base_column.name.clone(),
+    ));
     let mut select = Select::from(cte_scope.get_base_table().name.clone());
     let pk_expr = cte_scope.table_column_expr(&base_table.name, &base_column.name);
     select.grouping.push(pk_expr.clone());
     let pr_expr_col = Column::new(pk_expr.clone(), Some(CTE_PK_COLUMN_ALIAS.to_owned()));
     select.columns.push(pr_expr_col);
-    select.conditions = convert_condition_set(first_link.condition_set.clone(), &mut cte_scope)?;
+    select.conditions = convert_filter(first_link.condition_set.clone(), &mut cte_scope)?;
     let mut starting_alias = base_table.name.clone();
     let mut ending_table = schema.tables.get(&first_link.get_end().table_id).unwrap();
     for link in links_iter {
@@ -147,7 +164,7 @@ pub fn build_cte_select(
             // `issues` in `#issues.project.#issues{…}`).
             let mut link_scope =
                 cte_scope.spawn_with_aliases(link_table, &ending_alias, cte_scope.cloned_aliases());
-            let converted = convert_condition_set(link.condition_set, &mut link_scope)?;
+            let converted = convert_filter(link.condition_set, &mut link_scope)?;
             select.conditions = cmp::and([select.conditions, converted]);
             // Fold any joins and nested CTEs the filter produced into this CTE's SELECT. Without
             // this, a filter that reaches through another table (a to-one join) or aggregates a
@@ -251,6 +268,14 @@ pub fn build_cte_select(
     })
 }
 
+/// Compiles the filter of one link of a path to related records (the `{…}` of `#comments{…}`),
+/// which becomes part of the CTE's `WHERE` clause.
+fn convert_filter(condition_set: ConditionSet, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    scope.with_aggregate_ban(AggregateBan::RelatedRecordsFilter, |scope| {
+        convert_condition_set(condition_set, scope)
+    })
+}
+
 /// Resolves the value an aggregated `#` path's CTE aggregates: the column `column_name` of the path's
 /// final table, which the CTE's `select` addresses as `alias`.
 ///
@@ -280,7 +305,9 @@ fn aggregated_value(
         column: column_name.to_owned(),
     })?;
     let mut value_scope = cte_scope.spawn_with_aliases(table, alias, cte_scope.cloned_aliases());
-    let value = convert_expr(expr, &mut value_scope)?;
+    // A definition sees the constants, but none of the variables of wherever it's used.
+    let globals = value_scope.globals();
+    let value = value_scope.with_env(globals, |scope| convert_expr(expr, scope))?;
     let (joins, ctes) = value_scope.decompose_join_tree();
     select.joins.extend(joins);
     select.ctes.extend(ctes);

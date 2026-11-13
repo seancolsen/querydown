@@ -35,8 +35,34 @@ pub enum ClarifiedPathTail {
     ChainToMany((Chain<FilteredLink>, Option<String>, TableId)),
 }
 
+/// Resolves a path against the schema, starting from the scope's base table. A path that ends with
+/// a foreign key column is taken to lead to the record that the column refers to.
 pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath, Error> {
-    let linked_path = build_linked_path(parts, scope)?;
+    clarify(parts, FinalForeignKey::IsLink, scope)
+}
+
+/// Like [`clarify_path`], but for a path that names a value to be aggregated (`author%distinct`).
+/// A path that ends with a foreign key column is taken to mean the column itself, since a value is
+/// what an aggregate function needs.
+pub fn clarify_value_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath, Error> {
+    clarify(parts, FinalForeignKey::IsColumn, scope)
+}
+
+/// How to read a foreign key column at the very end of a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FinalForeignKey {
+    /// As a link to the record it refers to, like a foreign key column anywhere else in a path.
+    IsLink,
+    /// As a column holding a value.
+    IsColumn,
+}
+
+fn clarify(
+    parts: Vec<PathPart>,
+    final_foreign_key: FinalForeignKey,
+    scope: &Scope,
+) -> Result<ClarifiedPath, Error> {
+    let linked_path = build_linked_path(parts, final_foreign_key, scope)?;
     let chain_opt = linked_path.chain;
     let column_name_opt = linked_path.column;
     let first_to_many_end_table_id = linked_path.first_to_many_end_table_id;
@@ -98,7 +124,8 @@ pub fn clarify_path(parts: Vec<PathPart>, scope: &Scope) -> Result<ClarifiedPath
 /// don't affect the result (such as the letter case of identifiers, when the compiler is configured
 /// to ignore it) don't prevent a match.
 pub fn paths_resolve_alike(a: Vec<PathPart>, b: Vec<PathPart>, scope: &Scope) -> bool {
-    let (Ok(a), Ok(b)) = (build_linked_path(a, scope), build_linked_path(b, scope)) else {
+    let build = |parts| build_linked_path(parts, FinalForeignKey::IsLink, scope);
+    let (Ok(a), Ok(b)) = (build(a), build(b)) else {
         return false;
     };
     type LinkKey = (Reference, Reference, ConditionSet);
@@ -126,12 +153,18 @@ struct LinkedPath {
 }
 
 /// Resolves `parts` against the schema. An error about one of the parts is located at it.
-fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, Error> {
+fn build_linked_path(
+    parts: Vec<PathPart>,
+    final_foreign_key: FinalForeignKey,
+    scope: &Scope,
+) -> Result<LinkedPath, Error> {
     let mut current_table_opt: Option<&Table> = Some(scope.get_base_table());
     let mut chain_opt: Option<Chain<FilteredLink>> = None;
     let mut final_column_name: Option<String> = None;
     let mut first_to_many_end_table_id: Option<TableId> = None;
-    for PathPart { kind, loc } in parts {
+    let part_count = parts.len();
+    for (index, PathPart { kind, loc }) in parts.into_iter().enumerate() {
+        let is_final = index + 1 == part_count;
         let current_table = current_table_opt.ok_or_else(|| msg::no_current_table().at(loc))?;
         match kind {
             PathPartKind::Column(column_name) => {
@@ -155,7 +188,12 @@ fn build_linked_path(parts: Vec<PathPart>, scope: &Scope) -> Result<LinkedPath, 
                     final_column_name = Some(column_name);
                     continue;
                 };
-                if let Some(link) = current_table.forward_links_to_one.get(&column_id).copied() {
+                let link = current_table
+                    .forward_links_to_one
+                    .get(&column_id)
+                    .copied()
+                    .filter(|_| !(is_final && final_foreign_key == FinalForeignKey::IsColumn));
+                if let Some(link) = link {
                     current_table_opt = scope.schema.tables.get(&link.get_end().table_id);
                     let link = FilteredLink {
                         link: MultiLink::ForwardLinkToOne(link),
@@ -224,6 +262,11 @@ fn get_chain_to_table_with_many(
     scope: &Scope,
 ) -> Result<Chain<FilteredLink>, Error> {
     let schema = scope.schema;
+    // The result of an earlier pipeline stage, or a user-defined table, isn't part of the schema,
+    // so nothing is related to it.
+    if !schema.tables.contains_key(&start.id) {
+        return Err(msg::no_relationships_from_derived_table(&target.table));
+    }
     let target_table = scope
         .get_table_by_name(&target.table)
         .ok_or_else(|| msg::table_not_found(&target.table))?;
@@ -323,7 +366,7 @@ fn ambiguous_route_error(
         && routes
             .iter()
             .all(|route| route_up_to_final_link(route) == first_route);
-    let column_names: Vec<String> = if differ_only_in_final_link {
+    let mut column_names: Vec<String> = if differ_only_in_final_link {
         routes
             .iter()
             .map(|route| {
@@ -335,5 +378,7 @@ fn ambiguous_route_error(
     } else {
         vec![]
     };
+    // The routes are found in the order of the schema's hash maps, which varies from run to run.
+    column_names.sort();
     msg::ambiguous_path_to_table(&start.name, &target.table, &column_names)
 }

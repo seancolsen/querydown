@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     schema::{
         chain::Chain,
@@ -16,7 +14,10 @@ use super::{constants::CTE_PK_COLUMN_ALIAS, scope::Scope};
 #[derive(Debug)]
 pub struct JoinTree {
     alias: String,
-    dependents: HashMap<LinkToOne, JoinTree>,
+    /// The tables joined to this one, each via a to-one link, in the order in which the query first
+    /// referred to them. That is the order their joins are rendered in, so it must not depend on
+    /// anything but the query (as the iteration order of a hash map would).
+    dependents: Vec<(LinkToOne, JoinTree)>,
     ctes: Vec<Cte>,
 }
 
@@ -24,7 +25,7 @@ impl JoinTree {
     pub fn new(alias: String) -> Self {
         Self {
             alias,
-            dependents: HashMap::new(),
+            dependents: Vec::new(),
             ctes: Vec::new(),
         }
     }
@@ -33,7 +34,12 @@ impl JoinTree {
         &self.alias
     }
 
-    pub fn take_dependents(&mut self) -> HashMap<LinkToOne, JoinTree> {
+    /// Whether nothing has been joined to this tree's table.
+    pub fn is_empty(&self) -> bool {
+        self.dependents.is_empty() && self.ctes.is_empty()
+    }
+
+    pub fn take_dependents(&mut self) -> Vec<(LinkToOne, JoinTree)> {
         std::mem::take(&mut self.dependents)
     }
 
@@ -52,7 +58,11 @@ impl JoinTree {
             return self.alias.clone();
         };
         let (next_link, remainder_chain_opt) = chain_to_one.with_first_link_broken_off();
-        let subtree_opt = self.dependents.get_mut(next_link);
+        let subtree_opt = self
+            .dependents
+            .iter_mut()
+            .find(|(link, _)| link == next_link)
+            .map(|(_, subtree)| subtree);
         match (subtree_opt, remainder_chain_opt) {
             // We have one more new link to add to the tree and then we're done. We add an empty
             // subtree and return its alias.
@@ -60,7 +70,7 @@ impl JoinTree {
                 let alias = get_alias(next_link);
                 let mut subtree = JoinTree::new(alias.clone());
                 subtree.ctes.extend(cte_to_add);
-                self.dependents.insert(*next_link, subtree);
+                self.dependents.push((*next_link, subtree));
                 alias
             }
 
@@ -68,7 +78,7 @@ impl JoinTree {
             // the alias of its furthest child.
             (None, Some(remainder_chain)) => {
                 let mut alias_of_furthest_subtree = String::new();
-                let mut dependents = HashMap::<LinkToOne, JoinTree>::new();
+                let mut dependents = Vec::<(LinkToOne, JoinTree)>::new();
                 let links = remainder_chain.get_links().to_vec();
                 for (index, link) in links.into_iter().rev().enumerate() {
                     let alias = get_alias(&link);
@@ -86,14 +96,14 @@ impl JoinTree {
                         // for `alias_of_furthest_subtree`.
                         subtree.ctes.push(cte);
                     }
-                    dependents.insert(link, subtree);
+                    dependents.push((link, subtree));
                 }
                 let subtree = JoinTree {
                     alias: get_alias(next_link),
                     dependents,
                     ctes: Vec::new(),
                 };
-                self.dependents.insert(*next_link, subtree);
+                self.dependents.push((*next_link, subtree));
                 alias_of_furthest_subtree
             }
 

@@ -7015,9 +7015,70 @@ WHERE
   "issues"."title" ~* '(?p)open';
 ```
 
-## Combinations: comparisons
+### Subtraction and division with a parenthesized right operand
 
-These cases combine comparison operators, expansion, ranges, negation, condition sets, and the default text search with one another.
+> A right operand that binds as tightly as its operator keeps its parentheses: `id - (id + 1)` isn't `id - id + 1`
+
+```qd
+#issues $id - (id + 1) $id / (id * 2) $id - (id - 1) $id / (id / 2)
+```
+
+```sql
+SELECT
+  "issues"."id" - ("issues"."id" + 1),
+  "issues"."id" / ("issues"."id" * 2),
+  "issues"."id" - ("issues"."id" - 1),
+  "issues"."id" / ("issues"."id" / 2)
+FROM "issues";
+```
+
+### Subtraction, division, and modulo functions with a computed argument
+
+> The `minus`, `divide`, and `mod` functions parenthesize a computed second argument, just as the operators do
+
+```qd
+#issues $id|minus(id - 1) $id|divide(id|times(2)) $id|mod(id|times(2))
+```
+
+```sql
+SELECT
+  "issues"."id" - ("issues"."id" - 1),
+  "issues"."id" / ("issues"."id" * 2),
+  "issues"."id" % ("issues"."id" * 2)
+FROM "issues";
+```
+
+### Addition and multiplication with a parenthesized right operand
+
+> The parentheses are kept here too. They're redundant for numbers, but not always: SQL can add two durations to a date, but not a date to a date
+
+```qd
+#issues $id + (id + 1) $id * (id * 2) $created_at + (1w + 1d)
+```
+
+```sql
+SELECT
+  "issues"."id" + ("issues"."id" + 1),
+  "issues"."id" * ("issues"."id" * 2),
+  "issues"."created_at" + (make_interval(weeks => 1) + make_interval(days => 1))
+FROM "issues";
+```
+
+### Hash function within arithmetic
+
+> `unit_hash` compiles to a division, so it's parenthesized as the right operand of another
+
+```qd
+#users $1 / username|unit_hash $username|unit_hash * 2 $username|unit_hash|times(100)|floor
+```
+
+```sql
+SELECT
+  1 / ((CAST(hashtext("users"."username") AS DOUBLE PRECISION) + 2147483648) / 4294967295.0),
+  (CAST(hashtext("users"."username") AS DOUBLE PRECISION) + 2147483648) / 4294967295.0 * 2,
+  FLOOR((CAST(hashtext("users"."username") AS DOUBLE PRECISION) + 2147483648) / 4294967295.0 * 100)
+FROM "users";
+```
 
 ### Bare words at depth within a function on the right-hand side
 
@@ -8037,6 +8098,197 @@ WHERE
   "issues"."qdwin1" <= 3 AND
   ("issues"."qdwin2" = 1) IS NOT TRUE AND
   ("issues"."qdwin3" = 1 OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE));
+```
+
+### Date arithmetic compared with a duration
+
+> Issues created about a week ago, give or take a day: the date measured from now is the creation date plus a week, which is parenthesized within the subtraction
+
+```qd
+#issues created_at|plus(1w):<1d $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - ("issues"."created_at" + make_interval(weeks => 1)))) < EXTRACT(epoch FROM make_interval(days => 1));
+```
+
+### Comparisons as the operands of a comparison
+
+> Projects whose two flags are both true or both not: SQL can't chain comparison operators, so each operand that is itself a comparison is parenthesized
+
+```qd
+#projects (is_active:@true):(is_pro_bono:@true) $id
+```
+
+```sql
+SELECT
+  "projects"."id"
+FROM "projects"
+WHERE
+  ("projects"."is_active" = TRUE) = ("projects"."is_pro_bono" = TRUE);
+```
+
+### Difference of two dates compared with a duration
+
+> Issues that were given more than a week: the difference of two dates is a duration, so it's compared with the duration directly, rather than being measured from now as a date would be
+
+```qd
+#issues due_date - created_at:>1w $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."due_date" - "issues"."created_at" > make_interval(weeks => 1);
+```
+
+### Bare words as the bounds of a range
+
+> Issues whose title sorts between "a" and "m": a bare word is a string literal anywhere on the right-hand side, the bounds of a range included
+
+```qd
+#issues title:a..m $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" >= 'a' AND
+  "issues"."title" <= 'm';
+```
+
+### Null check of a comparison
+
+> Projects for which it isn't known whether they're active: the comparison is parenthesized within `IS NULL`
+
+```qd
+#projects (is_active:@true):@null !(is_pro_bono:@false):@null $id
+```
+
+```sql
+SELECT
+  "projects"."id"
+FROM "projects"
+WHERE
+  ("projects"."is_active" = TRUE) IS NULL AND
+  NOT ("projects"."is_pro_bono" = FALSE) IS NULL;
+```
+
+### Range of bare words with exclusive bounds, alongside a to-one path
+
+> The `..` of a range doesn't make its bounds into paths, whereas `author.username` is one
+
+```qd
+#issues title:a<..<m status:open..reopened description:author.username $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  "issues"."title" > 'a' AND
+  "issues"."title" < 'm' AND
+  "issues"."status" >= 'open' AND
+  "issues"."status" <= 'reopened' AND
+  COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower("users"."username" COLLATE "C")) > 0, FALSE);
+```
+
+### Date compared with a computed duration
+
+> A duration needn't be a literal: issues created within eight days, or due within twice the time since they were created
+
+```qd
+#issues created_at:<1w + 1d due_date:<(@now - `created_at`) * 2 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1) + make_interval(days => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM (NOW() - "issues"."created_at") * 2);
+```
+
+### Date compared with the result of a duration function
+
+> Users last seen within as long as they've been alive: `age` is a duration, so the comparison measures `last_seen` from now
+
+```qd
+#users last_seen:<`birth_date`|age $id
+```
+
+```sql
+SELECT
+  "users"."id"
+FROM "users"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "users"."last_seen")) < EXTRACT(epoch FROM NOW() - "users"."birth_date");
+```
+
+### Difference of two dates as a result column, a sort, and a function argument
+
+> The difference is a duration wherever it appears, so `minus` isn't measured from now either
+
+```qd
+#issues due_date|minus(created_at):>1w \\due_date - created_at \d $(due_date - created_at)|days|floor
+```
+
+```sql
+SELECT
+  FLOOR(EXTRACT(epoch FROM "issues"."due_date" - "issues"."created_at") / 86400)
+FROM "issues"
+WHERE
+  "issues"."due_date" - "issues"."created_at" > make_interval(weeks => 1)
+ORDER BY
+  "issues"."due_date" - "issues"."created_at" DESC NULLS LAST;
+```
+
+### Difference of two plain dates compared with a number
+
+```toml options
+schema = "library"
+```
+
+> Subtracting one plain date from another gives a number of days, in both databases
+
+```qd
+#checkouts due_date - due_date:<3 $id
+```
+
+```sql
+SELECT
+  "Checkouts"."id"
+FROM "Checkouts"
+WHERE
+  "Checkouts"."Due Date" - "Checkouts"."Due Date" < 3;
+```
+
+### Comma after a comparison
+
+> The comma separates whole conditions: issues whose status contains "open", or which mention "closed" anywhere. (To compare one column with several values, use an expansion.)
+
+```qd
+#issues status:open,closed $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('closed' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('closed' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('closed' COLLATE "C")) > 0, FALSE));
 ```
 
 ## Combinations: result columns, sorting, and grouping
@@ -9109,6 +9361,85 @@ FROM "issues";
     }
   ]
 }
+```
+
+### Aggregate of a foreign key column in a grouped query
+
+> For each status, the number of distinct authors: a foreign key column at the end of an aggregated path is the value to aggregate, rather than a link to follow
+
+```qd
+#issues $status \g $author%distinct
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(DISTINCT "issues"."author")
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Count of related records as a grouping column
+
+> The number of issues having each number of comments: a count of related records can be grouped by
+
+```qd
+#issues $#comments -> comments \g $%count \sd
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  COALESCE("cte0"."v1", 0) AS "comments",
+  count(*)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+GROUP BY COALESCE("cte0"."v1", 0)
+ORDER BY
+  count(*) DESC NULLS LAST;
+```
+
+### Standalone sort by a grouping expression that is a function result
+
+> A standalone sort that matches a grouping column is valid in a grouped query, even when the column is computed
+
+```qd
+#issues \\created_at|year \d $created_at|year \g $%count
+```
+
+```sql
+SELECT
+  CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER),
+  count(*)
+FROM "issues"
+GROUP BY CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER)
+ORDER BY
+  CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) DESC NULLS LAST;
+```
+
+### List and maximum of a foreign key column in a grouped query
+
+> For each project, the ids of its issues' authors and the greatest of them
+
+```qd
+#issues $project \g $author%list(\s) $author%max
+```
+
+```sql
+SELECT
+  "issues"."project",
+  array_agg(DISTINCT "issues"."author" ORDER BY "issues"."author" ASC NULLS LAST),
+  max("issues"."author")
+FROM "issues"
+GROUP BY "issues"."project";
 ```
 
 ## Combinations: related records
@@ -10399,6 +10730,84 @@ LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
 WHERE
   "cte0"."pk" IS NOT NULL;
+```
+
+### Aggregate of a foreign key column of related records
+
+> For each issue, the number of distinct users who commented on it: the same, at the end of a to-many path
+
+```qd
+#issues $id $#comments.user%distinct
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(DISTINCT "comments"."user") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### List and count of a foreign key column of related records
+
+> For each issue, the ids of the users assigned to it, and the number of comments that have a user
+
+```qd
+#issues $id $#assignments.user%list(\s) $#comments.user%count
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "assignments"."issue" AS "pk",
+      array_agg(DISTINCT "assignments"."user" ORDER BY "assignments"."user" ASC NULLS LAST) AS "v1"
+    FROM "assignments"
+    GROUP BY "assignments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count("comments"."user") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1",
+  COALESCE("cte1"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk";
+```
+
+### Foreign key column aggregated after a to-one hop
+
+> For each status, the number of distinct teams among the issues' authors: the path ends with a foreign key column of the linked table
+
+```qd
+#issues $status \g $author.team%distinct
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(DISTINCT "users"."team")
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+GROUP BY "issues"."status";
 ```
 
 ## Combinations: definitions
@@ -11815,6 +12224,800 @@ WHERE
   lower("products"."name" COLLATE "C") = lower('acme' COLLATE "C");
 ```
 
+### Constant and computed column holding arithmetic, as a right operand
+
+> An inlined constant or computed column that holds arithmetic is parenthesized where it's the right operand of an operator that binds as tightly
+
+```qd
+@a = 1 + 2
+#issues.next = id + 1
+#issues $id - @a $id - next
+```
+
+```sql
+SELECT
+  "issues"."id" - (1 + 2),
+  "issues"."id" - ("issues"."id" + 1)
+FROM "issues";
+```
+
+### Function bodies holding arithmetic, as a right operand
+
+> The inlined body of a user-defined function or of an anonymous function is parenthesized likewise
+
+```qd
+@@inc = @x => @x + 1
+#issues $1 - @@inc(id) $10 - id|(@x => @x - 1)
+```
+
+```sql
+SELECT
+  1 - ("issues"."id" + 1),
+  10 - ("issues"."id" - 1)
+FROM "issues";
+```
+
+### Duration constant compared with a date
+
+> Issues created within the past week: a duration held by a constant is still a duration, so comparing a date with it measures the date from now
+
+```qd
+@recent = 1w
+#issues created_at:<@recent $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Duration passed to a user-defined function and to a custom comparison
+
+> A duration bound to a function's parameter or to a custom comparison's parameter is still a duration too
+
+```qd
+@@within = @d @span => @d:<@span
+#issues.older_than:@x = created_at:>@x
+#issues due_date|within(1w) older_than:6m $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) > EXTRACT(epoch FROM make_interval(months => 6));
+```
+
+### Null constant in a match comparison
+
+> Issues with no title but with a status: `@null` held by a constant still compiles to `IS NULL`
+
+```qd
+@none = @null
+#issues title:@none !status:@none $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" IS NULL AND
+  NOT "issues"."status" IS NULL;
+```
+
+### Null passed to a linked record comparison and to a custom comparison
+
+> `@null` passed to a custom comparison reaches the comparisons in its body as `@null`, so `author:@null` finds issues whose author has no username (among them, issues with no author)
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues.comment:@x = ++#comments{body:@x}
+#issues author:@null comment:@null $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      "comments"."body" IS NULL
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  "users"."username" IS NULL AND
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Empty string constant in a match comparison
+
+> Issues with an empty description: matching against an empty string held by a constant is strict equality, as it is for a literal `""`
+
+```qd
+@empty = ""
+#issues description:@empty $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."description" = '';
+```
+
+### Left expansion over a custom comparison
+
+> Issues with "foo" in a comment or in the title: an entry of a left-hand expansion can name a custom comparison
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues [comment title]:foo $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  ("cte0"."pk" IS NOT NULL OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE));
+```
+
+### Left expansion over linked records
+
+> Issues with "alice" as the author's username or in the title: an entry of a left-hand expansion that names a linked record uses the linked record comparison
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues [author title]:alice $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  (COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE));
+```
+
+### User-defined function applied to its own result
+
+> A user-defined function can be applied to a value that itself contains a call to the same function, which isn't recursion
+
+```qd
+@@inc = @x => @x + 1
+#issues $id|inc|inc $@@inc(@@inc(id))
+```
+
+```sql
+SELECT
+  "issues"."id" + 1 + 1,
+  "issues"."id" + 1 + 1
+FROM "issues";
+```
+
+### Constant used by another constant, shadowed by a function parameter
+
+> A constant means what it meant where it was defined: `@b` is `@a * 2` with `@a = 1`, even within a function whose parameter is also named `@a`
+
+```qd
+@a = 1
+@b = @a * 2
+#issues $id|(@a => @a + @b)
+```
+
+```sql
+SELECT
+  "issues"."id" + 1 * 2
+FROM "issues";
+```
+
+### Function argument that references a column, used within a filter of related records
+
+> Issues that their own author has commented on: the argument `author` is a column of the issue, even though the function uses it within a filter on `#comments`, so the issue is joined into the CTE that finds the comments
+
+```qd
+@@has_comment_by = @u => ++#comments{user:@u}
+#issues author|has_comment_by $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      "comments"."user" = "issues"."author"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison argument that references a column
+
+> Issues having a comment that mentions the issue's own title: the same, with a custom comparison
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues comment:`title` $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower("issues"."title" COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Constant holding a search term
+
+> A constant bound to a string is a search term when it stands alone as a condition, negated or not
+
+```qd
+@term = "foo"
+@other = @term
+#issues @term !@other $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)) AND
+  NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE));
+```
+
+### Zero constant compared with a count of related records
+
+> Issues with no comments: zero held by a constant still makes the comparison a has-none condition
+
+```qd
+@none = 0
+#issues #comments:@none $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NULL;
+```
+
+### Duration constant scaled and compared with a date
+
+> Issues due within twice the grace period
+
+```qd
+@grace = 1w
+#issues due_date:<@grace * 2 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(weeks => 1) * 2);
+```
+
+### Regex pattern passed through a function parameter and a constant
+
+> A pattern that arrives through variables is still merged with the flags at compile time
+
+```qd
+@pattern = '^fix'
+@@titled = @t @p => @t:\m~@p
+#issues title|titled(@pattern) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" ~* '(?n)^fix';
+```
+
+### Argument that is a constant of the same name as the parameter
+
+> The argument `@x` is the constant, and the `@x` within the function's body is the parameter
+
+```qd
+@x = 5
+#issues $@x|(@x => @x + 1) $id|(@x => @x * 2)
+```
+
+```sql
+SELECT
+  5 + 1,
+  "issues"."id" * 2
+FROM "issues";
+```
+
+### Named function called within an anonymous function
+
+> The body of a named function sees the constants, the anonymous function's body sees its own parameter and the constants
+
+```qd
+@step = 10
+@@bump = @n => @n + @step
+#issues $id|(@n => @n|bump * @step)
+```
+
+```sql
+SELECT
+  ("issues"."id" + 10) * 10
+FROM "issues";
+```
+
+### Argument that references a column, used within a filter through a join table
+
+> Issues having a label whose name appears in the issue's own title: the issue is joined to the row of the join table
+
+```qd
+#issues.labelled:@x = ++#labels{name:@x}
+#issues !labelled:`title` $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    LEFT JOIN "issues" ON
+      "issue_labels"."issue" = "issues"."id"
+    WHERE
+      COALESCE(strpos(lower("labels"."name" COLLATE "C"), lower("issues"."title" COLLATE "C")) > 0, FALSE)
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  NOT "cte0"."pk" IS NOT NULL;
+```
+
+### Argument that references a column of a self-referencing table
+
+> Issues having a duplicate with a different status: within the filter, `status` is the duplicate's, and the argument is the original's, which is joined under an alias of its own
+
+```qd
+@@has_duplicate_unlike = @s => ++#issues{!status:=@s}
+#issues status|has_duplicate_unlike $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."duplicate_of" AS "pk"
+    FROM "issues"
+    LEFT JOIN "issues" AS "issues_1" ON
+      "issues"."duplicate_of" = "issues_1"."id"
+    WHERE
+      (lower("issues"."status" COLLATE "C") = lower("issues_1"."status" COLLATE "C")) IS NOT TRUE
+    GROUP BY "issues"."duplicate_of"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Argument computed from the record, used within a filter of related records
+
+> Issues having a comment longer than the issue's own description
+
+```qd
+@@has_comment_longer_than = @n => ++#comments{body|length:>@n}
+#issues description|length|has_comment_longer_than $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      char_length("comments"."body") > char_length("issues"."description")
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Argument that counts related records, used within a filter of related records
+
+> Projects having an issue with more comments than the project has issues: the count of the project's issues is computed within the CTE that the project is joined into
+
+```qd
+#projects #issues|(@n => ++#issues{#comments:>@n}) $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          count(*) AS "v1"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      ),
+      "cte1" AS (
+        SELECT
+          "issues"."project" AS "pk",
+          count(*) AS "v1"
+        FROM "issues"
+        GROUP BY "issues"."project"
+      )
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    LEFT JOIN "projects" ON
+      "issues"."project" = "projects"."id"
+    LEFT JOIN "cte1" ON
+      "projects"."id" = "cte1"."pk"
+    WHERE
+      COALESCE("cte0"."v1", 0) > COALESCE("cte1"."v1", 0)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."id"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Argument that follows a to-one path, used within a filter of related records
+
+> Issues having a comment by a teammate of the issue's author
+
+```qd
+@@has_comment_from_team = @t => ++#comments{user.team:@t}
+#issues author.team|has_comment_from_team $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    LEFT JOIN "users" AS "users_1" ON
+      "issues"."author" = "users_1"."id"
+    WHERE
+      "users"."team" = "users_1"."team"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Assignment evaluated where the function is called, used within a filter
+
+> Issues with a comment made in the week before they were due: the local `@cutoff` is computed from the issue, not from the comment
+
+```qd
+@@commented_shortly_before = @d =>
+  @cutoff = @d - 1w
+  ++#comments{created_at:@cutoff..@d}
+#issues due_date|commented_shortly_before $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      "comments"."created_at" >= "issues"."due_date" - make_interval(weeks => 1) AND
+      "comments"."created_at" <= "issues"."due_date"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Literal arguments used within nested filters of related records
+
+> A value that doesn't refer to its record needs no join, however deep it's used
+
+```qd
+@@has_issue_with_comment = @text @since => ++#issues{++#comments{body:@text created_at:>@since}}
+#projects "urgent"|has_issue_with_comment(@2024-01-01) $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk"
+        FROM "comments"
+        WHERE
+          COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('urgent' COLLATE "C")) > 0, FALSE) AND
+          "comments"."created_at" > DATE '2024-01-01'
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    WHERE
+      "cte0"."pk" IS NOT NULL
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."id"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Linked record comparison called with a column
+
+> Issues whose author's username appears in the title: the argument is a column of the issue, not of the author that the comparison's body is evaluated against
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues `title`|(@t => author:@t) author:`description` $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  COALESCE(strpos(lower("users"."username" COLLATE "C"), lower("issues"."title" COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower("users"."username" COLLATE "C"), lower("issues"."description" COLLATE "C")) > 0, FALSE);
+```
+
+### Custom comparison within a scope, called with a column of the scoped record
+
+> Issues whose author has written a comment containing their own username: within the scope, the argument is a column of the author, which is the record the comments are related to
+
+```qd
+#users.wrote:@x = ++#comments{body:@x}
+#issues author{wrote:`username`} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower("users"."username" COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Parameter used within a scope
+
+> Comments made by the author of their issue: the argument is a column of the comment's user, even where the function's body uses it within the scope of the issue
+
+```qd
+#comments `user`.username|(@u => issue{author.username:=@u}) $id
+```
+
+```sql
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "users" AS "users_1" ON
+  "comments"."user" = "users_1"."id"
+WHERE
+  lower("users"."username" COLLATE "C") = lower("users_1"."username" COLLATE "C");
+```
+
+### Left expansion over a custom comparison with a right expansion, negated
+
+> Issues that don't have "foo" or "bar" in a comment or in the title: the left expansion is the outer one
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues ![comment title]:[foo bar] $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  NOT ("cte0"."pk" IS NOT NULL OR "cte1"."pk" IS NOT NULL OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE));
+```
+
+### Left expansion over a custom comparison and a linked record, with a switched operator
+
+> Issues for which a comment, the author, or the title is exactly "alice"
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues [comment author title]:=alice $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      lower("comments"."body" COLLATE "C") = lower('alice' COLLATE "C")
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  ("cte0"."pk" IS NOT NULL OR lower("users"."username" COLLATE "C") = lower('alice' COLLATE "C") OR lower("issues"."title" COLLATE "C") = lower('alice' COLLATE "C"));
+```
+
+### Computed column unaffected by the parameters around it
+
+> A computed column's definition sees the constants, not the parameters of a function that happens to use it
+
+```qd
+@k = 2
+#issues.scaled = id * @k
+@@plus_scaled = @k => @k + scaled
+#issues $id|plus_scaled
+```
+
+```sql
+SELECT
+  "issues"."id" + "issues"."id" * 2
+FROM "issues";
+```
+
 ## Combinations: pipelines, unions, and user-defined tables
 
 These cases combine `~~~`, `+++`, and `#name = #( )` with one another and with the rest of the language.
@@ -12968,6 +14171,183 @@ WHERE
 LIMIT 3;
 ```
 
+### Date column of an earlier stage compared with a duration
+
+> A stage's date columns keep their types, so the comparison still measures the date from now
+
+```qd
+#issues $id $created_at $due_date|plus(1d) -> deadline
+~~~
+created_at:<1w deadline:>1m $id
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."created_at" AS "created_at",
+      "issues"."due_date" + make_interval(days => 1) AS "deadline"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id"
+FROM "pipe0"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "pipe0"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "pipe0"."deadline")) > EXTRACT(epoch FROM make_interval(months => 1));
+```
+
+### Duration column of an earlier stage compared with a duration
+
+> A stage's duration columns keep their types too, so this is a plain comparison of two durations
+
+```qd
+#issues $id $due_date|countdown -> remaining $due_date - created_at -> allowed
+~~~
+remaining:<1w allowed:>1m $id
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."due_date" - NOW() AS "remaining",
+      "issues"."due_date" - "issues"."created_at" AS "allowed"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id"
+FROM "pipe0"
+WHERE
+  "pipe0"."remaining" < make_interval(weeks => 1) AND
+  "pipe0"."allowed" > make_interval(months => 1);
+```
+
+### Date column of a user-defined table compared with a duration
+
+> The columns of a user-defined table are typed in the same way
+
+```qd
+#recent = #( #issues created_at:<1y $id $created_at $status )
+#recent created_at:<1w status:open $id
+```
+
+```sql
+WITH
+  "recent" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."created_at" AS "created_at",
+      "issues"."status" AS "status"
+    FROM "issues"
+    WHERE
+      ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(years => 1))
+  )
+SELECT
+  "recent"."id"
+FROM "recent"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "recent"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  "recent"."status" = 'open';
+```
+
+### Date column of a union compared with a duration
+
+> A union's column keeps its type when every member's column has that type. As in any later stage, a text column is untyped, and so compared exactly
+
+```qd
+#issues $id $created_at $title
++++
+#comments $id $created_at $body -> other
+~~~
+created_at:<1w other:x $id
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."created_at" AS "created_at",
+      "issues"."title" AS "other"
+    FROM "issues"
+    UNION ALL
+    SELECT
+      "comments"."id",
+      "comments"."created_at",
+      "comments"."body" AS "other"
+    FROM "comments"
+  )
+SELECT
+  "pipe0"."id"
+FROM "pipe0"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "pipe0"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  "pipe0"."other" = 'x';
+```
+
+### Union of a naive and a zoned timestamp compared with a duration
+
+> A union of timestamps is a timestamp, even when only some of them are zoned
+
+```qd
+#issues $id $created_at
++++
+#users $id $last_seen -> seen
+~~~
+seen:<1w $id
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."created_at" AS "seen"
+    FROM "issues"
+    UNION ALL
+    SELECT
+      "users"."id",
+      "users"."last_seen" AS "seen"
+    FROM "users"
+  )
+SELECT
+  "pipe0"."id"
+FROM "pipe0"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "pipe0"."seen")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Aggregated date of an earlier stage compared with a duration
+
+> Statuses whose most recent issue was created within the past week. (A condition can't use the aggregate in the stage that computes it.)
+
+```qd
+#issues $status \g $created_at%max -> latest $%count -> n
+~~~
+latest:<1w n:>5 $status
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."status" AS "status",
+      max("issues"."created_at") AS "latest",
+      count(*) AS "n"
+    FROM "issues"
+    GROUP BY "issues"."status"
+  )
+SELECT
+  "pipe0"."status"
+FROM "pipe0"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "pipe0"."latest")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  "pipe0"."n" > 5;
+```
+
 ## Combinations: window functions
 
 These cases combine window definitions, window function arguments, and window conditions with the rest of the language.
@@ -13693,6 +15073,793 @@ SELECT
   "issues"."id",
   row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) = 1
 FROM "issues";
+```
+
+### Search term before a window condition
+
+> The most recent issue in each project, among those matching "foo": a search term may be followed by a window condition, since `%%` begins a new condition rather than piping the term to an aggregate
+
+```qd
+#issues foo %%(project\p created_at\sd)%row_number:1 $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    WHERE
+      (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE))
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Negated and quoted search terms before a window condition
+
+> Each search term is its own condition, and so is the window condition that follows
+
+```qd
+#issues !foo "bar" %%(project\p)%count:>1 $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      count(*) OVER (PARTITION BY "issues"."project") AS "qdwin0"
+    FROM "issues"
+    WHERE
+      NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)) AND
+      (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE))
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" > 1;
+```
+
+## Combinations: several to-one paths from one table
+
+These cases follow two or more to-one links out of the same table, in combination with the rest of the language. The joins to the linked tables are rendered in the order in which the query first refers to them: conditions, then standalone sorting, then result columns.
+
+### Result columns through two links
+
+> Each issue's author and project
+
+```qd
+#issues $id $author.username $project.name
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "users"."username",
+  "projects"."name"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id";
+```
+
+### Conditions through two links and a result column through a third
+
+> The original of each duplicate issue that alice opened in the website project
+
+```qd
+#issues author.username:=alice project.name:=website $duplicate_of.title
+```
+
+```sql
+SELECT
+  "issues_1"."title"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues"."duplicate_of" = "issues_1"."id"
+WHERE
+  lower("users"."username" COLLATE "C") = lower('alice' COLLATE "C") AND
+  lower("projects"."name" COLLATE "C") = lower('website' COLLATE "C");
+```
+
+### Joins ordered by first use
+
+> The project is joined before the author, because a condition refers to it before any result column is compiled
+
+```qd
+#issues project.name:website $author.username $project.name
+```
+
+```sql
+SELECT
+  "users"."username",
+  "projects"."name"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  COALESCE(strpos(lower("projects"."name" COLLATE "C"), lower('website' COLLATE "C")) > 0, FALSE);
+```
+
+### Scoped comparisons on two links
+
+> Comments by bar on issues about foo
+
+```qd
+#comments issue{title:foo} user{username:=bar} $id
+```
+
+```sql
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "users" ON
+  "comments"."user" = "users"."id"
+WHERE
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  lower("users"."username" COLLATE "C") = lower('bar' COLLATE "C");
+```
+
+### Globs on two links, one of them a self-reference
+
+> Every column of each issue's author and of the issue it duplicates
+
+```qd
+#issues $author.* $duplicate_of.*
+```
+
+```sql
+SELECT
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen",
+  "issues_1"."id",
+  "issues_1"."title",
+  "issues_1"."description",
+  "issues_1"."created_at",
+  "issues_1"."author",
+  "issues_1"."status",
+  "issues_1"."project",
+  "issues_1"."duplicate_of",
+  "issues_1"."due_date"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues"."duplicate_of" = "issues_1"."id";
+```
+
+### Two links that each lead further
+
+> The joins form a tree: the author's team, and the project's product and its client
+
+```qd
+#issues $author.team.name $project.product.name $author.username $project.product.client.name
+```
+
+```sql
+SELECT
+  "teams"."name",
+  "products"."name",
+  "users"."username",
+  "clients"."name"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "products" ON
+  "projects"."product" = "products"."id"
+LEFT JOIN "clients" ON
+  "products"."client" = "clients"."id";
+```
+
+### Two links to the same table
+
+> Each link is aliased by its column, since the table's name wouldn't tell them apart
+
+```qd
+#blocks $blocker.title $blocking.title
+```
+
+```sql
+SELECT
+  "blocker"."title",
+  "blocking"."title"
+FROM "blocks"
+LEFT JOIN "issues" AS "blocker" ON
+  "blocks"."blocker" = "blocker"."id"
+LEFT JOIN "issues" AS "blocking" ON
+  "blocks"."blocking" = "blocking"."id";
+```
+
+### Two links to the same table, each leading further
+
+> Blocks in which an issue opened by alice blocks an issue of the website project
+
+```qd
+#blocks blocker.author.username:=alice blocking.project.name:=website $id $blocker.project.name
+```
+
+```sql
+SELECT
+  "blocks"."id",
+  "projects_1"."name"
+FROM "blocks"
+LEFT JOIN "issues" AS "blocker" ON
+  "blocks"."blocker" = "blocker"."id"
+LEFT JOIN "users" ON
+  "blocker"."author" = "users"."id"
+LEFT JOIN "projects" AS "projects_1" ON
+  "blocker"."project" = "projects_1"."id"
+LEFT JOIN "issues" AS "blocking" ON
+  "blocks"."blocking" = "blocking"."id"
+LEFT JOIN "projects" ON
+  "blocking"."project" = "projects"."id"
+WHERE
+  lower("users"."username" COLLATE "C") = lower('alice' COLLATE "C") AND
+  lower("projects"."name" COLLATE "C") = lower('website' COLLATE "C");
+```
+
+### Two links within a filter of related records
+
+> For each project, the number of duplicate issues that alice opened whose original is closed
+
+```qd
+#projects $name $#issues{author.username:=alice duplicate_of.status:=closed}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    LEFT JOIN "issues" AS "issues_1" ON
+      "issues"."duplicate_of" = "issues_1"."id"
+    WHERE
+      lower("users"."username" COLLATE "C") = lower('alice' COLLATE "C") AND
+      lower("issues_1"."status" COLLATE "C") = lower('closed' COLLATE "C")
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Standalone sorts through two links
+
+> Issues by project and then by author, showing neither
+
+```qd
+#issues \\project.name \\author.username \d $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+ORDER BY
+  "projects"."name" ASC NULLS LAST,
+  "users"."username" DESC NULLS LAST;
+```
+
+### Standalone sort through one link, with a result column through another
+
+> The sorting is compiled first, so its join comes first
+
+```qd
+#issues \\author.username $project.name $title
+```
+
+```sql
+SELECT
+  "projects"."name",
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+ORDER BY
+  "users"."username" ASC NULLS LAST;
+```
+
+### Grouping by columns of two linked tables
+
+> The number of issues that each author has opened in each project
+
+```qd
+#issues $project.name \g $author.username \g $%count \sd
+```
+
+```sql
+SELECT
+  "projects"."name",
+  "users"."username",
+  count(*)
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+GROUP BY "projects"."name", "users"."username"
+ORDER BY
+  count(*) DESC NULLS LAST;
+```
+
+### Aggregates of two linked tables in a grouped query
+
+> For each status, the latest author to have been seen, and the number of distinct products
+
+```qd
+#issues $status \g $author.last_seen%max $project.product%distinct
+```
+
+```sql
+SELECT
+  "issues"."status",
+  max("users"."last_seen"),
+  count(DISTINCT "projects"."product")
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+GROUP BY "issues"."status";
+```
+
+### Counts of related records through two links
+
+> For each issue, the number of comments its author has made and the number of issues in its project: each CTE is joined to the table its link leads to
+
+```qd
+#issues $id $author.#comments $project.#issues
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "issues"."id",
+  COALESCE("cte0"."v1", 0),
+  COALESCE("cte1"."v1", 0)
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk";
+```
+
+### Has conditions through two links
+
+> Issues whose author has commented somewhere and whose project has an open issue
+
+```qd
+#issues ++author.#comments ++project.#issues{status:=open} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    WHERE
+      lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C")
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL AND
+  "cte1"."pk" IS NOT NULL;
+```
+
+### List sorted through two links of the related table
+
+> For each project, its issue titles ordered by author and then by the creation date of the issue each duplicates
+
+```qd
+#projects $name $#issues.title%list_all(\\author.username \\duplicate_of.created_at \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg("issues"."title" ORDER BY "users"."username" ASC NULLS LAST, "issues_1"."created_at" DESC NULLS LAST) AS "v1"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    LEFT JOIN "issues" AS "issues_1" ON
+      "issues"."duplicate_of" = "issues_1"."id"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Nested result columns through two links
+
+> For each comment, its issue's author and project, and its own author
+
+```qd
+#comments $id $issue.( $author.username $project.name ) $user.username
+```
+
+```sql
+SELECT
+  "comments"."id",
+  "users"."username",
+  "projects"."name",
+  "users_1"."username"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "users" AS "users_1" ON
+  "comments"."user" = "users_1"."id";
+```
+
+### Format string and case expression over two links
+
+> The two linked tables are joined once each, however many times they're referred to
+
+```qd
+#issues
+$^f"{author.username} / {project.name}"
+$? project.is_active ~ author.username ~~ project.name
+```
+
+```sql
+SELECT
+  concat("users"."username", ' / ', "projects"."name"),
+  CASE
+    WHEN "projects"."is_active" THEN "users"."username"
+    ELSE "projects"."name"
+  END
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id";
+```
+
+### Computed columns hosted on two linked tables
+
+> Each computed column is evaluated against the table its link leads to
+
+```qd
+#users.handle = ^f"@{username}"
+#projects.label = ^f"{name} ({product.name})"
+#issues $author.handle $project.label
+```
+
+```sql
+SELECT
+  concat('@', "users"."username"),
+  concat("projects"."name", ' (', "products"."name", ')')
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "products" ON
+  "projects"."product" = "products"."id";
+```
+
+### Linked record comparisons through two links
+
+> Each link uses the comparison of the table it leads to
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#projects.__querydown_linked_record_comparison:@x = name:@x
+#issues author:alice project:=website $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+WHERE
+  COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE) AND
+  lower("projects"."name" COLLATE "C") = lower('website' COLLATE "C");
+```
+
+### Custom comparison whose body follows two links
+
+> Issues involving "acme", by its author's team or its project's product
+
+```qd
+#issues.involves:@x = [author.team.name:@x project.product.name:@x]
+#issues involves:acme !involves:=internal $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "products" ON
+  "projects"."product" = "products"."id"
+WHERE
+  (COALESCE(strpos(lower("teams"."name" COLLATE "C"), lower('acme' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("products"."name" COLLATE "C"), lower('acme' COLLATE "C")) > 0, FALSE)) AND
+  (lower("teams"."name" COLLATE "C") = lower('internal' COLLATE "C") OR lower("products"."name" COLLATE "C") = lower('internal' COLLATE "C")) IS NOT TRUE;
+```
+
+### Window partitioned by one link and ordered by another
+
+> Number each project's issues by the name of their author
+
+```qd
+#issues $id $%%(project.name\p author.username\s)%row_number
+```
+
+```sql
+SELECT
+  "issues"."id",
+  row_number() OVER (PARTITION BY "projects"."name" ORDER BY "users"."username" ASC NULLS LAST)
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id";
+```
+
+### Window condition with result columns through two links
+
+> The most recent issue of each author's team, with its project and author: the window is computed over the join to the author, and the result columns join again outside it
+
+```qd
+#issues %%(author.team\p created_at\sd)%row_number:1 $project.name $author.username
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "users"."team" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+  )
+SELECT
+  "projects"."name",
+  "users"."username"
+FROM "qdwin_src" AS "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Union whose members each follow two links
+
+> Each member has joins of its own
+
+```qd
+#issues $author.username $project.name +++ #comments $user.username $issue.title
+```
+
+```sql
+SELECT
+  "users"."username",
+  "projects"."name" AS "title"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+UNION ALL
+SELECT
+  "users"."username",
+  "issues"."title"
+FROM "comments"
+LEFT JOIN "users" ON
+  "comments"."user" = "users"."id"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id";
+```
+
+### Two links in the first stage of a pipeline
+
+> The number of issues that each author has opened in each project, for the pairs with more than one
+
+```qd
+#issues $author.username -> author \g $project.name -> project \g $%count -> n
+~~~
+n:>1 $author $project
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "users"."username" AS "author",
+      "projects"."name" AS "project",
+      count(*) AS "n"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    LEFT JOIN "projects" ON
+      "issues"."project" = "projects"."id"
+    GROUP BY "users"."username", "projects"."name"
+  )
+SELECT
+  "pipe0"."author",
+  "pipe0"."project"
+FROM "pipe0"
+WHERE
+  "pipe0"."n" > 1;
+```
+
+### Two links through flexible identifiers (library)
+
+```toml options
+schema = "library"
+```
+
+> Checkouts of books by a given patron, with the item's barcode and the patron's email
+
+```qd
+#checkouts patron.last_name:=smith $item.barcode $patron.email $item.book.title
+```
+
+```sql
+SELECT
+  "Items"."Barcode",
+  "Patrons"."Email",
+  "Books"."Title"
+FROM "Checkouts"
+LEFT JOIN "Patrons" ON
+  "Checkouts"."Patron" = "Patrons"."id"
+LEFT JOIN "Items" ON
+  "Checkouts"."Item" = "Items"."id"
+LEFT JOIN "Books" ON
+  "Items"."Book" = "Books"."id"
+WHERE
+  lower("Patrons"."Last Name" COLLATE "C") = lower('smith' COLLATE "C");
+```
+
+### Scopes, a glob, and a sort through two links (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The same join order under the other dialect
+
+```qd
+#issues author{username:alice} project{is_active:@true} \\project.name $author.* $title
+```
+
+```sql
+SELECT
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen",
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+WHERE
+  COALESCE(contains(lower(strip_accents("users"."username")), lower(strip_accents('alice'))), FALSE) AND
+  "projects"."is_active" = TRUE
+ORDER BY
+  "projects"."name" ASC NULLS LAST;
 ```
 
 ## Combinations: dialects, schemas, and options
@@ -14558,320 +16725,64 @@ FROM "projects"
 OFFSET 5;
 ```
 
-## Known failures
+### Date column of an earlier stage compared with a duration (DuckDB)
 
-Each case in this section **fails**, because it demonstrates a bug. The SQL given is what the compiler ought to produce (as far as that can be known before the bug is fixed — a fix may reasonably differ in details like redundant parentheses). When a bug is fixed, move its cases to the section they belong in.
+```toml options
+dialect = "duckdb"
+```
 
-The cases are grouped by root cause, which the first case of each group describes.
-
-### Subtraction and division with a parenthesized right operand
-
-> **Bug (lost parentheses):** the SQL renderer parenthesizes an operand only when its precedence is _lower_ than the operator's, so a right operand of _equal_ precedence loses its parentheses and the result is silently wrong: `id - (id + 1)` compiles to `id - id + 1`.
+> The zoned column is still known to be zoned in the later stage, where it's coerced as it would be in the first
 
 ```qd
-#issues $id - (id + 1) $id / (id * 2) $id - (id - 1) $id / (id / 2)
-```
-
-```sql
-SELECT
-  "issues"."id" - ("issues"."id" + 1),
-  "issues"."id" / ("issues"."id" * 2),
-  "issues"."id" - ("issues"."id" - 1),
-  "issues"."id" / ("issues"."id" / 2)
-FROM "issues";
-```
-
-### Subtraction, division, and modulo functions with a computed argument
-
-> Lost parentheses: the same bug, reached through the `minus`, `divide`, and `mod` functions.
-
-```qd
-#issues $id|minus(id - 1) $id|divide(id|times(2)) $id|mod(id|times(2))
-```
-
-```sql
-SELECT
-  "issues"."id" - ("issues"."id" - 1),
-  "issues"."id" / ("issues"."id" * 2),
-  "issues"."id" % ("issues"."id" * 2)
-FROM "issues";
-```
-
-### Constant and computed column holding arithmetic, as a right operand
-
-> Lost parentheses: the same bug, reached by inlining a constant and a computed column.
-
-```qd
-@a = 1 + 2
-#issues.next = id + 1
-#issues $id - @a $id - next
-```
-
-```sql
-SELECT
-  "issues"."id" - (1 + 2),
-  "issues"."id" - ("issues"."id" + 1)
-FROM "issues";
-```
-
-### Function bodies holding arithmetic, as a right operand
-
-> Lost parentheses: the same bug, reached by inlining a user-defined function and an anonymous function.
-
-```qd
-@@inc = @x => @x + 1
-#issues $1 - @@inc(id) $10 - id|(@x => @x - 1)
-```
-
-```sql
-SELECT
-  1 - ("issues"."id" + 1),
-  10 - ("issues"."id" - 1)
-FROM "issues";
-```
-
-### Date arithmetic compared with a duration
-
-> Lost parentheses: the same bug, in the subtraction that the date/duration comparison generates. Here it measures the distance from now to one week _before_ the creation date, rather than one week after it.
-
-```qd
-#issues created_at|plus(1w):<1d $id
-```
-
-```sql
-SELECT
-  "issues"."id"
-FROM "issues"
-WHERE
-  ABS(EXTRACT(epoch FROM NOW() - ("issues"."created_at" + make_interval(weeks => 1)))) < EXTRACT(epoch FROM make_interval(days => 1));
-```
-
-### Comparisons as the operands of a comparison
-
-> Lost parentheses: the same bug, between comparison operators, which SQL doesn't let you chain. Postgres rejects `a = TRUE = b = TRUE` as a syntax error.
-
-```qd
-#projects (is_active:@true):(is_pro_bono:@true) $id
-```
-
-```sql
-SELECT
-  "projects"."id"
-FROM "projects"
-WHERE
-  ("projects"."is_active" = TRUE) = ("projects"."is_pro_bono" = TRUE);
-```
-
-### Duration constant compared with a date
-
-> **Bug (special literals behind variables):** comparisons treat a few literals specially — a duration, `@null`, and an empty string — but recognize them only when written directly in the comparison, not when they arrive through a constant or a parameter. Here the date/duration comparison compiles to `created_at < make_interval(…)`, which no database accepts.
-
-```qd
-@recent = 1w
-#issues created_at:<@recent $id
-```
-
-```sql
-SELECT
-  "issues"."id"
-FROM "issues"
-WHERE
-  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1));
-```
-
-### Duration passed to a user-defined function and to a custom comparison
-
-> Special literals behind variables: a duration bound to a function parameter and to a custom comparison's parameter.
-
-```qd
-@@within = @d @span => @d:<@span
-#issues.older_than:@x = created_at:>@x
-#issues due_date|within(1w) older_than:6m $id
-```
-
-```sql
-SELECT
-  "issues"."id"
-FROM "issues"
-WHERE
-  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
-  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) > EXTRACT(epoch FROM make_interval(months => 6));
-```
-
-### Null constant in a match comparison
-
-> Special literals behind variables: `title:@none` compiles to a text search for NULL, which never matches, rather than to `IS NULL`.
-
-```qd
-@none = @null
-#issues title:@none !status:@none $id
-```
-
-```sql
-SELECT
-  "issues"."id"
-FROM "issues"
-WHERE
-  "issues"."title" IS NULL AND
-  NOT "issues"."status" IS NULL;
-```
-
-### Null passed to a linked record comparison and to a custom comparison
-
-> Special literals behind variables: with a linked record comparison defined, `author:@null` no longer finds the issues without an author; it searches the username for NULL, which never matches.
-
-```qd
-#users.__querydown_linked_record_comparison:@x = username:@x
-#issues.comment:@x = ++#comments{body:@x}
-#issues author:@null comment:@null $id
+#users $id $last_seen $birth_date|age -> age
+~~~
+last_seen:<1w age:>18y $id
 ```
 
 ```sql
 WITH
-  "cte0" AS (
+  "pipe0" AS (
     SELECT
-      "comments"."issue" AS "pk"
-    FROM "comments"
-    WHERE
-      "comments"."body" IS NULL
-    GROUP BY "comments"."issue"
+      "users"."id" AS "id",
+      "users"."last_seen" AS "last_seen",
+      CAST(NOW() AS TIMESTAMP) - "users"."birth_date" AS "age"
+    FROM "users"
   )
 SELECT
-  "issues"."id"
-FROM "issues"
-LEFT JOIN "cte0" ON
-  "issues"."id" = "cte0"."pk"
-LEFT JOIN "users" ON
-  "issues"."author" = "users"."id"
+  "pipe0"."id"
+FROM "pipe0"
 WHERE
-  "users"."username" IS NULL AND
-  "cte0"."pk" IS NOT NULL;
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - CAST("pipe0"."last_seen" AS TIMESTAMP))) < EXTRACT(epoch FROM to_weeks(1)) AND
+  "pipe0"."age" > to_years(18);
 ```
 
-### Empty string constant in a match comparison
+### Arguments that reference columns, used within filters of related records (DuckDB)
 
-> Special literals behind variables: matching against an empty string should be strict equality, but through a constant it's a "contains" search, which matches every non-null description.
-
-```qd
-@empty = ""
-#issues description:@empty $id
+```toml options
+dialect = "duckdb"
 ```
 
-```sql
-SELECT
-  "issues"."id"
-FROM "issues"
-WHERE
-  "issues"."description" = '';
-```
-
-### Difference of two dates compared with a duration
-
-> **Bug (type of a date difference):** type inference gives `date - date` the type of its left operand (a date) rather than a duration, so the date/duration comparison wrongly applies and produces `NOW() - due_date - created_at`, which no database accepts.
-
-```qd
-#issues due_date - created_at:>1w $id
-```
-
-```sql
-SELECT
-  "issues"."id"
-FROM "issues"
-WHERE
-  "issues"."due_date" - "issues"."created_at" > make_interval(weeks => 1);
-```
-
-### Left expansion over a custom comparison
-
-> **Bug (left expansion skips custom comparisons):** an entry of a left-hand expansion is only ever resolved as a column, so naming a custom comparison there fails with "Column `comment` not found".
+> The record is joined into the CTE in the same way under the other dialect
 
 ```qd
 #issues.comment:@x = ++#comments{body:@x}
-#issues [comment title]:foo $id
-```
-
-```sql
-WITH
-  "cte0" AS (
-    SELECT
-      "comments"."issue" AS "pk"
-    FROM "comments"
-    WHERE
-      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
-    GROUP BY "comments"."issue"
-  )
-SELECT
-  "issues"."id"
-FROM "issues"
-LEFT JOIN "cte0" ON
-  "issues"."id" = "cte0"."pk"
-WHERE
-  ("cte0"."pk" IS NOT NULL OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE));
-```
-
-### Left expansion over linked records
-
-> Left expansion skips custom comparisons: the linked record comparison isn't applied either, so the link's foreign key is compared with the text directly.
-
-```qd
-#users.__querydown_linked_record_comparison:@x = username:@x
-#issues [author title]:alice $id
-```
-
-```sql
-SELECT
-  "issues"."id"
-FROM "issues"
-LEFT JOIN "users" ON
-  "issues"."author" = "users"."id"
-WHERE
-  (COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE));
-```
-
-### User-defined function applied to its own result
-
-> **Bug (false recursion error):** applying a user-defined function to a value that itself contains a call to the same function fails with "The function `inc` calls itself", although nothing is recursive.
-
-```qd
-@@inc = @x => @x + 1
-#issues $id|inc|inc $@@inc(@@inc(id))
-```
-
-```sql
-SELECT
-  "issues"."id" + 1 + 1,
-  "issues"."id" + 1 + 1
-FROM "issues";
-```
-
-### Constant used by another constant, shadowed by a function parameter
-
-> **Bug (arguments and constants are resolved where they're inlined):** a variable's definition is compiled in the scope of each place it's used, rather than the scope it was written in. Here `@b` is defined as `@a * 2` with `@a = 1`, but within the function it picks up the parameter `@a` instead, giving `id + id * 2`.
-
-```qd
-@a = 1
-@b = @a * 2
-#issues $id|(@a => @a + @b)
-```
-
-```sql
-SELECT
-  "issues"."id" + 1 * 2
-FROM "issues";
-```
-
-### Function argument that references a column, used within a filter of related records
-
-> Resolved where inlined: the argument `author` is a column of `issues`, but it's resolved within the `#comments{ }` filter, where it fails with "Column `author` not found within table `comments`". (Were `comments` to have a column of that name, it would silently be used instead.)
-
-```qd
 @@has_comment_by = @u => ++#comments{user:@u}
-#issues author|has_comment_by $id
+#issues comment:`title` author|has_comment_by $id
 ```
 
 ```sql
 WITH
   "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      COALESCE(contains(lower(strip_accents("comments"."body")), lower(strip_accents("issues"."title"))), FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
     SELECT
       "comments"."issue" AS "pk"
     FROM "comments"
@@ -14886,127 +16797,32 @@ SELECT
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
 WHERE
-  "cte0"."pk" IS NOT NULL;
+  "cte0"."pk" IS NOT NULL AND
+  "cte1"."pk" IS NOT NULL;
 ```
 
-### Custom comparison argument that references a column
+### Parenthesized right operands, foreign key aggregates, and a computed duration (DuckDB)
 
-> Resolved where inlined: the same, with a custom comparison. Issues having a comment that mentions the issue's own title.
+```toml options
+dialect = "duckdb"
+```
+
+> Fixes to the generated SQL that don't depend on the dialect
 
 ```qd
-#issues.comment:@x = ++#comments{body:@x}
-#issues comment:`title` $id
-```
-
-```sql
-WITH
-  "cte0" AS (
-    SELECT
-      "comments"."issue" AS "pk"
-    FROM "comments"
-    LEFT JOIN "issues" ON
-      "comments"."issue" = "issues"."id"
-    WHERE
-      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower("issues"."title" COLLATE "C")) > 0, FALSE)
-    GROUP BY "comments"."issue"
-  )
-SELECT
-  "issues"."id"
-FROM "issues"
-LEFT JOIN "cte0" ON
-  "issues"."id" = "cte0"."pk"
-WHERE
-  "cte0"."pk" IS NOT NULL;
-```
-
-### Search term before a window condition
-
-> **Bug (search term swallowed by a following `%`):** a bare search term followed by a condition that begins with `%%` isn't parsed as a search term, and fails with "Column `foo` not found". Written in the other order, it works.
-
-```qd
-#issues foo %%(project\p created_at\sd)%row_number:1 $id
-```
-
-```sql
-WITH
-  "qdwin_src" AS (
-    SELECT
-      "issues"."id",
-      "issues"."title",
-      "issues"."description",
-      "issues"."created_at",
-      "issues"."author",
-      "issues"."status",
-      "issues"."project",
-      "issues"."duplicate_of",
-      "issues"."due_date",
-      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
-    FROM "issues"
-    WHERE
-      (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE))
-  )
-SELECT
-  "issues"."id"
-FROM "qdwin_src" AS "issues"
-WHERE
-  "issues"."qdwin0" = 1;
-```
-
-### Bare words as the bounds of a range
-
-> **Bug (bare words in a range):** the documentation says that a bare word anywhere on the right-hand side is a string literal, ranges included, but the bounds of a range are parsed as column references and fail with "Column `a` not found".
-
-```qd
-#issues title:a..m $id
-```
-
-```sql
-SELECT
-  "issues"."id"
-FROM "issues"
-WHERE
-  "issues"."title" >= 'a' AND
-  "issues"."title" <= 'm';
-```
-
-### Aggregate of a foreign key column in a grouped query
-
-> **Bug (foreign key columns can't be aggregated):** a path ending in a foreign key column is taken to be a path to the linked table with no column, and fails with "A column must be specified when using an aggregate function".
-
-```qd
-#issues $status \g $author%distinct
+#issues created_at:<1w + 1d $status \g $author%distinct $(id%max - (id%min + 1))
 ```
 
 ```sql
 SELECT
   "issues"."status",
-  count(DISTINCT "issues"."author")
+  count(DISTINCT "issues"."author"),
+  max("issues"."id") - (min("issues"."id") + 1)
 FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at")) < EXTRACT(epoch FROM to_weeks(1) + to_days(1))
 GROUP BY "issues"."status";
-```
-
-### Aggregate of a foreign key column of related records
-
-> Foreign key columns can't be aggregated: the same, at the end of a to-many path. This is the example given for `distinct` in `docs/functions.md`.
-
-```qd
-#issues $id $#comments.user%distinct
-```
-
-```sql
-WITH
-  "cte0" AS (
-    SELECT
-      "comments"."issue" AS "pk",
-      count(DISTINCT "comments"."user") AS "v1"
-    FROM "comments"
-    GROUP BY "comments"."issue"
-  )
-SELECT
-  "issues"."id",
-  COALESCE("cte0"."v1", 0)
-FROM "issues"
-LEFT JOIN "cte0" ON
-  "issues"."id" = "cte0"."pk";
 ```

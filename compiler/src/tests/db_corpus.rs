@@ -37,7 +37,7 @@ const SCHEMA_DDL_FILES: [&str; 2] = ["issue_schema.sql", "library_schema.sql"];
 
 #[test]
 fn test_db_corpus() {
-    let env = TestEnv::setup("corpus");
+    let env = TestEnv::setup();
 
     let cases = load_cases();
     let has_soloed_tests = has_soloed(&cases);
@@ -112,9 +112,7 @@ fn check_case(env: &TestEnv, case: &TestCase<Opts>, dialect: &str) -> Result<(),
 /// Owns a temporary Postgres server and an in-memory DuckDB database for the duration of the test.
 /// The server is stopped and all temp files removed on drop, so cleanup happens even if a panic
 /// unwinds the test; the DuckDB connection is closed when it is dropped along with the struct.
-///
-/// Shared with other DB tests that validate SQL against the corpus schemas.
-pub(super) struct TestEnv {
+struct TestEnv {
     root: PathBuf,
     pg_data: PathBuf,
     pg_sock: PathBuf,
@@ -122,11 +120,8 @@ pub(super) struct TestEnv {
 }
 
 impl TestEnv {
-    /// Starts the databases, with the Postgres server in a temp dir named after `label` (so that
-    /// tests running in parallel don't share one), and loads the corpus schemas into both.
-    pub(super) fn setup(label: &str) -> Self {
-        let root =
-            std::env::temp_dir().join(format!("querydown_db_test_{label}_{}", std::process::id()));
+    fn setup() -> Self {
+        let root = std::env::temp_dir().join(format!("querydown_db_test_{}", std::process::id()));
         // Start from a clean slate in case a previous run left files behind.
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create temp root dir");
@@ -206,7 +201,7 @@ impl TestEnv {
         cmd
     }
 
-    pub(super) fn explain_postgres(&self, sql: &str) -> Result<(), String> {
+    fn explain_postgres(&self, sql: &str) -> Result<(), String> {
         capture(self.psql_command().args(["-c", &format!("EXPLAIN {sql}")]))
     }
 
@@ -221,7 +216,7 @@ impl TestEnv {
         }
     }
 
-    pub(super) fn explain_duckdb(&self, sql: &str) -> Result<(), String> {
+    fn explain_duckdb(&self, sql: &str) -> Result<(), String> {
         // `prepare` parses and binds the query (where an unresolved function from a missing
         // extension like ICU would fail); draining the `EXPLAIN` rows forces planning to run too.
         let mut stmt = self

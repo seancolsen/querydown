@@ -47,8 +47,28 @@ impl SqlExpr {
         self.precedence = SqlExprPrecedence::Atom;
     }
 
+    /// Prepares the expression to be an operand of an operator with the given precedence, by
+    /// parenthesizing it if it binds more loosely than that operator.
+    ///
+    /// This suits the *left* operand of a left-associative operator (and any operand of an
+    /// associative one like `AND`), where an operand of the same precedence groups the way it's
+    /// written: `(a - b) - c` is `a - b - c`. For the other operands, see
+    /// [`SqlExpr::for_tighter_precedence`].
     pub fn for_precedence(mut self, precedence: SqlExprPrecedence) -> SqlExpr {
         if precedence > self.precedence {
+            self.parenthesize();
+        }
+        self
+    }
+
+    /// Like [`SqlExpr::for_precedence`], but also parenthesizes an expression that binds exactly
+    /// as tightly as the operator.
+    ///
+    /// This suits the *right* operand of a left-associative operator, where an operand of the same
+    /// precedence would otherwise regroup: `a - (b + c)` is not `a - b + c`. It also suits both
+    /// operands of an operator that can't be chained at all, like `=`.
+    pub fn for_tighter_precedence(mut self, precedence: SqlExprPrecedence) -> SqlExpr {
+        if precedence >= self.precedence {
             self.parenthesize();
         }
         self

@@ -8,25 +8,24 @@
 //!
 //! - The match operator (`:`) uses it to decide between case-insensitive "contains" (for text) and
 //!   exact equality.
-//! - The date/duration comparison magic (see [`super::comparisons`]) uses it to recognize the
-//!   date-like left-hand side of a `date:<duration` comparison.
+//! - The date/duration comparison magic (see [`super::comparisons`]) uses it to recognize both sides
+//!   of a `date:<duration` comparison.
 //!
 //! Crucially, the inference propagates through function calls (built-in, user-defined, and
 //! anonymous), arithmetic, `CASE` expressions, window functions, and variables — so a datetime run
 //! through `max` is still recognized as a datetime, for example.
 
 use querydown_parser::ast::{
-    AnonymousFunctionCall, Call, Case, Expr, ExprKind, FunctionBody, FunctionDimension, PathPart,
-    WindowFn,
+    AnonymousFunctionCall, Call, Case, Expr, ExprKind, FunctionDimension, PathPart, WindowFn,
 };
 
 use crate::{
     compiler::{
         constants::{VAR_FALSE, VAR_INFINITY, VAR_NOW, VAR_NULL, VAR_TRUE},
         expr::resolve_computed_column,
-        functions::TypeRule,
+        functions::{bind_assignments, bind_params, TypeRule},
         paths::{clarify_path, ClarifiedPathTail},
-        scope::{Expansion, Scope, VariableLookup},
+        scope::{Expansion, Scope},
         temporal::now_has_tz,
         window::window_fn_return_type,
     },
@@ -44,9 +43,7 @@ pub fn infer_type(expr: &Expr, scope: &mut Scope) -> ValueType {
         ExprKind::Number(_) => ValueType::Number,
         ExprKind::Date(_) => ValueType::Date,
         ExprKind::String(_) | ExprKind::FormatString(_) => ValueType::Text,
-        // A duration literal has no dedicated value type; it only ever appears as the right-hand side
-        // of the date/duration comparison magic, which matches it structurally rather than by type.
-        ExprKind::Duration(_) => ValueType::Unknown,
+        ExprKind::Duration(_) => ValueType::Duration,
         ExprKind::Variable(name) => infer_variable(name, scope),
         ExprKind::Path(parts) => infer_path(parts, scope),
         ExprKind::ConditionSet(_)
@@ -56,17 +53,55 @@ pub fn infer_type(expr: &Expr, scope: &mut Scope) -> ValueType {
         | ExprKind::Not(_) => ValueType::Boolean,
         ExprKind::Case(case) => infer_case(case, scope),
         ExprKind::Call(call) => infer_call(call, scope),
-        // Multiplication and division always yield numbers. Addition and subtraction preserve the
-        // type of their left operand, so `date + interval` stays a date (the common, useful case).
-        // `date - date` is really an interval, not a date, so this is an approximation — but it only
-        // affects whether the date/duration comparison magic fires, never the SQL we emit.
-        ExprKind::Product(..) | ExprKind::Quotient(..) => ValueType::Number,
-        ExprKind::Sum(a, _) | ExprKind::Difference(a, _) => infer_type(a, scope),
+        ExprKind::Product(a, b) => product_type(infer_type(a, scope), infer_type(b, scope)),
+        ExprKind::Quotient(a, b) => quotient_type(infer_type(a, scope), infer_type(b, scope)),
+        ExprKind::Sum(a, b) => sum_type(infer_type(a, scope), infer_type(b, scope)),
+        ExprKind::Difference(a, b) => difference_type(infer_type(a, scope), infer_type(b, scope)),
         ExprKind::Window(window) => infer_window(window, scope),
         ExprKind::AnonymousFunctionCall(call) => infer_anonymous_function_call(call, scope),
         // A scalar subquery's type would require inferring the type of its single result column,
         // which we don't attempt.
         ExprKind::Subquery(_) => ValueType::Unknown,
+    }
+}
+
+/// The type of `a + b`. Addition preserves the type of its left operand, so `date + duration` stays
+/// a date. The exception is a duration on the left of a date (`1w + due_date`), which is a date too.
+pub(super) fn sum_type(a: ValueType, b: ValueType) -> ValueType {
+    if a == ValueType::Duration && b.is_temporal() {
+        b
+    } else {
+        a
+    }
+}
+
+/// The type of `a - b`. Like addition, subtraction preserves the type of its left operand
+/// (`date - duration` is a date), except that the difference between two dates or times isn't a
+/// date: it's a duration, or — between two plain dates, in both Postgres and DuckDB — a whole
+/// number of days.
+pub(super) fn difference_type(a: ValueType, b: ValueType) -> ValueType {
+    match (&a, &b) {
+        (ValueType::Date, ValueType::Date) => ValueType::Number,
+        _ if a.is_temporal() && b.is_temporal() => ValueType::Duration,
+        _ => a,
+    }
+}
+
+/// The type of `a * b`: a number, unless a duration is being scaled.
+fn product_type(a: ValueType, b: ValueType) -> ValueType {
+    if a == ValueType::Duration || b == ValueType::Duration {
+        ValueType::Duration
+    } else {
+        ValueType::Number
+    }
+}
+
+/// The type of `a / b`: a number, unless a duration is being scaled.
+fn quotient_type(a: ValueType, b: ValueType) -> ValueType {
+    if a == ValueType::Duration && b != ValueType::Duration {
+        ValueType::Duration
+    } else {
+        ValueType::Number
     }
 }
 
@@ -79,13 +114,14 @@ fn infer_variable(name: &str, scope: &mut Scope) -> ValueType {
         VAR_INFINITY => ValueType::Number,
         VAR_NULL => ValueType::Unknown,
         // A user-defined constant or a function parameter: infer the type of its bound expression,
-        // with the binding hidden meanwhile (as in compilation; see `Scope::hide_binding`).
+        // in the context it was written in (as in compilation; see `Scope::convert_binding`). A
+        // constant defined in terms of itself is reported as an error by compilation; here, just
+        // stop.
         _ => match scope.lookup_variable(name) {
-            VariableLookup::Found(expr, id) => {
-                let _guard = scope.hide_binding(id);
-                infer_type(&expr, scope)
-            }
-            _ => ValueType::Unknown,
+            Some(binding) => scope
+                .inspect_binding(&binding, infer_type)
+                .unwrap_or(ValueType::Unknown),
+            None => ValueType::Unknown,
         },
     }
 }
@@ -101,7 +137,11 @@ fn infer_path(parts: &[PathPart], scope: &mut Scope) -> ValueType {
             let Ok(_guard) = scope.enter_expansion(expansion) else {
                 return ValueType::Unknown;
             };
-            return infer_with_path_prefix(&expr, head_parts, scope);
+            // A definition sees the constants, but none of the variables of wherever it's used.
+            let globals = scope.globals();
+            return scope.with_env(globals, |scope| {
+                infer_with_path_prefix(&expr, head_parts, scope)
+            });
         }
         Ok(None) => {}
         Err(_) => return ValueType::Unknown,
@@ -146,7 +186,9 @@ fn infer_path(parts: &[PathPart], scope: &mut Scope) -> ValueType {
                     let Ok(_guard) = scope.enter_expansion(expansion) else {
                         return ValueType::Unknown;
                     };
-                    infer_type(&expr, &mut scope.spawn(table))
+                    let globals = scope.globals();
+                    let mut host_scope = scope.spawn(table);
+                    host_scope.with_env(globals, |scope| infer_type(&expr, scope))
                 }
                 _ => column_type(scope, table, &column_name),
             }
@@ -195,12 +237,19 @@ fn infer_call(call: &Call, scope: &mut Scope) -> ValueType {
             if let Some(func) = scope.get_scalar_function(&call.name) {
                 func.return_type.clone()
             } else if let Some(def) = scope.get_user_function(&call.name).cloned() {
+                // This mirrors `convert_user_function_call`.
+                let globals = scope.globals();
+                let Ok(env) = bind_params(&def.name, def.params, call.args.clone(), globals, scope)
+                else {
+                    return ValueType::Unknown;
+                };
                 // A recursive function is reported as an error by compilation; here, just stop.
                 let Ok(_guard) = scope.enter_expansion(Expansion::Function(def.name.clone()))
                 else {
                     return ValueType::Unknown;
                 };
-                return infer_function_body(def.params, def.body, &call.args, scope);
+                let env = bind_assignments(def.body.assignments, env, scope);
+                return scope.with_env(env, |scope| infer_type(&def.body.expr, scope));
             } else {
                 return ValueType::Unknown;
             }
@@ -213,29 +262,21 @@ fn infer_call(call: &Call, scope: &mut Scope) -> ValueType {
     apply_type_rule(&rule, &call.args, scope)
 }
 
+/// Infers the return type of an anonymous function by binding its parameters and local
+/// assignments, then inferring the type of its body — mirroring how the function is inlined during
+/// compilation (see `convert_anonymous_function_call`).
 fn infer_anonymous_function_call(call: &AnonymousFunctionCall, scope: &mut Scope) -> ValueType {
-    infer_function_body(call.params.clone(), call.body.clone(), &call.args, scope)
-}
-
-/// Infers the return type of a user-defined or anonymous function by binding its parameters and
-/// local assignments, then inferring the type of its body — mirroring how the function would be
-/// inlined during compilation.
-fn infer_function_body(
-    params: Vec<String>,
-    body: FunctionBody,
-    args: &[Expr],
-    scope: &mut Scope,
-) -> ValueType {
-    if params.len() != args.len() {
+    let Ok(env) = bind_params(
+        "(anonymous)",
+        call.params.clone(),
+        call.args.clone(),
+        scope.env(),
+        scope,
+    ) else {
         return ValueType::Unknown;
-    }
-    let FunctionBody { assignments, expr } = body;
-    let bindings: Vec<(String, Expr)> = params
-        .into_iter()
-        .zip(args.iter().cloned())
-        .chain(assignments.into_iter().map(|a| (a.name, a.expr)))
-        .collect();
-    scope.with_variable_bindings(bindings, |scope| infer_type(&expr, scope))
+    };
+    let env = bind_assignments(call.body.assignments.clone(), env, scope);
+    scope.with_env(env, |scope| infer_type(&call.body.expr, scope))
 }
 
 fn infer_window(window: &WindowFn, scope: &mut Scope) -> ValueType {
@@ -260,6 +301,16 @@ fn apply_type_rule(rule: &TypeRule, args: &[Expr], scope: &mut Scope) -> ValueTy
         TypeRule::ArrayOfArg(index) => match args.get(*index) {
             Some(arg) => ValueType::Array(Box::new(infer_type(arg, scope))),
             None => ValueType::Unknown,
+        },
+        TypeRule::Sum | TypeRule::Difference => match args {
+            [a, b] => {
+                let (a, b) = (infer_type(a, scope), infer_type(b, scope));
+                match rule {
+                    TypeRule::Sum => sum_type(a, b),
+                    _ => difference_type(a, b),
+                }
+            }
+            _ => ValueType::Unknown,
         },
     }
 }

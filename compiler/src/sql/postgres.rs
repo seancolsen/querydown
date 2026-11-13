@@ -4,7 +4,7 @@ use super::{
     dialect::{duration_part, Dialect, NormalizedDuration, RegexPattern},
     expr::{
         build::{cmp::comparison, sql_func},
-        SqlExpr,
+        SqlExpr, SqlExprPrecedence,
     },
 };
 
@@ -87,17 +87,23 @@ impl Dialect for Postgres {
         // `strpos` returns the 1-based position of the first match, or 0 when not found, so `> 0`
         // means "contains". `lower(... COLLATE "C")` gives a case-insensitive, byte-wise
         // comparison. `strpos` returns NULL if either argument is NULL, so we coalesce to FALSE.
+        //
+        // `COLLATE` binds more tightly than any operator, so an operand that isn't atomic is
+        // parenthesized: `lower(a + b COLLATE "C")` would collate `b` alone.
         SqlExpr::atom(format!(
             r#"COALESCE(strpos(lower({haystack} COLLATE "C"), lower({needle} COLLATE "C")) > 0, FALSE)"#,
-            haystack = haystack.content,
-            needle = needle.content,
+            haystack = haystack.for_precedence(SqlExprPrecedence::Atom).content,
+            needle = needle.for_precedence(SqlExprPrecedence::Atom).content,
         )).never_null()
     }
 
     fn text_eq(&self, a: SqlExpr, b: SqlExpr) -> SqlExpr {
         // The case-insensitive counterpart to `=`, mirroring the `lower(... COLLATE "C")`
         // normalization used by `text_contains`. Standard NULL semantics are preserved.
-        let normalize = |e: SqlExpr| SqlExpr::atom(format!(r#"lower({} COLLATE "C")"#, e.content));
+        let normalize = |e: SqlExpr| {
+            let e = e.for_precedence(SqlExprPrecedence::Atom);
+            SqlExpr::atom(format!(r#"lower({} COLLATE "C")"#, e.content))
+        };
         comparison(normalize(a), "=", normalize(b))
     }
 
@@ -120,10 +126,15 @@ impl Dialect for Postgres {
         // `hashtext` returns a signed 32-bit integer over the full `int4` range. Shifting it up by
         // 2^31 and dividing by the range's width (2^32 - 1) maps it onto a uniform double in
         // [0, 1], mirroring DuckDB's normalization of its unsigned 64-bit hash.
-        SqlExpr::atom(format!(
-            "(CAST(hashtext({a}) AS DOUBLE PRECISION) + 2147483648) / 4294967295.0",
-            a = arg.content
-        ))
+        SqlExpr {
+            content: format!(
+                "(CAST(hashtext({a}) AS DOUBLE PRECISION) + 2147483648) / 4294967295.0",
+                a = arg.content
+            ),
+            // A division, so that a surrounding operation parenthesizes it where needed.
+            precedence: SqlExprPrecedence::Multiplication,
+            never_null: false,
+        }
     }
 
     fn year_month(&self, arg: SqlExpr) -> SqlExpr {

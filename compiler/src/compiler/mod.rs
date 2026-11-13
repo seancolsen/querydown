@@ -16,8 +16,8 @@ mod window;
 use std::collections::HashMap;
 
 use querydown_parser::ast::{
-    AnnotationValue, Definitions, Expr, ExprKind, Loc, Query, ResultColumnStatement, TableDef,
-    Transformation, UnionMember,
+    AnnotationValue, ConditionSet, Definitions, Expr, ExprKind, Loc, Query, ResultColumnStatement,
+    TableDef, Transformation, UnionMember,
 };
 use querydown_parser::parse;
 use serde::Serialize;
@@ -35,7 +35,7 @@ use self::{
     expr::{convert_condition_set, convert_expr},
     rendering::Render,
     result_columns::{convert_result_columns, convert_sort_exprs, ConvertedResultColumns},
-    scope::{Scope, WindowBan},
+    scope::{AggregateBan, Scope, WindowBan},
     window::{extract_window_conditions, SplitConditions, WINDOW_PROJECTION_ALIAS_PREFIX},
 };
 
@@ -160,6 +160,7 @@ impl Compiler {
             udt_tables.push(build_pipeline_table(
                 table_def.name.clone(),
                 &stage.output_names,
+                &stage.output_types,
             ));
             udt_ctes.push(Cte {
                 alias: table_def.name.clone(),
@@ -251,7 +252,11 @@ fn compile_pipeline(
             final_stage = Some(stage);
         } else {
             let cte_alias = format!("{PIPELINE_CTE_ALIAS_PREFIX}{i}");
-            synthetic_tables.push(build_pipeline_table(cte_alias.clone(), &stage.output_names));
+            synthetic_tables.push(build_pipeline_table(
+                cte_alias.clone(),
+                &stage.output_names,
+                &stage.output_types,
+            ));
             pipeline_ctes.push(Cte {
                 alias: cte_alias,
                 select: stage.select,
@@ -345,6 +350,9 @@ fn compile_union(
                 .find_map(|output| output.column_annotations[i].clone())
         })
         .collect();
+    let output_types = (0..width)
+        .map(|i| union_type(outputs.iter().map(|output| &output.output_types[i])))
+        .collect();
     let last = outputs.pop().unwrap();
     let mut first = outputs.remove(0);
     // Each column is named by the last member, unless that member leaves it unnamed, in which case
@@ -382,8 +390,28 @@ fn compile_union(
         select: first.select,
         output_names,
         named,
+        output_types,
         column_annotations,
     })
+}
+
+/// The type of a union's column, given the type of that column in each member. It has a type only
+/// if every member agrees on it, with one allowance: dates and timestamps unite as the database
+/// unites them, into a timestamp (a zoned one if any member's is).
+fn union_type<'a>(types: impl Iterator<Item = &'a ValueType> + Clone) -> ValueType {
+    let mut rest = types.clone();
+    let Some(first) = rest.next() else {
+        return ValueType::Unknown;
+    };
+    if rest.all(|t| t == first) {
+        first.clone()
+    } else if types.clone().all(ValueType::is_temporal) {
+        ValueType::Time {
+            has_tz: types.into_iter().any(ValueType::is_zoned),
+        }
+    } else {
+        ValueType::Unknown
+    }
 }
 
 /// Where `transformation` sorts its result, if it does: its first standalone sort expression, or
@@ -444,9 +472,7 @@ fn compile_stage(
     let mut select = Select::from(base_table.name.clone());
     let mut window_source_cte = None;
     if windows.is_empty() {
-        select.conditions = scope.with_window_ban(WindowBan::Condition, |scope| {
-            convert_condition_set(inner_conditions, scope)
-        })?;
+        select.conditions = convert_conditions(inner_conditions, &mut scope)?;
     } else {
         let source_alias = scope.get_alias(WINDOW_SOURCE_CTE_ALIAS);
         let mut source_scope = Scope::build_with_base_table(options, schema, base_table);
@@ -455,10 +481,8 @@ fn compile_stage(
         source_scope.register_custom_comparisons(custom_comparisons.to_vec())?;
         source_scope.register_computed_columns(computed_columns.to_vec())?;
         let mut source = Select::from(base_table.name.clone());
-        source.conditions = source_scope.with_window_ban(WindowBan::Condition, |scope| {
-            convert_condition_set(inner_conditions, scope)
-        })?;
-        (source.columns, _) = expand_base_table_columns(base_table, &source_scope);
+        source.conditions = convert_conditions(inner_conditions, &mut source_scope)?;
+        (source.columns, _, _) = expand_base_table_columns(base_table, &source_scope);
         for (index, (window, loc)) in windows.into_iter().enumerate() {
             let alias = format!("{WINDOW_PROJECTION_ALIAS_PREFIX}{index}");
             let expr = Expr::new(ExprKind::Window(window.clone()), loc);
@@ -477,9 +501,7 @@ fn compile_stage(
             // is never consulted.
             join_column_name: String::new(),
         });
-        select.conditions = scope.with_window_ban(WindowBan::Condition, |scope| {
-            convert_condition_set(outer_conditions, scope)
-        })?;
+        select.conditions = convert_conditions(outer_conditions, &mut scope)?;
     }
 
     let standalone_sorting = convert_sort_exprs(transformation.sorting, &mut scope)?;
@@ -490,24 +512,28 @@ fn compile_stage(
         mut column_annotations,
         mut output_names,
         mut named,
+        mut output_types,
     } = convert_result_columns(transformation.result_columns, &mut scope)?;
     if let Some(window_loc) = scope.compiled_window().filter(|_| !grouping.is_empty()) {
         return Err(msg::window_in_grouped_stage().at(window_loc));
     }
+    standalone_sorting.validate_grouped(&grouping)?;
     if columns.is_empty() {
         // With no explicit result columns, the stage emits every column of its base table. We list
         // them explicitly rather than emitting `SELECT *` so that the result set is exactly the
         // set of columns Querydown knows about, in a deterministic order.
-        let (expanded, names) = expand_base_table_columns(base_table, &scope);
+        let (expanded, names, types) = expand_base_table_columns(base_table, &scope);
         column_annotations = vec![None; expanded.len()];
         named = vec![true; expanded.len()];
         columns = expanded;
         output_names = names;
+        output_types = types;
     }
 
     select.grouping = grouping;
     // Standalone `\\` sorts take precedence over column `\s` sorts, hence they come first.
     select.sorting = standalone_sorting
+        .sorting
         .into_iter()
         .chain(column_sorting)
         .collect();
@@ -534,28 +560,40 @@ fn compile_stage(
         select,
         output_names,
         named,
+        output_types,
         column_annotations,
     })
 }
 
+/// Compiles a stage's conditions, which become a `WHERE` clause. SQL permits neither window
+/// functions nor aggregates of the rows being queried there, so each is banned meanwhile.
+fn convert_conditions(conditions: ConditionSet, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    scope.with_window_ban(WindowBan::Condition, |scope| {
+        scope.with_aggregate_ban(AggregateBan::Condition, |scope| {
+            convert_condition_set(conditions, scope)
+        })
+    })
+}
+
 /// Builds an explicit, unaliased [`Column`] for every column of `base_table` (in column-id order),
-/// returning the columns together with their names. Used when a stage has no explicit result
-/// columns, so that it lists every known column rather than selecting `*`.
-fn expand_base_table_columns(base_table: &Table, scope: &Scope) -> (Vec<Column>, Vec<String>) {
-    let mut entries: Vec<(usize, String)> = base_table
-        .columns
-        .values()
-        .map(|c| (c.id, c.name.clone()))
-        .collect();
-    entries.sort_by_key(|(id, _)| *id);
+/// returning the columns together with their names and types. Used when a stage has no explicit
+/// result columns, so that it lists every known column rather than selecting `*`.
+fn expand_base_table_columns(
+    base_table: &Table,
+    scope: &Scope,
+) -> (Vec<Column>, Vec<String>, Vec<ValueType>) {
+    let mut entries: Vec<&SchemaColumn> = base_table.columns.values().collect();
+    entries.sort_by_key(|column| column.id);
     let mut columns = Vec::with_capacity(entries.len());
     let mut names = Vec::with_capacity(entries.len());
-    for (_, name) in entries {
-        let expr = scope.table_column_expr(&base_table.name, &name);
+    let mut types = Vec::with_capacity(entries.len());
+    for column in entries {
+        let expr = scope.table_column_expr(&base_table.name, &column.name);
         columns.push(Column::new(expr, None));
-        names.push(name);
+        names.push(column.name.clone());
+        types.push(column.r#type.clone());
     }
-    (columns, names)
+    (columns, names, types)
 }
 
 /// The compiled output of a single pipeline stage.
@@ -567,6 +605,9 @@ struct StageOutput {
     /// Whether each output column has a name of its own, rather than an autogenerated one (see
     /// [`ConvertedResultColumns::named`]).
     named: Vec<bool>,
+    /// The inferred type of each output column, used to type the columns of the synthetic table
+    /// for the next stage (see [`build_pipeline_table`]).
+    output_types: Vec<ValueType>,
     column_annotations: Vec<Option<AnnotationValue>>,
 }
 
@@ -593,20 +634,32 @@ fn resolve_base_table<'a>(
 }
 
 /// Builds a synthetic [`Table`] representing the output of a pipeline stage. The table's name
-/// matches its CTE alias, and its columns are the stage's output columns (with unknown types, since
-/// types are not tracked through a pipeline). It has no links, so the next stage can reference its
-/// columns directly but cannot traverse relationships from it.
-fn build_pipeline_table(name: String, column_names: &[String]) -> Table {
+/// matches its CTE alias, and its columns are the stage's output columns. It has no links, so the
+/// next stage can reference its columns directly but cannot traverse relationships from it.
+///
+/// Of the columns' types, only the dates, times, and durations are kept. Comparing a date with a
+/// duration (`created_at:<1w`) means something that depends on those types, and it compiles to SQL
+/// that the database rejects when they aren't known. Every other column is untyped, which (as
+/// documented) makes the match operator compare it by exact equality.
+fn build_pipeline_table(
+    name: String,
+    column_names: &[String],
+    column_types: &[ValueType],
+) -> Table {
     let mut columns = HashMap::new();
     let mut column_lookup = HashMap::new();
     for (index, column_name) in column_names.iter().enumerate() {
         let id = index + 1;
+        let r#type = match column_types.get(index) {
+            Some(t) if t.is_temporal() || *t == ValueType::Duration => t.clone(),
+            _ => ValueType::Unknown,
+        };
         columns.insert(
             id,
             SchemaColumn {
                 id,
                 name: column_name.clone(),
-                r#type: ValueType::Unknown,
+                r#type,
                 type_name: None,
             },
         );

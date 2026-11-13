@@ -150,7 +150,7 @@ See [case expressions](./language.md#case-expressions) docs.
 1. `+` `-` Addition and subtraction
 1. `:` _(and all other [comparison operators](#comparisons))_ Comparison
 1. `!` Boolean negation
-1. `,` Shorthand for joining expressions into an ["OR" condition set](./language.md#or-condition-sets)
+1. `,` Shorthand for joining expressions into an ["OR" condition set](./language.md#or-condition-sets). It joins whole conditions, so `status:open,closed` is `status:open` or a search for "closed". Use `status:[open closed]` to compare with several values.
 
 ## Not used
 

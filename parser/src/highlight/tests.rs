@@ -69,6 +69,14 @@ fn test_bare_words_resolve_like_the_parser() {
          bar:string ):bracket title:column :=:comparison-operator `body`:column title:column \
          ::comparison-operator author:column .:path-separator name:column",
     );
+    // The bounds of a range are strings too (its `..` isn't a path separator), and a word before a
+    // window condition is a search term (its `%%` doesn't pipe the word to an aggregate).
+    let rendered = render(Conditions, r"title:a..m backend %%(project\p)%row_number:1");
+    assert!(rendered.starts_with("title:column ::comparison-operator a:string"));
+    assert!(
+        rendered.contains(" m:string backend:search-term "),
+        "{rendered}"
+    );
     // Within a condition set, a lone word is a search term; the comma shorthand makes each of its
     // operands one, as does negation.
     check(
