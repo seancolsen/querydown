@@ -17,8 +17,6 @@ pub enum TokenKind {
     /// A string literal: a quoted string (`"foo"`, `'foo'`) or a bare word on the right-hand side of
     /// a comparison (the `performance` in `title:performance`). Also an unquoted annotation value.
     String,
-    /// An escape sequence within a quoted string or identifier, e.g. `\n` or `é`.
-    StringEscape,
     /// A bare word standing alone as a condition, which searches the table's text columns, e.g.
     /// `backend` in `#issues backend`.
     SearchTerm,
@@ -90,10 +88,9 @@ pub enum TokenKind {
 
 impl TokenKind {
     /// Every kind, in declaration order.
-    pub const ALL: [TokenKind; 34] = [
+    pub const ALL: [TokenKind; 33] = [
         TokenKind::Comment,
         TokenKind::String,
-        TokenKind::StringEscape,
         TokenKind::SearchTerm,
         TokenKind::Number,
         TokenKind::Duration,
@@ -132,7 +129,6 @@ impl TokenKind {
         match self {
             TokenKind::Comment => "comment",
             TokenKind::String => "string",
-            TokenKind::StringEscape => "string-escape",
             TokenKind::SearchTerm => "search-term",
             TokenKind::Number => "number",
             TokenKind::Duration => "duration",

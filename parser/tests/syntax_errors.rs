@@ -193,7 +193,7 @@ fn unterminated_string() {
             "1 | #issues title:\"abc",
             "  |               ^",
             "  |",
-            "  = hint: Add a `\"` where the string should end. To include a literal `\"` within the string, escape it as `\\\"`.",
+            "  = hint: Add a `\"` where the string should end. To include a literal `\"` within the string, quote it with `'` instead.",
         ],
     );
 }
@@ -210,7 +210,7 @@ fn unterminated_quoted_identifier() {
             "1 | #issues $title->`Title",
             "  |                 ^",
             "  |",
-            "  = hint: Add a `` ` `` where the quoted identifier should end. To include a literal `` ` `` within the quoted identifier, escape it as `` \\` ``.",
+            "  = hint: Add a `` ` `` where the quoted identifier should end.",
         ],
     );
 }
@@ -321,36 +321,6 @@ fn nested_entry_without_leading_column() {
             "  |",
             "1 | #issues $author.( $8 )",
             "  |          ^^^^^^^^^^^^^",
-        ],
-    );
-}
-
-#[test]
-fn invalid_escape_character() {
-    assert_render(
-        parse,
-        "#issues title:'\\q'",
-        &[
-            "syntax error: Unexpected `q`. Expected an escape character (`\\`, `/`, the quote character, `b`, `f`, `n`, `r`, `t`, or `u`).",
-            " --> line 1, column 17",
-            "  |",
-            "1 | #issues title:'\\q'",
-            "  |                 ^",
-        ],
-    );
-}
-
-#[test]
-fn invalid_unicode_escape() {
-    assert_render(
-        parse,
-        "#issues title:'\\uD800'",
-        &[
-            "syntax error: `\\uD800` is not a valid unicode character.",
-            " --> line 1, column 18",
-            "  |",
-            "1 | #issues title:'\\uD800'",
-            "  |                  ^^^^",
         ],
     );
 }

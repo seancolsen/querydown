@@ -6,7 +6,6 @@
 export const TOKEN_KINDS = [
   "comment",
   "string",
-  "string-escape",
   "search-term",
   "number",
   "duration",

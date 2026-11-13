@@ -475,9 +475,10 @@ fn is_plain_identifier(name: &str) -> bool {
         && chars.all(|c| c.is_alphanumeric() || c == '_')
 }
 
-/// `name` quoted with backticks, as an identifier.
+/// `name` quoted with backticks, as an identifier. Quoted text has no escape sequences, so a
+/// name containing a backtick can't be written.
 fn quote(name: &str) -> String {
-    format!("`{}`", name.replace('\\', "\\\\").replace('`', "\\`"))
+    format!("`{name}`")
 }
 
 /// The name within a possibly backtick-quoted identifier.

@@ -135,7 +135,7 @@ fn within_string_or_comment(source: &str, cursor: usize, tokens: &[Token]) -> bo
                 match quote {
                     Some(quote @ ('"' | '\'' | '`')) => {
                         let body = &text.trim_start_matches('#')[1..];
-                        token.span.end > cursor || !closes_quote(body, quote)
+                        token.span.end > cursor || !body.contains(quote)
                     }
                     _ => false,
                 }
@@ -144,21 +144,6 @@ fn within_string_or_comment(source: &str, cursor: usize, tokens: &[Token]) -> bo
         };
         open
     })
-}
-
-/// Whether `body` (the text after an opening `quote`) contains the closing quote.
-fn closes_quote(body: &str, quote: char) -> bool {
-    let mut chars = body.chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => {
-                chars.next();
-            }
-            c if c == quote => return true,
-            _ => {}
-        }
-    }
-    false
 }
 
 /// The brackets that are open at `position`, innermost last, as `(offset, character)` pairs.

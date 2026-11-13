@@ -84,7 +84,6 @@ pub(crate) const SORT_EXPR_PREFIX: &str = "\\\\";
 pub(crate) const SORTING_NESTING_BRACE_L: char = '(';
 /// Closes a group of nested sorting expressions.
 pub(crate) const SORTING_NESTING_BRACE_R: char = ')';
-pub(crate) const STRING_ESCAPE_PREFIX: char = '\\';
 pub(crate) const STRING_QUOTE_DOUBLE: char = '"';
 pub(crate) const STRING_QUOTE_SINGLE: char = '\'';
 pub(crate) const TABLE_SIGIL: char = '#';

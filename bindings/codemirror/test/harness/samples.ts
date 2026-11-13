@@ -100,7 +100,7 @@ $title @{width:200 align:left tags:[a b] wrap:@true}`,
     valid: false,
     source: String.raw`#issues title:performance backend
   status:[open closed] & labels:~[bug
-  $id $title|upper "bad \q escape" -> $`,
+  $id $title|upper "bad" ; -> $`,
   },
   {
     name: "custom",

@@ -174,13 +174,8 @@ fn scan(text: &str, target: AnnotationTarget) -> Option<Option<AnnotationPositio
             quote @ ('"' | '\'') => {
                 let mut value = String::new();
                 let mut closed = false;
-                while let Some((_, c)) = chars.next() {
+                for (_, c) in chars.by_ref() {
                     match c {
-                        '\\' => {
-                            if let Some((_, escaped)) = chars.next() {
-                                value.push(escaped);
-                            }
-                        }
                         c if c == quote => {
                             closed = true;
                             break;

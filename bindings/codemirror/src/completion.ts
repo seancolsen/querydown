@@ -187,9 +187,16 @@ function schemasAt(root: AnnotationSchema, path: readonly (string | number)[]): 
 
 const IDENTIFIER = /^[\p{L}_][\p{L}\p{N}_]*$/u;
 
-/** How a string is written in an annotation: bare if it's an identifier, otherwise quoted. */
-function annotationString(value: string): string {
-  return IDENTIFIER.test(value) ? value : `'${value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
+/**
+ * How a string is written in an annotation: bare if it's an identifier, otherwise quoted. Quoted
+ * text has no escape sequences, so this uses a quote the string doesn't contain, or gives undefined
+ * for a string containing both kinds, which can't be written.
+ */
+function annotationString(value: string): string | undefined {
+  if (IDENTIFIER.test(value)) return value;
+  if (!value.includes("'")) return `'${value}'`;
+  if (!value.includes('"')) return `"${value}"`;
+  return undefined;
 }
 
 /** How a JSON value is written in an annotation, or undefined for one that isn't offered. */
@@ -228,12 +235,14 @@ export function annotationOptions(
     for (const object of schemas) {
       for (const [key, value] of Object.entries(object.properties ?? {})) {
         if (position.keys.includes(key) || options.has(key)) continue;
+        const written = annotationString(key);
+        if (written === undefined) continue;
         const described = alternatives(value, schema);
         const description = described.find((s) => s.description)?.description;
         const type = described.map(typeLabel).find(Boolean);
         options.set(key, {
           label: key,
-          apply: applyThenComplete(`${annotationString(key)}:`),
+          apply: applyThenComplete(`${written}:`),
           type: "property",
           ...(type ? { detail: type } : {}),
           ...(description ? { info: description } : {}),

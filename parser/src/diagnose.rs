@@ -302,7 +302,6 @@ fn scan(source: &str) -> Option<Problem> {
                 loop {
                     match bytes.get(i).map(|b| *b as char) {
                         None => return Some(Problem::UnterminatedString { quote: c, at }),
-                        Some('\\') => i += 2,
                         Some(q) if q == c => break,
                         Some(_) => i += 1,
                     }
@@ -407,21 +406,28 @@ fn reconcile(source: &str, parser_error: Error, problem: Option<Problem>) -> Err
             err
         }
         Problem::UnterminatedString { quote, at } if parser_hit_end => {
-            let what = if quote == '`' {
-                "quoted identifier"
-            } else {
-                "string"
-            };
             let quote_code = code(&quote.to_string());
-            let escaped_code = code(&format!("\\{quote}"));
+            let (what, hint) = match quote {
+                '`' => ("quoted identifier", String::new()),
+                _ => {
+                    let other = if quote == '"' { '\'' } else { '"' };
+                    let other_code = code(&other.to_string());
+                    (
+                        "string",
+                        format!(
+                            " To include a literal {quote_code} within the string, quote it with \
+                             {other_code} instead."
+                        ),
+                    )
+                }
+            };
             let mut err = Error::new(
                 ErrorKind::Syntax,
                 format!("Unterminated {what}. Expected a closing {quote_code}."),
             )
             .with_span(span(at..at + 1))
             .with_hint(format!(
-                "Add a {quote_code} where the {what} should end. To include a literal \
-                 {quote_code} within the {what}, escape it as {escaped_code}."
+                "Add a {quote_code} where the {what} should end.{hint}"
             ));
             err.expected = vec![quote_code];
             err.found = Some("end of input".to_string());
@@ -456,9 +462,11 @@ mod tests {
         assert_eq!(scan("#t foo:[1 2] {a:(1)}"), None);
         assert_eq!(scan("#t a:'(' b:\"[\" `{`"), None);
         assert_eq!(
-            scan("#t a:'it\\'s (' // ( unbalanced\n /* [ /* { */ */"),
+            scan("#t a:\"it's (\" // ( unbalanced\n /* [ /* { */ */"),
             None
         );
+        // A backslash is literal, so it doesn't escape the closing quote.
+        assert_eq!(scan("#t a:'\\' b:(1)"), None);
         assert_eq!(scan("#t foo:[1"), Some(Unclosed { open: '[', at: 7 }));
         assert_eq!(scan("#t (a [b] "), Some(Unclosed { open: '(', at: 3 }));
         assert_eq!(scan("#t a)"), Some(UnexpectedClose { close: ')', at: 4 }));
@@ -476,8 +484,11 @@ mod tests {
             Some(UnterminatedString { quote: '"', at: 5 })
         );
         assert_eq!(
-            scan("#t a:'abc\\'"),
-            Some(UnterminatedString { quote: '\'', at: 5 })
+            scan("#t a:'it's'"),
+            Some(UnterminatedString {
+                quote: '\'',
+                at: 10
+            })
         );
         assert_eq!(scan("#t /* a /* b */"), Some(UnterminatedComment { at: 3 }));
         // A problem inside a string or comment is ignored; the first real one is reported.

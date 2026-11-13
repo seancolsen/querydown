@@ -156,7 +156,6 @@ export type QuerydownGrammar = "query" | QuerydownSection;
  *
  * - `"comment"`: `// ...` or `/* ... *\/`
  * - `"string"`: a quoted string, or a bare word on the right of a comparison (`title:performance`)
- * - `"string-escape"`: an escape sequence within a string, e.g. `\n`
  * - `"search-term"`: a bare word standing alone as a condition, e.g. `#issues backend`
  * - `"number"`, `"duration"` (`3d`), `"date"` (`@2024-01-31`)
  * - `"constant"`: a built-in constant, e.g. `@true` or `@now`
@@ -188,7 +187,6 @@ export type QuerydownGrammar = "query" | QuerydownSection;
 export type QuerydownTokenKind =
   | "comment"
   | "string"
-  | "string-escape"
   | "search-term"
   | "number"
   | "duration"

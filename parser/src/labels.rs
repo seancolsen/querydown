@@ -34,9 +34,6 @@ pub(crate) const CASE_FALLBACK: &str = "`~~` followed by a fallback value";
 
 pub(crate) const NUMBER: &str = "a number";
 pub(crate) const DATE: &str = "a date (e.g. `@2024-01-31`)";
-pub(crate) const ESCAPE_CHARACTER: &str =
-    "an escape character (`\\`, `/`, the quote character, `b`, `f`, `n`, `r`, `t`, or `u`)";
-pub(crate) const UNICODE_ESCAPE_DIGITS: &str = "four hexadecimal digits";
 
 // Names
 pub(crate) const NAME: &str = "a name";

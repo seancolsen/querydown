@@ -191,13 +191,13 @@ fn test_sorting() {
 fn test_literals() {
     check(
         Conditions,
-        "a:-1.5 b:3d..1y6m c:@2024-01-31..<@now d:@null e:@limit f:'it\\'s' g:\"\\u00e9\\q\"",
+        "a:-1.5 b:3d..1y6m c:@2024-01-31..<@now d:@null e:@limit f:\"it's\" g:'\\d+\\n'",
         "a:column ::comparison-operator -:number 1.5:number b:column ::comparison-operator \
          3d:duration ..:operator 1y6m:duration c:column ::comparison-operator \
          @2024-01-31:date ..:operator <:operator @now:constant d:column \
          ::comparison-operator @null:constant e:column ::comparison-operator @limit:variable \
-         f:column ::comparison-operator 'it:string \\':string-escape s':string g:column \
-         ::comparison-operator \":string \\u00e9:string-escape \\q:invalid \":string",
+         f:column ::comparison-operator \"it's\":string g:column ::comparison-operator \
+         '\\d+\\n':string",
     );
     check(
         Conditions,

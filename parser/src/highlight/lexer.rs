@@ -5,8 +5,6 @@
 //! word after `|` is a function name). Where the parser succeeds, the semantic marks it records
 //! override these guesses; see the [module documentation](super).
 
-use std::ops::Range;
-
 use super::{Token, TokenKind, BUILTIN_CONSTANTS};
 use crate::tokens::*;
 
@@ -307,35 +305,14 @@ impl Lexer<'_> {
         }
     }
 
-    /// Lexes a quoted string or identifier at `pos`, splitting out escape sequences as
-    /// [`TokenKind::StringEscape`] tokens (or [`TokenKind::Invalid`] ones, for an unrecognized
-    /// escape). An unterminated quote runs to the end of the input.
+    /// Lexes a quoted string or identifier at `pos`. An unterminated quote runs to the end of the
+    /// input.
     fn quoted(&mut self, quote: char, kind: TokenKind) {
         let end = self.pos + quoted_len(self.rest(), quote);
-        let mut start = self.pos;
-        for (escape, valid) in escapes(&self.src[self.pos..end], quote) {
-            let escape = escape.start + self.pos..escape.end + self.pos;
-            if escape.start > start {
-                self.tokens.push(Token {
-                    kind,
-                    span: start..escape.start,
-                });
-            }
-            start = escape.end;
-            self.tokens.push(Token {
-                kind: match valid {
-                    true => TokenKind::StringEscape,
-                    false => TokenKind::Invalid,
-                },
-                span: escape,
-            });
-        }
-        if end > start {
-            self.tokens.push(Token {
-                kind,
-                span: start..end,
-            });
-        }
+        self.tokens.push(Token {
+            kind,
+            span: self.pos..end,
+        });
         self.pos = end;
     }
 
@@ -420,50 +397,8 @@ impl Lexer<'_> {
 /// The length of the quoted string or identifier at the start of `s` (which begins with `quote`),
 /// including both quotes. An unterminated quote runs to the end of `s`.
 fn quoted_len(s: &str, quote: char) -> usize {
-    let mut chars = s.char_indices().skip(1);
-    while let Some((i, c)) = chars.next() {
-        if c == STRING_ESCAPE_PREFIX {
-            chars.next();
-        } else if c == quote {
-            return i + c.len_utf8();
-        }
+    match s[quote.len_utf8()..].find(quote) {
+        Some(i) => quote.len_utf8() + i + quote.len_utf8(),
+        None => s.len(),
     }
-    s.len()
-}
-
-/// The spans of the escape sequences within the quoted string or identifier `s`, each with whether
-/// it is a valid escape (mirroring the parser's `escape`).
-fn escapes(s: &str, quote: char) -> Vec<(Range<usize>, bool)> {
-    let mut result = Vec::new();
-    let mut chars = s.char_indices().skip(1).peekable();
-    while let Some((i, c)) = chars.next() {
-        if c == quote {
-            break;
-        }
-        if c != STRING_ESCAPE_PREFIX {
-            continue;
-        }
-        let mut end = i + 1;
-        let mut valid = false;
-        if let Some((j, escaped)) = chars.next() {
-            end = j + escaped.len_utf8();
-            valid = escaped == quote || "\\/bfnrt".contains(escaped);
-            if escaped == 'u' {
-                let mut digits = 0;
-                while digits < 4 {
-                    match chars.peek() {
-                        Some(&(k, h)) if h.is_ascii_hexdigit() => {
-                            end = k + 1;
-                            digits += 1;
-                            chars.next();
-                        }
-                        _ => break,
-                    }
-                }
-                valid = digits == 4;
-            }
-        }
-        result.push((i..end, valid));
-    }
-    result
 }

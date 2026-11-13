@@ -24,7 +24,6 @@ export type QuerydownPalette = { readonly [K in TokenKind]?: string | TokenStyle
 export const lightPalette = {
   comment: { color: "#6e7781", fontStyle: "italic" },
   string: "#1a7f37",
-  "string-escape": { color: "#c4510f", fontWeight: "bold" },
   "search-term": { color: "#1a7f37", backgroundColor: "#1a7f3714" },
   number: "#0a62b8",
   duration: "#0a62b8",
@@ -62,7 +61,6 @@ export const lightPalette = {
 export const darkPalette = {
   comment: { color: "#8b949e", fontStyle: "italic" },
   string: "#7ee787",
-  "string-escape": { color: "#ffcb6b", fontWeight: "bold" },
   "search-term": { color: "#7ee787", backgroundColor: "#7ee7871f" },
   number: "#79c0ff",
   duration: "#79c0ff",

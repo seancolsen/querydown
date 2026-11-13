@@ -221,6 +221,56 @@ WHERE
   "issues"."created_at" > NOW() - make_interval(years => 6);
 ```
 
+### Raw string
+
+> Strings are raw: a backslash is literal, so `\d` reaches the regex intact and `\n` is a backslash
+> followed by `n`, not a newline.
+
+```qd
+#issues title:~'v\d+' description:="a\nb"
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues"
+WHERE
+  "issues"."title" ~* 'v\d+' AND
+  lower("issues"."description" COLLATE "C") = lower('a\nb' COLLATE "C");
+```
+
+### String containing a quote
+
+> A string can't contain its own quote character, so one containing `'` is quoted with `"`.
+
+```qd
+#issues title:="can't"
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues"
+WHERE
+  lower("issues"."title" COLLATE "C") = lower('can''t' COLLATE "C");
+```
+
 ## Comparisons
 
 ### Date within a past duration of now

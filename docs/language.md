@@ -131,7 +131,7 @@ Base table          Conditions               Result columns       */
 
 - Table names are always prefixed with a `#` sigil, e.g. `#issues`
 - Column names are written as-is, e.g. `due_date`.
-- Identifiers can include special characters when quoted with backticks e.g. `` `Due Date` ``.
+- Identifiers can include special characters when quoted with backticks e.g. `` `Due Date` ``. Like [strings](#string-literals), quoted identifiers are raw, so a backslash is literal and an identifier can't contain a backtick.
 - Unquoted identifiers must:
     - begin with a lowercase letter or uppercase letter or underscore
     - include only letters, numbers, and underscores.
@@ -166,7 +166,8 @@ Additional constants can be [defined](#user-defined-constants).
 | `'foo'` | With single quotes |
 
 - Strings can be quoted with single quotes or double quotes
-- String are raw by default. For example, the sequence `\n` will be interpreted literally instead of as a newline. _(🚧 needs implementation changes)_
+- Strings are raw: there are no escape sequences. A backslash is a literal character, so `'\n'` is a backslash followed by `n` rather than a newline, and a regular expression like `title:~'v\d+'` needs no doubled backslashes.
+- A string can't contain its own quote character, so quote it with the other one instead, e.g. `"can't"` or `'say "hi"'`. _(A string containing both kinds of quote will be possible with [flagged strings](#flagged-strings).)_
 - Strings may span multiple lines.
 
 ### Flagged strings

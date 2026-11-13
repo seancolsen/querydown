@@ -12,7 +12,6 @@ import type { TokenKind } from "./tokens.js";
 export const querydownTags: Readonly<Record<TokenKind, Tag>> = {
   comment: Tag.define("querydown.comment"),
   string: Tag.define("querydown.string"),
-  "string-escape": Tag.define("querydown.string-escape"),
   "search-term": Tag.define("querydown.search-term"),
   number: Tag.define("querydown.number"),
   duration: Tag.define("querydown.duration"),
@@ -53,7 +52,6 @@ export const querydownTags: Readonly<Record<TokenKind, Tag>> = {
 export const standardTags: Readonly<Record<TokenKind, Tag>> = {
   comment: tags.comment,
   string: tags.string,
-  "string-escape": tags.escape,
   "search-term": tags.special(tags.string),
   number: tags.number,
   duration: tags.number,

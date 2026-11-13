@@ -8,9 +8,6 @@ export const qd_monarch: languages.IMonarchLanguage = {
     { open: '(', close: ')', token: 'delimiter.parenthesis' },
   ],
 
-  // C# style strings
-  escapes: /\\(?:[abfnrtv\\"']|x[0-9A-Fa-f]{1,4}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
-
   identifier: /[a-zA-Z_][a-zA-Z0-9_]*/,
 
   tokenizer: {
@@ -41,14 +38,9 @@ export const qd_monarch: languages.IMonarchLanguage = {
       [/\d*\.\d+([eE][-+]?\d+)?/, 'qd-number'],
       [/\d+/, 'qd-number'],
 
-      // strings
-      [/"([^"\\]|\\.)*$/, 'string.invalid' ],  // non-teminated string
-      [/"/,  { token: 'string.quote', bracket: '@open', next: '@string' } ],
-
-      // characters
-      [/'[^\\']'/, 'string'],
-      [/(')(@escapes)(')/, ['string','string.escape','string']],
-      [/'/, 'string.invalid'],
+      // strings (raw, with no escape sequences, and possibly spanning lines)
+      [/"/,  { token: 'string.quote', bracket: '@open', next: '@stringDouble' } ],
+      [/'/,  { token: 'string.quote', bracket: '@open', next: '@stringSingle' } ],
 
       [/\+\+|--/, 'has'],
 
@@ -81,11 +73,14 @@ export const qd_monarch: languages.IMonarchLanguage = {
       [/[/*]/,   'comment' ]
     ],
 
-    string: [
-      [/[^\\"]+/,  'string'],
-      [/@escapes/, 'string.escape'],
-      [/\\./,      'string.escape.invalid'],
-      [/"/,        { token: 'string.quote', bracket: '@close', next: '@pop' } ]
+    stringDouble: [
+      [/[^"]+/, 'string'],
+      [/"/,     { token: 'string.quote', bracket: '@close', next: '@pop' } ]
+    ],
+
+    stringSingle: [
+      [/[^']+/, 'string'],
+      [/'/,     { token: 'string.quote', bracket: '@close', next: '@pop' } ]
     ],
 
     whitespace: [

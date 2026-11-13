@@ -254,49 +254,17 @@ pub fn db_identifier<'src>() -> impl Psr<'src, String> {
         .labelled(crate::labels::NAME)
 }
 
+/// Text within `quote` characters, taken literally: there are no escape sequences, so the text
+/// can't contain `quote` itself.
 pub fn quoted<'src>(quote: char) -> impl Psr<'src, String> {
     just(quote)
         .ignore_then(
             any()
-                .filter(move |c: &char| *c != STRING_ESCAPE_PREFIX && *c != quote)
-                .or(escape(quote))
+                .filter(move |c: &char| *c != quote)
                 .repeated()
                 .collect::<String>(),
         )
         .then_ignore(just(quote))
-}
-
-pub fn escape<'src>(quote: char) -> impl Psr<'src, char> {
-    just(STRING_ESCAPE_PREFIX).ignore_then(
-        just(STRING_ESCAPE_PREFIX)
-            .or(just('/'))
-            .or(just(quote))
-            .or(just('b').to('\x08'))
-            .or(just('f').to('\x0C'))
-            .or(just('n').to('\n'))
-            .or(just('r').to('\r'))
-            .or(just('t').to('\t'))
-            .or(just('u').ignore_then(
-                any()
-                    .filter(|c: &char| c.is_ascii_hexdigit())
-                    .repeated()
-                    .exactly(4)
-                    .collect::<String>()
-                    .labelled(crate::labels::UNICODE_ESCAPE_DIGITS)
-                    .validate(|digits, e, emitter| {
-                        char::from_u32(u32::from_str_radix(&digits, 16).unwrap()).unwrap_or_else(
-                            || {
-                                emitter.emit(Rich::custom(
-                                    e.span(),
-                                    format!("`\\u{digits}` is not a valid unicode character."),
-                                ));
-                                '\u{FFFD}' // unicode replacement character
-                            },
-                        )
-                    }),
-            ))
-            .labelled(crate::labels::ESCAPE_CHARACTER),
-    )
 }
 
 #[cfg(test)]

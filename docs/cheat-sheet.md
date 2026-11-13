@@ -35,7 +35,6 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `^` | [string flag](./language.md#flagged-strings) prefix | ❌ |
 | `{ }` | [string interpolation](./language.md#flagged-strings) | ❌ |
 | `@{ }` | [column annotations](./language.md#column-level-annotations) object (`@true`/`@false`/`@null`, whitespace-delimited, `:` between key and value) | ✅ |
-| `\` | string escape sequence prefix | ✅ |
 | `` ` `` | [identifier quote](./language.md#identifiers-table-names-and-column-names) | ✅ |
 
 ## Comparisons

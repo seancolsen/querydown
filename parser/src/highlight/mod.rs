@@ -71,8 +71,8 @@ pub fn tokenize(source: &str, grammar: Grammar) -> Vec<Token> {
 ///
 /// Each byte of a lexed token takes the kind of the innermost mark covering it, or keeps its lexed
 /// kind if no mark does. (Of two marks with the same span, the one recorded last wins; that is the
-/// outer of two nested parsers, which knows more about the context.) Comments and string escapes
-/// keep their lexed kinds, so a mark that spans one of them can't recolor it. Each lexed token is
+/// outer of two nested parsers, which knows more about the context.) Comments keep their lexed
+/// kind, so a mark that spans one can't recolor it. Each lexed token is
 /// then split wherever the kind changes; tokens are never merged, so a run of brackets stays a run
 /// of individual brackets.
 fn merge(source: &str, lexed: Vec<Token>, mut marks: Vec<Token>) -> Vec<Token> {
@@ -86,7 +86,7 @@ fn merge(source: &str, lexed: Vec<Token>, mut marks: Vec<Token>) -> Vec<Token> {
         let end = mark.span.end.min(source.len());
         let start = mark.span.start.min(end);
         for kind in kinds[start..end].iter_mut().flatten() {
-            if !matches!(kind, TokenKind::Comment | TokenKind::StringEscape) {
+            if *kind != TokenKind::Comment {
                 *kind = mark.kind;
             }
         }
