@@ -135,4 +135,14 @@ $title @{width:200 align:left tags:[a b] wrap:@true}`,
   lanes:[open closed] editable:@false note:@null
 }`,
   },
+  {
+    name: "strings",
+    title: "Flagged strings",
+    grammar: "query",
+    valid: true,
+    source: String.raw`#issues title:^^it's "done"^ description:~^/v\d+\.\d+/
+  title:^e'tab\there \u{e9} \'quoted\'' description:^f"see {title}"
+  $^f|#{id}: {title|uppercase} ({#comments} comments)| -> label
+  $^fe"{{{author.username}}}\n{status|concat("!")}" -> card`,
+  },
 ];

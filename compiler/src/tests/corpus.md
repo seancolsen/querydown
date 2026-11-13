@@ -271,6 +271,131 @@ WHERE
   lower("issues"."title" COLLATE "C") = lower('can''t' COLLATE "C");
 ```
 
+### Flagged string with a custom quote
+
+> A flagged string can be quoted with `^` (among others), so it can contain both kinds of quote.
+
+```qd
+#issues title:=^^it's "done"^ $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  lower("issues"."title" COLLATE "C") = lower('it''s "done"' COLLATE "C");
+```
+
+### Flagged string with escape sequences
+
+> The `e` flag interprets escape sequences.
+
+```qd
+#issues title:=^e'it\'s caf\u{e9}' $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  lower("issues"."title" COLLATE "C") = lower('it''s café' COLLATE "C");
+```
+
+### Format string
+
+> The `f` flag interpolates expressions into the string, via SQL `concat`.
+
+```qd
+#users $^f"{username} <{email}>" -> contact
+```
+
+```sql
+SELECT
+  concat("users"."username", ' <', "users"."email", '>') AS "contact"
+FROM "users";
+```
+
+### Format string (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+```qd
+#users $^f"{username} <{email}>" -> contact
+```
+
+```sql
+SELECT
+  concat("users"."username", ' <', "users"."email", '>') AS "contact"
+FROM "users";
+```
+
+### Format string on the right-hand side of a comparison
+
+> A bare word within an interpolation is a column reference, even on the right-hand side of a
+> comparison.
+
+```qd
+#issues description:^f"see {title}" $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower(concat('see ', "issues"."title") COLLATE "C")) > 0, FALSE);
+```
+
+### Format string containing its quote character within an interpolation
+
+> The string ends at the first quote character outside of an interpolation, so `|` can quote a
+> string whose interpolations use pipes.
+
+```qd
+#issues $^f|{title|uppercase}!| -> shout
+```
+
+```sql
+SELECT
+  concat(upper("issues"."title"), '!') AS "shout"
+FROM "issues";
+```
+
+### Format string as a search term
+
+> Like any string standing alone as a condition, a format string searches the table's text
+> columns.
+
+```qd
+#issues ^f"#{id}" $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower(concat('#', "issues"."id") COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower(concat('#', "issues"."id") COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower(concat('#', "issues"."id") COLLATE "C")) > 0, FALSE));
+```
+
+### Format string with an aggregate
+
+```qd
+#issues $project \g $^f"{%count} issues" -> summary
+```
+
+```sql
+SELECT
+  "issues"."project",
+  concat(count(*), ' issues') AS "summary"
+FROM "issues"
+GROUP BY "issues"."project";
+```
+
 ## Comparisons
 
 ### Date within a past duration of now

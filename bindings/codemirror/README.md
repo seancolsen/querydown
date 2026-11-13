@@ -302,6 +302,9 @@ returns the options a JSON Schema offers at a position within an annotation.
 | -- | -- |
 | `comment` | `// note`, `/* note */` |
 | `string` | `"open"`, `'open'`, and the bare `open` in `status:open` |
+| `string-flags` | the `^f` that begins `^f"Hi {name}"` |
+| `string-escape` | `\n` in `^e"a\nb"`, and `{{` in `^f"{{x}}"` |
+| `string-interpolation` | the `{` and `}` around `name` in `^f"Hi {name}"` |
 | `search-term` | `backend` in `#issues backend` (searches the table's text) |
 | `number`, `duration`, `date` | `42`, `3d`, `@2024-01-31` |
 | `constant` | `@true`, `@null`, `@now` |

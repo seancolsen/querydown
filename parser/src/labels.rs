@@ -32,6 +32,10 @@ pub(crate) const FUNCTION_ARROW: &str = "`=>`";
 pub(crate) const CASE_VARIANT_SEPARATOR: &str = "`~`";
 pub(crate) const CASE_FALLBACK: &str = "`~~` followed by a fallback value";
 
+pub(crate) const FLAGGED_STRING_QUOTE: &str =
+    "a quote character (`\"`, `'`, `^`, `#`, `/`, or `|`) to begin the flagged string";
+pub(crate) const HEX_DIGIT: &str = "a hexadecimal digit";
+
 pub(crate) const NUMBER: &str = "a number";
 pub(crate) const DATE: &str = "a date (e.g. `@2024-01-31`)";
 

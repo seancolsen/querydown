@@ -17,6 +17,14 @@ pub enum TokenKind {
     /// A string literal: a quoted string (`"foo"`, `'foo'`) or a bare word on the right-hand side of
     /// a comparison (the `performance` in `title:performance`). Also an unquoted annotation value.
     String,
+    /// The `^` and flags that begin a flagged string, e.g. the `^fe` of `^fe"Hi {name}\n"`.
+    StringFlags,
+    /// An escape sequence within a flagged string: a backslash sequence such as `\n` (with the `e`
+    /// flag), or a doubled brace, `{{` or `}}` (with the `f` flag).
+    StringEscape,
+    /// A brace that delimits an interpolated expression within a formatted string, e.g. the `{` and
+    /// `}` of `^f"Hi {name}"`.
+    StringInterpolation,
     /// A bare word standing alone as a condition, which searches the table's text columns, e.g.
     /// `backend` in `#issues backend`.
     SearchTerm,
@@ -88,9 +96,12 @@ pub enum TokenKind {
 
 impl TokenKind {
     /// Every kind, in declaration order.
-    pub const ALL: [TokenKind; 33] = [
+    pub const ALL: [TokenKind; 36] = [
         TokenKind::Comment,
         TokenKind::String,
+        TokenKind::StringFlags,
+        TokenKind::StringEscape,
+        TokenKind::StringInterpolation,
         TokenKind::SearchTerm,
         TokenKind::Number,
         TokenKind::Duration,
@@ -129,6 +140,9 @@ impl TokenKind {
         match self {
             TokenKind::Comment => "comment",
             TokenKind::String => "string",
+            TokenKind::StringFlags => "string-flags",
+            TokenKind::StringEscape => "string-escape",
+            TokenKind::StringInterpolation => "string-interpolation",
             TokenKind::SearchTerm => "search-term",
             TokenKind::Number => "number",
             TokenKind::Duration => "duration",

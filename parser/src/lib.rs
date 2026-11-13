@@ -4,6 +4,7 @@
 #![allow(clippy::result_large_err)]
 
 mod diagnose;
+mod flagged;
 mod labels;
 mod parser;
 mod render;

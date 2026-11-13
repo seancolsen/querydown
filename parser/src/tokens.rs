@@ -84,6 +84,22 @@ pub(crate) const SORT_EXPR_PREFIX: &str = "\\\\";
 pub(crate) const SORTING_NESTING_BRACE_L: char = '(';
 /// Closes a group of nested sorting expressions.
 pub(crate) const SORTING_NESTING_BRACE_R: char = ')';
+/// Introduces a flagged string, followed by its flags (if any) and then its opening quote, e.g. the
+/// `^` in `^f"Hello {name}"`.
+pub(crate) const STRING_FLAGS_PREFIX: char = '^';
+/// The characters that can quote a flagged string. Any of them may be chosen, so that a string can
+/// be quoted with a character it doesn't contain.
+pub(crate) const FLAGGED_STRING_QUOTES: [char; 6] = ['"', '\'', '^', '#', '/', '|'];
+/// The flagged string flag that enables formatting, i.e. interpolation via `{ }`.
+pub(crate) const STRING_FLAG_FORMAT: char = 'f';
+/// The flagged string flag that enables escape sequences.
+pub(crate) const STRING_FLAG_ESCAPE: char = 'e';
+/// Opens an interpolated expression within a formatted string, e.g. the `{` in `^f"Hi {name}"`.
+pub(crate) const STRING_INTERPOLATION_L: char = '{';
+/// Closes an interpolated expression within a formatted string.
+pub(crate) const STRING_INTERPOLATION_R: char = '}';
+/// Begins an escape sequence within a string with the escape flag, e.g. the `\` in `^e"a\nb"`.
+pub(crate) const STRING_ESCAPE: char = '\\';
 pub(crate) const STRING_QUOTE_DOUBLE: char = '"';
 pub(crate) const STRING_QUOTE_SINGLE: char = '\'';
 pub(crate) const TABLE_SIGIL: char = '#';

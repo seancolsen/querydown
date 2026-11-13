@@ -15,7 +15,9 @@
 use chumsky::error::{Rich, RichPattern, RichReason};
 
 use crate::error::{Error, ErrorKind, Span};
+use crate::flagged;
 use crate::labels;
+use crate::tokens::{STRING_FLAGS_PREFIX, STRING_INTERPOLATION_L, STRING_INTERPOLATION_R};
 
 /// Builds the [`Error`] for a failed parse of `source`, given the errors Chumsky reported.
 pub(crate) fn diagnose(source: &str, errors: Vec<Rich<'_, char>>) -> Error {
@@ -236,8 +238,13 @@ enum Problem {
         close: char,
         close_at: usize,
     },
-    /// A string (or quoted identifier) that is never closed.
-    UnterminatedString { quote: char, at: usize },
+    /// A string (or quoted identifier) that is never closed. `flagged` is whether it's a flagged
+    /// string (e.g. `^f"…`), in which case `at` is the offset of its `^`.
+    UnterminatedString {
+        quote: char,
+        at: usize,
+        flagged: bool,
+    },
     /// A `/* block comment */` that is never closed.
     UnterminatedComment { at: usize },
 }
@@ -258,11 +265,46 @@ fn opener_for(close: char) -> char {
     }
 }
 
+/// A flagged string found by [`scan`].
+#[derive(Clone, Copy)]
+struct FlaggedString {
+    prefix: flagged::Prefix,
+    /// The offset of its `^`.
+    at: usize,
+}
+
+/// Where the scan of a flagged string's body stopped.
+enum BodyEnd {
+    /// At the end of the string; the offset just past its closing quote.
+    Closed(usize),
+    /// At the offset of the `{` that begins an interpolation.
+    Interpolation(usize),
+    /// At the end of the input.
+    Unterminated,
+}
+
+/// Scans the body of a flagged `string` from offset `i`.
+fn scan_flagged_body(source: &str, mut i: usize, string: FlaggedString) -> BodyEnd {
+    use flagged::Piece;
+    loop {
+        match flagged::piece(&source[i..], &string.prefix) {
+            Piece::Text(len) | Piece::Escape(len) => i += len,
+            Piece::StrayBrace => i += STRING_INTERPOLATION_R.len_utf8(),
+            Piece::Interpolation => return BodyEnd::Interpolation(i),
+            Piece::Close => return BodyEnd::Closed(i + string.prefix.quote.len_utf8()),
+            Piece::End => return BodyEnd::Unterminated,
+        }
+    }
+}
+
 /// Finds the first delimiter problem in `source`, if any, skipping over the contents of strings,
 /// quoted identifiers, and comments in the same way the parser does.
 fn scan(source: &str) -> Option<Problem> {
     let bytes = source.as_bytes();
     let mut stack: Vec<(char, usize)> = Vec::new();
+    // The flagged strings whose interpolations the scan is within, innermost last, each with the
+    // depth of the `stack` at which its interpolation's `{` sits.
+    let mut interpolations: Vec<(FlaggedString, usize)> = Vec::new();
     let mut i = 0;
     // All of the delimiters we care about are ASCII, so it is safe to scan byte-by-byte: in UTF-8,
     // the bytes of a multi-byte character never fall in the ASCII range.
@@ -301,11 +343,62 @@ fn scan(source: &str) -> Option<Problem> {
                 i += 1;
                 loop {
                     match bytes.get(i).map(|b| *b as char) {
-                        None => return Some(Problem::UnterminatedString { quote: c, at }),
+                        None => {
+                            return Some(Problem::UnterminatedString {
+                                quote: c,
+                                at,
+                                flagged: false,
+                            })
+                        }
                         Some(q) if q == c => break,
                         Some(_) => i += 1,
                     }
                 }
+            }
+            (STRING_FLAGS_PREFIX, _) => {
+                if let Some(prefix) = flagged::prefix(&source[i..]) {
+                    let string = FlaggedString { prefix, at: i };
+                    match scan_flagged_body(source, i + prefix.len(), string) {
+                        BodyEnd::Closed(end) => i = end,
+                        BodyEnd::Interpolation(brace) => {
+                            stack.push((STRING_INTERPOLATION_L, brace));
+                            interpolations.push((string, stack.len()));
+                            i = brace + 1;
+                        }
+                        BodyEnd::Unterminated => {
+                            return Some(Problem::UnterminatedString {
+                                quote: prefix.quote,
+                                at: string.at,
+                                flagged: true,
+                            })
+                        }
+                    }
+                    continue;
+                }
+            }
+            (STRING_INTERPOLATION_R, _)
+                if interpolations
+                    .last()
+                    .is_some_and(|(_, depth)| *depth == stack.len()) =>
+            {
+                stack.pop();
+                let (string, _) = interpolations.pop().expect("within an interpolation");
+                match scan_flagged_body(source, i + 1, string) {
+                    BodyEnd::Closed(end) => i = end,
+                    BodyEnd::Interpolation(brace) => {
+                        stack.push((STRING_INTERPOLATION_L, brace));
+                        interpolations.push((string, stack.len()));
+                        i = brace + 1;
+                    }
+                    BodyEnd::Unterminated => {
+                        return Some(Problem::UnterminatedString {
+                            quote: string.prefix.quote,
+                            at: string.at,
+                            flagged: true,
+                        })
+                    }
+                }
+                continue;
             }
             ('(' | '[' | '{', _) => stack.push((c, i)),
             (')' | ']' | '}', _) => match stack.pop() {
@@ -405,9 +498,17 @@ fn reconcile(source: &str, parser_error: Error, problem: Option<Problem>) -> Err
             err.found = Some("end of input".to_string());
             err
         }
-        Problem::UnterminatedString { quote, at } if parser_hit_end => {
+        Problem::UnterminatedString { quote, at, flagged } if parser_hit_end => {
             let quote_code = code(&quote.to_string());
             let (what, hint) = match quote {
+                _ if flagged => (
+                    "string",
+                    format!(
+                        " To include a literal {quote_code} within the string, quote it with a \
+                         character it doesn't contain, or escape it as `\\{quote}` with the \
+                         `e` flag."
+                    ),
+                ),
                 '`' => ("quoted identifier", String::new()),
                 _ => {
                     let other = if quote == '"' { '\'' } else { '"' };
@@ -481,15 +582,51 @@ mod tests {
         );
         assert_eq!(
             scan("#t a:\"abc"),
-            Some(UnterminatedString { quote: '"', at: 5 })
+            Some(UnterminatedString {
+                quote: '"',
+                at: 5,
+                flagged: false
+            })
         );
         assert_eq!(
             scan("#t a:'it's'"),
             Some(UnterminatedString {
                 quote: '\'',
-                at: 10
+                at: 10,
+                flagged: false
             })
         );
+        // Flagged strings, whose interpolations are code.
+        assert_eq!(scan(r#"#t a:^^(^ b:^/[/ c:^f|{x|y}(| d:^e'\'(' (1)"#), None);
+        assert_eq!(scan(r#"#t a:^f"{ [x] ^f'{(y)}' }" b:(1)"#), None);
+        assert_eq!(
+            scan(r#"#t a:^f"{x" (1)"#),
+            Some(UnterminatedString {
+                quote: '"',
+                at: 10,
+                flagged: false
+            })
+        );
+        assert_eq!(
+            scan(r#"#t a:^f"{x}"#),
+            Some(UnterminatedString {
+                quote: '"',
+                at: 5,
+                flagged: true
+            })
+        );
+        assert_eq!(
+            scan(r#"#t a:^f"{(x}""#),
+            Some(Mismatched {
+                open: '(',
+                open_at: 9,
+                close: '}',
+                close_at: 11
+            })
+        );
+        assert_eq!(scan(r#"#t a:^f"{x"#), Some(Unclosed { open: '{', at: 8 }));
+        // A `}` that closes nothing within a formatted string is the parser's to report.
+        assert_eq!(scan(r#"#t a:^f"}" (1)"#), None);
         assert_eq!(scan("#t /* a /* b */"), Some(UnterminatedComment { at: 3 }));
         // A problem inside a string or comment is ignored; the first real one is reported.
         assert_eq!(

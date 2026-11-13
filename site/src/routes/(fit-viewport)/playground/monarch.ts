@@ -41,6 +41,8 @@ export const qd_monarch: languages.IMonarchLanguage = {
       // strings (raw, with no escape sequences, and possibly spanning lines)
       [/"/,  { token: 'string.quote', bracket: '@open', next: '@stringDouble' } ],
       [/'/,  { token: 'string.quote', bracket: '@open', next: '@stringSingle' } ],
+      // flagged strings, e.g. `^f"Hi {name}"`: the state's arguments are the quote and the flags
+      [/\^([a-zA-Z]*)(["'^#/|])/, { token: 'string.flags', next: '@flagged.$2.$1' } ],
 
       [/\+\+|--/, 'has'],
 
@@ -83,6 +85,25 @@ export const qd_monarch: languages.IMonarchLanguage = {
       [/'/,     { token: 'string.quote', bracket: '@close', next: '@pop' } ]
     ],
 
+    flagged: [
+      [/\\/, { cases: { '$S3~.*e.*': { token: 'string.escape', next: '@escape' }, '@default': 'string' } } ],
+      [/\{\{|\}\}/, { cases: { '$S3~.*f.*': 'string.escape', '@default': 'string' } } ],
+      [/\{/, { cases: { '$S3~.*f.*': { token: 'string.interpolation', next: '@interpolation' }, '@default': 'string' } } ],
+      [/[^\\{}"'^#/|]+/, 'string'],
+      [/./, { cases: { '$#==$S2': { token: 'string.quote', next: '@pop' }, '@default': 'string' } } ],
+    ],
+
+    // what follows a backslash in a string with the `e` flag
+    escape: [
+      [/u\{[0-9a-fA-F]*\}?|./, { token: 'string.escape', next: '@pop' } ],
+    ],
+
+    // the code within a formatted string's `{ }`
+    interpolation: [
+      [/\}/, { token: 'string.interpolation', next: '@pop' } ],
+      { include: '@root' },
+    ],
+
     whitespace: [
       [/[ \t\r\n]+/, 'white'],
       [/\/\*/,       'comment', '@comment' ],
@@ -115,5 +136,8 @@ export const qd_theme: editor.IStandaloneThemeData = {
     { token: 'invalid', foreground: 'ffa1a6', fontStyle: 'strikethrough' },
     { token: 'alias-prefix', foreground: 'a5a5a5' },
     { token: 'alias', foreground: '7e52a5', fontStyle: 'italic' },
+    { token: 'string.flags', fontStyle: 'bold' },
+    { token: 'string.escape', foreground: 'c4510f', fontStyle: 'bold' },
+    { token: 'string.interpolation', foreground: 'c4510f', fontStyle: 'bold' },
   ],
 };

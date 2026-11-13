@@ -67,6 +67,10 @@ fn contains_aggregate(expr: &Expr) -> bool {
         | ExprKind::Sum(a, b)
         | ExprKind::Difference(a, b) => contains_aggregate(a) || contains_aggregate(b),
         ExprKind::Not(e) => contains_aggregate(e),
+        ExprKind::FormatString(parts) => parts
+            .iter()
+            .filter_map(|p| p.expr())
+            .any(contains_aggregate),
         ExprKind::Case(case) => {
             case.variants
                 .iter()

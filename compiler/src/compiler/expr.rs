@@ -35,6 +35,7 @@ fn convert_expr_kind(kind: ExprKind, loc: Loc, scope: &mut Scope) -> Result<SqlE
         ExprKind::Date(d) => Ok(SqlExpr::atom(scope.options.dialect.date(&d))),
         ExprKind::Duration(d) => Ok(SqlExpr::atom(scope.options.dialect.duration(&d))),
         ExprKind::String(s) => Ok(SqlExpr::atom(scope.options.dialect.quote_string(&s))),
+        ExprKind::FormatString(parts) => convert_format_string(parts, scope),
         ExprKind::Variable(v) => convert_variable(&v, scope),
         ExprKind::Path(p) => convert_path(p, scope),
         ExprKind::ConditionSet(cs) => convert_condition_set(cs, scope),
@@ -74,6 +75,24 @@ fn convert_expr_kind(kind: ExprKind, loc: Loc, scope: &mut Scope) -> Result<SqlE
         ExprKind::AnonymousFunctionCall(c) => convert_anonymous_function_call(*c, scope),
         ExprKind::Subquery(q) => super::convert_subquery(*q, scope),
     }
+}
+
+/// Compiles a format string (`^f"Hello {username}!"`) to SQL `concat`, which converts each
+/// interpolated value to text and treats a NULL as empty text.
+fn convert_format_string(
+    parts: Vec<FormatStringPart>,
+    scope: &mut Scope,
+) -> Result<SqlExpr, Error> {
+    let args = parts
+        .into_iter()
+        .map(|part| match part {
+            FormatStringPart::Text(text) => {
+                Ok(SqlExpr::atom(scope.options.dialect.quote_string(&text)))
+            }
+            FormatStringPart::Expr(expr) => convert_expr(expr, scope),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(strings::concat(args))
 }
 
 fn convert_variable(variable: &str, scope: &mut Scope) -> Result<SqlExpr, Error> {
@@ -239,7 +258,8 @@ pub fn convert_condition_set(
 ///
 /// A bare string standing alone as a boolean condition is a default text search term. The parser
 /// produces this for an unquoted bare word as well as a quoted string (see the `condition_entry`
-/// parser); a backtick-quoted identifier remains an `ExprKind::Path` and so is treated as an
+/// parser). A format string is a search term too, for the text it produces. A backtick-quoted
+/// identifier remains an `ExprKind::Path` and so is treated as an
 /// ordinary column reference here.
 ///
 /// A `!`-prefixed search term (`!backend`) arrives as an `ExprKind::Not` wrapping the string. The `Not`
@@ -249,14 +269,16 @@ pub fn convert_condition_set(
 fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let loc = entry.loc;
     match entry.kind {
-        ExprKind::String(term) => convert_default_text_search(term, loc, scope),
+        kind @ (ExprKind::String(_) | ExprKind::FormatString(_)) => {
+            convert_default_text_search(kind, loc, scope)
+        }
         ExprKind::Not(inner) => Ok(cond::not(convert_condition_set_entry(*inner, scope)?)),
         kind => convert_expr(Expr::new(kind, loc), scope),
     }
     .map_err(|err| err.or_at(loc))
 }
 
-/// Compiles a default text search for `term` against the scope's current table — the base table, or,
+/// Compiles a default text search for `term` (a string or format string) against the scope's current table — the base table, or,
 /// when a [scoped condition set](convert_scoped_condition_set) is being compiled, the related table
 /// the scope points at. If that table has a `__querydown_default_text_search` custom comparison
 /// defined, that comparison configures the search. Otherwise the search is an `OR` across all of the
@@ -269,7 +291,7 @@ fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr
 ///
 /// The expressions synthesized for the search are all located at the search term, `loc`.
 fn convert_default_text_search(
-    term: String,
+    term: ExprKind,
     loc: Loc,
     scope: &mut Scope,
 ) -> Result<SqlExpr, Error> {
@@ -277,7 +299,7 @@ fn convert_default_text_search(
         let path = vec![PathPart::new(PathPartKind::Column(name), loc)];
         ComparisonSide::Expr(Expr::new(ExprKind::Path(path), loc))
     };
-    let search_term = || ComparisonSide::Expr(Expr::new(ExprKind::String(term.clone()), loc));
+    let search_term = || ComparisonSide::Expr(Expr::new(term.clone(), loc));
     let table = get_prefix_table(scope)?;
     let table_name = table.name.clone();
 

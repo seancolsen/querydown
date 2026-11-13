@@ -2,7 +2,7 @@
 //! is somewhere completion doesn't apply.
 
 use querydown_parser::ast::{PathPart, PathPartKind, TableWithMany};
-use querydown_parser::highlight::{Token, TokenKind};
+use querydown_parser::highlight::{self, Token, TokenKind};
 
 use super::annotation::{self, AnnotationPosition};
 use super::unquote;
@@ -120,8 +120,21 @@ fn site_kind(source: &str, cursor: usize, word_start: usize, tokens: &[Token]) -
 }
 
 /// Whether the cursor is within (not just after) a quoted string, a quoted identifier or a comment.
+/// The code within a formatted string's interpolation isn't within the string.
 fn within_string_or_comment(source: &str, cursor: usize, tokens: &[Token]) -> bool {
-    tokens.iter().any(|token| {
+    let runs = highlight::flagged_text_runs(source);
+    let within_run = |run: &highlight::TextRun| {
+        run.span.start < cursor && (cursor < run.span.end || (cursor == run.span.end && run.open))
+    };
+    if runs.iter().any(within_run) {
+        return true;
+    }
+    // A flagged string's text is covered by its runs; the checks below are for other strings.
+    let in_runs = |token: &Token| {
+        runs.iter()
+            .any(|run| run.span.start <= token.span.start && token.span.end <= run.span.end)
+    };
+    tokens.iter().filter(|token| !in_runs(token)).any(|token| {
         let text = &source[token.span.clone()];
         if token.span.start >= cursor || token.span.end < cursor {
             return false;
@@ -146,22 +159,56 @@ fn within_string_or_comment(source: &str, cursor: usize, tokens: &[Token]) -> bo
     })
 }
 
-/// The brackets that are open at `position`, innermost last, as `(offset, character)` pairs.
-pub(super) fn open_brackets(source: &str, position: usize, tokens: &[Token]) -> Vec<(usize, char)> {
-    let mut stack: Vec<(usize, char)> = vec![];
+/// A bracket that is open at some position.
+pub(super) struct OpenBracket {
+    /// Its offset.
+    pub at: usize,
+    /// The bracket, e.g. `(`.
+    pub open: char,
+    /// The text that closes it: its closing bracket, or for an interpolation within a formatted
+    /// string, the `}` and then the string's closing quote.
+    pub close: String,
+}
+
+/// The brackets that are open at `position`, innermost last.
+pub(super) fn open_brackets(source: &str, position: usize, tokens: &[Token]) -> Vec<OpenBracket> {
+    let mut stack: Vec<OpenBracket> = vec![];
+    let mut runs = None;
     for token in tokens {
         if token.span.start >= position {
             break;
         }
-        if token.kind != TokenKind::Bracket {
-            continue;
-        }
         let c = source[token.span.clone()].chars().next().unwrap_or(' ');
-        match c {
-            '(' | '[' | '{' => stack.push((token.span.start, c)),
-            ')' | ']' | '}' => {
-                if stack.last().is_some_and(|(_, open)| closing(*open) == c) {
+        match (token.kind, c) {
+            (TokenKind::Bracket, '(' | '[' | '{') => stack.push(OpenBracket {
+                at: token.span.start,
+                open: c,
+                close: closing(c).to_string(),
+            }),
+            (TokenKind::Bracket, ')' | ']' | '}') => {
+                if stack
+                    .last()
+                    .is_some_and(|b| b.close == closing(c).to_string())
+                {
                     stack.pop();
+                }
+            }
+            (TokenKind::StringInterpolation, '{') => {
+                // The text run that the interpolation ends gives the string's quote.
+                let runs = runs.get_or_insert_with(|| highlight::flagged_text_runs(source));
+                let Some(run) = runs.iter().find(|run| run.span.end == token.span.start) else {
+                    continue;
+                };
+                stack.push(OpenBracket {
+                    at: token.span.start,
+                    open: c,
+                    close: format!("}}{}", run.quote),
+                });
+            }
+            (TokenKind::StringInterpolation, '}') => {
+                // This also closes any brackets left open within the interpolation.
+                if let Some(i) = stack.iter().rposition(|b| b.close.len() > 1) {
+                    stack.truncate(i);
                 }
             }
             _ => {}
@@ -170,7 +217,7 @@ pub(super) fn open_brackets(source: &str, position: usize, tokens: &[Token]) -> 
     stack
 }
 
-pub(super) fn closing(open: char) -> char {
+fn closing(open: char) -> char {
     match open {
         '(' => ')',
         '[' => ']',
@@ -184,7 +231,7 @@ fn closes_window(source: &str, close: usize, tokens: &[Token]) -> bool {
     let before = open_brackets(source, close, tokens);
     let after = open_brackets(source, close + 1, tokens);
     match before.last() {
-        Some((open, '(')) if after.len() < before.len() => source[..*open].ends_with("%%"),
+        Some(b) if b.open == '(' && after.len() < before.len() => source[..b.at].ends_with("%%"),
         _ => false,
     }
 }

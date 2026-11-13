@@ -208,6 +208,73 @@ fn test_literals() {
 }
 
 #[test]
+fn test_flagged_strings() {
+    check(
+        Conditions,
+        r#"a:^"x" b:^^it's "y"^ c:^/v\d+/ d:^e'\n\'\u{e9}' e:^f"{{x}}""#,
+        r#"a:column ::comparison-operator ^:string-flags "x":string b:column ::comparison-operator ^:string-flags ^it's "y"^:string c:column ::comparison-operator ^:string-flags /v\d+/:string d:column ::comparison-operator ^e:string-flags ':string \n:string-escape \':string-escape \u{e9}:string-escape ':string e:column ::comparison-operator ^f:string-flags ":string {{:string-escape x:string }}:string-escape ":string"#,
+    );
+    // An interpolation is code, in which a bare word is a column even on the right of a comparison,
+    // and in which the quote character doesn't end the string.
+    check(
+        Conditions,
+        r#"title:^f|Re: {subject|upper} ({#comments})|"#,
+        r#"title:column ::comparison-operator ^f:string-flags |Re: :string {:string-interpolation subject:column |:pipe upper:function }:string-interpolation  (:string {:string-interpolation #comments:table }:string-interpolation )|:string"#,
+    );
+    // Nested strings and condition sets within an interpolation.
+    check(
+        Display,
+        r#"$^f"a{^f"b{c}"}d{ {x y} }""#,
+        r#"$:result-column ^f:string-flags "a:string {:string-interpolation ^f:string-flags "b:string {:string-interpolation c:column }:string-interpolation ":string }:string-interpolation d:string {:string-interpolation {:bracket x:search-term y:search-term }:bracket }:string-interpolation ":string"#,
+    );
+}
+
+#[test]
+fn test_invalid_flagged_strings() {
+    // A lone `}` in a formatted string, and a `^` that begins no string.
+    check(
+        Conditions,
+        r#"a:^f"}" b:^x"#,
+        r#"a:column ::comparison-operator ^f:string-flags ":string }:invalid ":string b:column ::comparison-operator ^:invalid x:column"#,
+    );
+    // Unterminated, and within an unterminated interpolation.
+    check(
+        Conditions,
+        r#"a:^e"x\"#,
+        r#"a:column ::comparison-operator ^e:string-flags "x:string \:string-escape"#,
+    );
+    check(
+        Conditions,
+        r#"a:^f"x{(y]"#,
+        r#"a:column ::comparison-operator ^f:string-flags "x:string {:string-interpolation (:bracket y:column ]:bracket"#,
+    );
+}
+
+#[test]
+fn test_flagged_text_runs() {
+    fn runs(source: &str) -> Vec<(&str, bool)> {
+        flagged_text_runs(source)
+            .into_iter()
+            .map(|run| (&source[run.span], run.open))
+            .collect()
+    }
+    assert_eq!(runs(r#"a:^"x" b"#), vec![(r#"^"x""#, false)]);
+    assert_eq!(
+        runs(r#"^f"a{b}c{^'d'}"#),
+        vec![
+            (r#"^f"a"#, true),
+            ("}c", true),
+            ("^'d'", false),
+            ("}", true)
+        ]
+    );
+    assert_eq!(
+        runs(r#"^f"a{b}c""#),
+        vec![(r#"^f"a"#, true), (r#"}c""#, false)]
+    );
+}
+
+#[test]
 fn test_operators() {
     // `*` is multiplication or a glob, and `-` is subtraction, negation, or (doubled) a quantity.
     check(
@@ -283,7 +350,8 @@ fn test_every_prefix_is_well_formed() {
     let query = "@@f = @a => @a + 1\n#t.c = x|f\n#issues /* c */ title:~[\"a\\n\" b] \
                  ++#comments(author){x} due:@2024-01-01..<@now created:3d..1y6m \
                  \\\\created_at \\d $author.* $%count -> total \\s2d @{w:100 t:[a b] ok:@true} \
-                 $? s:=1 ~ 'é' ~~ -1.5 $%%(a\\p d\\s)%sum(x) ~~~ $*(id\\h) $`naïve`.( $y )";
+                 $? s:=1 ~ 'é' ~~ -1.5 $%%(a\\p d\\s)%sum(x) ~~~ $*(id\\h) $`naïve`.( $y ) \
+                 $^fe|a\\n{{{x|f(^'é')}}}|";
     for grammar in [Query, Definitions, Conditions, Sorting, Display] {
         for (end, _) in query.char_indices() {
             let source = &query[..end];

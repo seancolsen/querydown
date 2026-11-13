@@ -5,7 +5,10 @@
 //! word after `|` is a function name). Where the parser succeeds, the semantic marks it records
 //! override these guesses; see the [module documentation](super).
 
+use std::ops::Range;
+
 use super::{Token, TokenKind, BUILTIN_CONSTANTS};
+use crate::flagged::{self, Piece, Prefix};
 use crate::tokens::*;
 
 /// Characters that may follow a backslash to form column control or sort flags, e.g. `\sd2`.
@@ -41,15 +44,47 @@ fn is_ident_continue(c: char) -> bool {
 
 /// Splits `src` into tokens covering every non-whitespace character, in order and without overlap.
 pub(super) fn lex(src: &str) -> Vec<Token> {
+    lexer(src).tokens
+}
+
+/// The runs of literal text within the flagged strings of `src` (see [`TextRun`]).
+pub(super) fn flagged_text_runs(src: &str) -> Vec<TextRun> {
+    lexer(src).runs
+}
+
+fn lexer(src: &str) -> Lexer<'_> {
     let mut lexer = Lexer {
         src,
         pos: 0,
         tokens: Vec::new(),
         context: Context::None,
         brackets: Vec::new(),
+        interpolations: Vec::new(),
+        runs: Vec::new(),
     };
     lexer.run();
-    lexer.tokens
+    lexer
+}
+
+/// A run of a flagged string that is literal text rather than code: from the start of the string, or
+/// from the `}` that ends an interpolation, through the closing quote, or up to the `{` that begins
+/// an interpolation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextRun {
+    pub span: Range<usize>,
+    /// Whether the text continues past the end of the run: the run ends at an interpolation, or at
+    /// the end of the input before a closing quote.
+    pub open: bool,
+    /// The string's quote character.
+    pub quote: char,
+}
+
+/// An interpolation within a flagged string that the lexer is inside of.
+struct Interpolation {
+    /// The string's prefix, with which to read the rest of the string after the interpolation.
+    prefix: Prefix,
+    /// The number of brackets open outside the interpolation.
+    depth: usize,
 }
 
 /// What the previous significant token implies about how to read a following word.
@@ -74,8 +109,12 @@ struct Lexer<'a> {
     pos: usize,
     tokens: Vec<Token>,
     context: Context,
-    /// For each open bracket, whether bare words within it are string literals.
+    /// For each open bracket, whether bare words within it are string literals. An interpolation's
+    /// `{` counts as a bracket within which bare words are not string literals.
     brackets: Vec<bool>,
+    /// The interpolations the lexer is inside of, innermost last.
+    interpolations: Vec<Interpolation>,
+    runs: Vec<TextRun>,
 }
 
 impl Lexer<'_> {
@@ -163,6 +202,21 @@ impl Lexer<'_> {
             STRING_QUOTE_DOUBLE | STRING_QUOTE_SINGLE => {
                 self.quoted(c, K::String);
                 self.context = Context::None;
+            }
+            STRING_FLAGS_PREFIX => match flagged::prefix(self.rest()) {
+                Some(prefix) => {
+                    let start = self.pos;
+                    self.push(K::StringFlags, prefix.flags_len);
+                    self.flagged_string_body(prefix, start, prefix.quote.len_utf8());
+                }
+                None => self.emit(K::Invalid, c.len_utf8(), Context::None),
+            },
+            STRING_INTERPOLATION_R if self.at_interpolation_end() => {
+                let interpolation = self.interpolations.pop().expect("within an interpolation");
+                self.brackets.pop();
+                let start = self.pos;
+                self.push(K::StringInterpolation, c.len_utf8());
+                self.flagged_string_body(interpolation.prefix, start, 0);
             }
             DB_IDENTIFIER_QUOTE => {
                 // A backtick-quoted identifier is a column reference even where a bare word would
@@ -259,7 +313,11 @@ impl Lexer<'_> {
                 self.emit(K::Bracket, 1, Context::None);
             }
             ')' | ']' | '}' => {
-                self.brackets.pop();
+                // A mismatched bracket within an interpolation doesn't close the interpolation.
+                let within = self.interpolations.last().map_or(0, |i| i.depth + 1);
+                if self.brackets.len() > within {
+                    self.brackets.pop();
+                }
                 self.emit(K::Bracket, 1, Context::None);
             }
             _ if is_ident_start(c) => {
@@ -271,6 +329,73 @@ impl Lexer<'_> {
                 self.emit(kind, len, Context::None);
             }
             _ => self.emit(K::Invalid, c.len_utf8(), Context::None),
+        }
+    }
+
+    /// Whether the next character closes the innermost interpolation, i.e. no bracket is open
+    /// within it.
+    fn at_interpolation_end(&self) -> bool {
+        self.interpolations
+            .last()
+            .is_some_and(|i| self.brackets.len() == i.depth + 1)
+    }
+
+    /// Lexes the body of a flagged string with the given `prefix` from `pos`, given that the first
+    /// `text` bytes there (e.g. its opening quote) are already known to be text. The text run being
+    /// lexed began at `run_start`. This stops at the end of the string, or after the `{` that begins
+    /// an interpolation, leaving the interpolation's code to be lexed as usual until its `}`.
+    fn flagged_string_body(&mut self, prefix: Prefix, run_start: usize, mut text: usize) {
+        use TokenKind as K;
+        self.context = Context::None;
+        loop {
+            match flagged::piece(&self.rest()[text..], &prefix) {
+                Piece::Text(len) => text += len,
+                Piece::Close | Piece::End => {
+                    let closed = self.rest()[text..].starts_with(prefix.quote);
+                    if closed {
+                        text += prefix.quote.len_utf8();
+                    }
+                    self.push_text(text);
+                    self.runs.push(TextRun {
+                        span: run_start..self.pos,
+                        open: !closed,
+                        quote: prefix.quote,
+                    });
+                    return;
+                }
+                Piece::Escape(len) => {
+                    self.push_text(text);
+                    text = 0;
+                    self.push(K::StringEscape, len);
+                }
+                Piece::StrayBrace => {
+                    self.push_text(text);
+                    text = 0;
+                    self.push(K::Invalid, STRING_INTERPOLATION_R.len_utf8());
+                }
+                Piece::Interpolation => {
+                    self.push_text(text);
+                    self.runs.push(TextRun {
+                        span: run_start..self.pos,
+                        open: true,
+                        quote: prefix.quote,
+                    });
+                    self.push(K::StringInterpolation, STRING_INTERPOLATION_L.len_utf8());
+                    self.interpolations.push(Interpolation {
+                        prefix,
+                        depth: self.brackets.len(),
+                    });
+                    self.brackets.push(false);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Pushes the given number of bytes of a flagged string's text, if any.
+    fn push_text(&mut self, len: usize) {
+        if len > 0 {
+            self.push(TokenKind::String, len);
         }
     }
 

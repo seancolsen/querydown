@@ -563,3 +563,141 @@ fn query_annotation_not_an_object() {
         ],
     );
 }
+
+#[test]
+fn unknown_string_flag() {
+    assert_render(
+        parse,
+        r#"#issues title:^x"a""#,
+        &[
+            "syntax error: Unknown string flag `x`. The flags are `f` (format) and `e` (escape).",
+            " --> line 1, column 16",
+            "  |",
+            r#"1 | #issues title:^x"a""#,
+            "  |                ^",
+        ],
+    );
+}
+
+#[test]
+fn repeated_string_flag() {
+    assert_render(
+        parse,
+        r#"#issues title:^ff"a""#,
+        &[
+            "syntax error: Repeated string flag `f`.",
+            " --> line 1, column 17",
+            "  |",
+            r#"1 | #issues title:^ff"a""#,
+            "  |                 ^",
+        ],
+    );
+}
+
+#[test]
+fn missing_flagged_string_quote() {
+    assert_render(
+        parse,
+        r#"#issues title:^f "a""#,
+        &[
+            "syntax error: Unexpected ` `. Expected a quote character (`\"`, `'`, `^`, `#`, `/`, \
+             or `|`) to begin the flagged string.",
+            " --> line 1, column 17",
+            "  |",
+            r#"1 | #issues title:^f "a""#,
+            "  |                 ^",
+        ],
+    );
+}
+
+#[test]
+fn unknown_escape_sequence() {
+    assert_render(
+        parse,
+        r#"#issues title:^fe"a\d""#,
+        &[
+            "syntax error: Unknown escape sequence `\\d`. The escape sequences are `\\\\`, `\\n`, \
+             `\\t`, `\\r`, `\\u{…}`, `\\{`, `\\}`, and `\\\"`.",
+            " --> line 1, column 20",
+            "  |",
+            r#"1 | #issues title:^fe"a\d""#,
+            "  |                    ^^",
+        ],
+    );
+}
+
+#[test]
+fn invalid_unicode_escape_sequence() {
+    assert_render(
+        parse,
+        r#"#issues title:^e"\u{zz}""#,
+        &[
+            "syntax error: Invalid Unicode escape sequence. Write a code point as `\\u{…}` with one \
+             to six hexadecimal digits, e.g. `\\u{e9}`.",
+            " --> line 1, column 18",
+            "  |",
+            r#"1 | #issues title:^e"\u{zz}""#,
+            "  |                  ^^",
+        ],
+    );
+    assert_render(
+        parse,
+        r#"#issues title:^e"\u{110000}""#,
+        &[
+            "syntax error: `\\u{110000}` is not a valid Unicode character.",
+            " --> line 1, column 18",
+            "  |",
+            r#"1 | #issues title:^e"\u{110000}""#,
+            "  |                  ^^^^^^^^^^",
+        ],
+    );
+}
+
+#[test]
+fn lone_closing_brace_in_formatted_string() {
+    assert_render(
+        parse,
+        r#"#issues title:^f"a}b""#,
+        &[
+            "syntax error: Unmatched `}` in a formatted string. Write `}}` for a literal `}`.",
+            " --> line 1, column 19",
+            "  |",
+            r#"1 | #issues title:^f"a}b""#,
+            "  |                   ^",
+        ],
+    );
+}
+
+#[test]
+fn empty_interpolation() {
+    assert_render(
+        parse,
+        r#"#issues title:^f"a{}b""#,
+        &[
+            "syntax error: Unexpected `}`. Expected a value.",
+            " --> line 1, column 20",
+            "  |",
+            r#"1 | #issues title:^f"a{}b""#,
+            "  |                    ^",
+        ],
+    );
+}
+
+#[test]
+fn unterminated_flagged_string() {
+    assert_render(
+        parse,
+        r#"#issues title:^f"a{b}"#,
+        &[
+            "syntax error: Unterminated string. Expected a closing `\"`.",
+            " --> line 1, column 15",
+            "  |",
+            r#"1 | #issues title:^f"a{b}"#,
+            "  |               ^",
+            "  |",
+            "  = hint: Add a `\"` where the string should end. To include a literal `\"` within the \
+             string, quote it with a character it doesn't contain, or escape it as `\\\"` with the \
+             `e` flag.",
+        ],
+    );
+}

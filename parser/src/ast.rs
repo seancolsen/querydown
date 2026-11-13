@@ -366,6 +366,10 @@ pub enum ExprKind {
     Date(Date),
     Duration(Duration),
     String(String),
+    /// A string with interpolated expressions, written as a flagged string with the `f` flag, e.g.
+    /// `^f"Hello {username}!"`. It always has at least one [`FormatStringPart::Expr`]; a flagged
+    /// string without one is an [`ExprKind::String`].
+    FormatString(Vec<FormatStringPart>),
     Variable(String),
     Path(Vec<PathPart>),
     ConditionSet(ConditionSet),
@@ -394,6 +398,33 @@ pub enum ExprKind {
     /// is inlined as a parenthesized `(SELECT ...)`. This is what gives a constant defined via
     /// `@name = #( ... )` its value.
     Subquery(Box<Query>),
+}
+
+/// A piece of a [format string](ExprKind::FormatString).
+#[derive(Debug, Clone, PartialEq)]
+pub enum FormatStringPart {
+    /// Literal text, with any escape sequences already interpreted. Never empty.
+    Text(String),
+    /// An interpolated expression, the `username` in `^f"Hello {username}!"`.
+    Expr(Expr),
+}
+
+impl FormatStringPart {
+    /// The interpolated expression, if this is one.
+    pub fn expr(&self) -> Option<&Expr> {
+        match self {
+            FormatStringPart::Expr(expr) => Some(expr),
+            FormatStringPart::Text(_) => None,
+        }
+    }
+
+    /// The interpolated expression, mutably, if this is one.
+    pub fn expr_mut(&mut self) -> Option<&mut Expr> {
+        match self {
+            FormatStringPart::Expr(expr) => Some(expr),
+            FormatStringPart::Text(_) => None,
+        }
+    }
 }
 
 /// An anonymous function applied to arguments, written as `value|(@param => body)`. The piped-in

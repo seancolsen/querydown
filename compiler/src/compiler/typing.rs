@@ -43,7 +43,7 @@ pub fn infer_type(expr: &Expr, scope: &mut Scope) -> ValueType {
     match &expr.kind {
         ExprKind::Number(_) => ValueType::Number,
         ExprKind::Date(_) => ValueType::Date,
-        ExprKind::String(_) => ValueType::Text,
+        ExprKind::String(_) | ExprKind::FormatString(_) => ValueType::Text,
         // A duration literal has no dedicated value type; it only ever appears as the right-hand side
         // of the date/duration comparison magic, which matches it structurally rather than by type.
         ExprKind::Duration(_) => ValueType::Unknown,

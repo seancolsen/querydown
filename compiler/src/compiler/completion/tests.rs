@@ -503,7 +503,36 @@ fn nothing_within_strings_comments_numbers_flags_or_new_names() {
 #[test]
 fn after_a_closed_string_or_comment() {
     assert_columns("#issues title:\"x\" ‸", &ISSUES);
+    assert_columns("#issues title:^|x| ‸", &ISSUES);
+    assert_columns("#issues title:^f\"{x}\" ‸", &ISSUES);
     assert_columns("#issues /* note */ ‸", &ISSUES);
+}
+
+#[test]
+fn nothing_within_the_text_of_flagged_strings() {
+    for marked in [
+        "#issues title:^f\"fo‸",
+        "#issues title:^f\"fo‸\"",
+        "#issues title:^‸f\"x\"",
+        "#issues title:^f\"‸{x}\"",
+        "#issues title:^f\"{x}‸\"",
+        "#issues title:^f\"{x} ‸",
+        "#issues title:^e\"a\\‸",
+        "#issues title:^f\"{^'a‸'}\"",
+    ] {
+        assert_eq!(labels(&complete(marked)), Vec::<&str>::new(), "{marked:?}");
+    }
+}
+
+#[test]
+fn within_an_interpolation() {
+    // Columns are offered even on the right-hand side of a comparison, where an interpolation's
+    // bare words are columns.
+    assert_columns("#issues title:^f\"a {ti‸}\"", &ISSUES);
+    assert_columns("#issues title:^f\"a {‸", &ISSUES);
+    assert_columns("#issues $^f|{author.‸|", &USERS);
+    assert_columns("#issues $^f\"{^f'{author.‸}'}\"", &USERS);
+    assert_columns("#issues $^f\"{(author.‸", &USERS);
 }
 
 // ------------------------------------------------------------------------------------------------

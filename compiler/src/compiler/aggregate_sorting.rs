@@ -117,6 +117,10 @@ fn contains_local_aggregate(expr: &Expr) -> bool {
         | ExprKind::Sum(a, b)
         | ExprKind::Difference(a, b) => either(a, b),
         ExprKind::Not(inner) => contains_local_aggregate(inner),
+        ExprKind::FormatString(parts) => parts
+            .iter()
+            .filter_map(|p| p.expr())
+            .any(contains_local_aggregate),
         ExprKind::Comparison(comparison) => [&comparison.left, &comparison.right]
             .into_iter()
             .any(|side| matches!(side, ComparisonSide::Expr(e) if contains_local_aggregate(e))),

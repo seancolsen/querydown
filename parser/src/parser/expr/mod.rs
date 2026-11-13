@@ -3,6 +3,7 @@ mod comparison;
 mod condition_set;
 mod date;
 mod duration;
+mod flagged_string;
 mod has_quantity;
 mod number;
 mod path;
@@ -28,6 +29,7 @@ use self::{
     condition_set::condition_set,
     date::date,
     duration::duration,
+    flagged_string::flagged_string,
     has_quantity::has_quantity,
     number::number,
     pipe::pipe,
@@ -73,7 +75,8 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
     // atom level. They meet at the `comparison` rule, which is shared by both: a comparison's left
     // side is always parsed in identifier mode and its right side always in string mode, regardless
     // of which mode the comparison itself appears in. That shared rule is what makes the two chains
-    // mutually recursive.
+    // mutually recursive. (A formatted string's interpolations return to identifier mode too: see
+    // `flagged_string`.)
     //
     // The mutual recursion is built from two nested `recursive` calls — string mode inside
     // identifier mode — rather than with `Recursive::declare`. A declared parser that refers to
@@ -96,6 +99,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             number().map(ExprKind::Number),
             date().map(ExprKind::Date),
             string().map(ExprKind::String),
+            flagged_string(id.clone()),
             // `function_call` is tried before `variable` because both begin with `@`; the `@@`
             // prefix of a call would otherwise be misread as the start of a `@`-prefixed variable.
             function_call(id.clone()),
@@ -135,6 +139,9 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
                 number().map(ExprKind::Number),
                 date().map(ExprKind::Date),
                 string().map(ExprKind::String),
+                // An interpolation reads bare words as column references, so it is given the
+                // identifier-mode parser even here.
+                flagged_string(id.clone()),
                 // See the ordering note on `id_atom` above: `function_call` before `variable`.
                 function_call(string_mode.clone()),
                 variable().map(ExprKind::Variable),
@@ -377,8 +384,9 @@ fn string<'src>() -> impl Psr<'src, String> {
 /// Because the whole right-hand side of a comparison is parsed in string mode, this applies to bare
 /// words at *any* depth there — inside expansions (`title:~[color colour]`), pipe arguments
 /// (`title:foo|concat(bar)`), parentheses, ranges, and so on — not just to a bare word standing
-/// alone. Everywhere outside the right-hand side of a comparison, bare words continue to be parsed as
-/// column references.
+/// alone. Everywhere outside the right-hand side of a comparison, and within a formatted string's
+/// interpolations (`title:^f"Re: {subject}"`), bare words continue to be parsed as column
+/// references.
 ///
 /// A bare word is treated as a string only when it stands alone. If it is the head of a longer path
 /// (e.g. `foo.bar`), the whole path is parsed as a column reference instead.

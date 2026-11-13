@@ -24,6 +24,7 @@ use std::cmp::Reverse;
 use std::ops::Range;
 
 pub use kind::TokenKind;
+pub use lexer::TextRun;
 
 use crate::tokens::{LITERAL_FALSE, LITERAL_NULL, LITERAL_TRUE};
 
@@ -65,6 +66,12 @@ pub enum Grammar {
 pub fn tokenize(source: &str, grammar: Grammar) -> Vec<Token> {
     let marks = crate::record_marks(source, grammar);
     merge(source, lexer::lex(source), marks)
+}
+
+/// The runs of literal text within the flagged strings of `source`, i.e. the parts of each flagged
+/// string other than the code of its interpolations. Like [`tokenize`], this never fails.
+pub fn flagged_text_runs(source: &str) -> Vec<TextRun> {
+    lexer::flagged_text_runs(source)
 }
 
 /// Overlays the parser's `marks` onto the lexer's tokens.

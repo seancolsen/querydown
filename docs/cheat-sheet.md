@@ -32,8 +32,9 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `@` | sigil for [built-in](./language.md#built-in-constants) and [user-defined](./language.md#user-defined-constants) constants | ✅ |
 | `..` `..<` `<..` `<..<` | [ranges](./language.md#ranges) | ✅ |
 | `"` or `'` | string quote | ✅ |
-| `^` | [string flag](./language.md#flagged-strings) prefix | ❌ |
-| `{ }` | [string interpolation](./language.md#flagged-strings) | ❌ |
+| `^` | [flagged string](./language.md#flagged-strings) prefix, followed by flags and a quote: `"` `'` `^` `#` `/` or `\|` | ✅ |
+| `f` | string flag to interpolate expressions within `{ }`, e.g. `^f"Hi {name}"` | ✅ |
+| `e` | string flag to interpret escape sequences, e.g. `^e'it\'s'` | ✅ |
 | `@{ }` | [column annotations](./language.md#column-level-annotations) object (`@true`/`@false`/`@null`, whitespace-delimited, `:` between key and value) | ✅ |
 | `` ` `` | [identifier quote](./language.md#identifiers-table-names-and-column-names) | ✅ |
 
@@ -61,7 +62,7 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `:\c~` | match regex with flags | ❌ |
 | `:~~` | LIKE | ❌ |
 
-A bare (unquoted) word _anywhere_ on the right-hand-side of a comparison — at any depth — is a [string literal](./language.md#bare-text-on-the-right-hand-side-of-a-comparison), e.g. `title:performance` is the same as `title:"performance"`, and `title:~[color colour]` searches for either literal. Quote it with backticks to reference a column instead. Outside the right-hand-side, a bare word is a column reference.
+A bare (unquoted) word _anywhere_ on the right-hand-side of a comparison — at any depth — is a [string literal](./language.md#bare-text-on-the-right-hand-side-of-a-comparison), e.g. `title:performance` is the same as `title:"performance"`, and `title:~[color colour]` searches for either literal. Quote it with backticks to reference a column instead. Outside the right-hand-side — and within a formatted string's `{ }` — a bare word is a column reference.
 
 The `!` operator negates any comparison (or expression) e.g. `!foo:2`
 

@@ -165,6 +165,10 @@ fn collect_windows(expr: &Expr, windows: &mut Vec<(WindowFn, Loc)>) {
             }
         }
         ExprKind::Not(e) => collect_windows(e, windows),
+        ExprKind::FormatString(parts) => parts
+            .iter()
+            .filter_map(|p| p.expr())
+            .for_each(|e| collect_windows(e, windows)),
         ExprKind::Product(a, b)
         | ExprKind::Quotient(a, b)
         | ExprKind::Sum(a, b)

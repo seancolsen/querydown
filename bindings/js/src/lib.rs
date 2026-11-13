@@ -156,6 +156,9 @@ export type QuerydownGrammar = "query" | QuerydownSection;
  *
  * - `"comment"`: `// ...` or `/* ... *\/`
  * - `"string"`: a quoted string, or a bare word on the right of a comparison (`title:performance`)
+ * - `"string-flags"`: the `^` and flags that begin a flagged string, e.g. the `^f` of `^f"Hi {name}"`
+ * - `"string-escape"`: an escape sequence in a flagged string, e.g. `\n` (with `e`) or `{{` (with `f`)
+ * - `"string-interpolation"`: a brace around an interpolation, e.g. the `{` and `}` of `^f"{name}"`
  * - `"search-term"`: a bare word standing alone as a condition, e.g. `#issues backend`
  * - `"number"`, `"duration"` (`3d`), `"date"` (`@2024-01-31`)
  * - `"constant"`: a built-in constant, e.g. `@true` or `@now`
@@ -187,6 +190,9 @@ export type QuerydownGrammar = "query" | QuerydownSection;
 export type QuerydownTokenKind =
   | "comment"
   | "string"
+  | "string-flags"
+  | "string-escape"
+  | "string-interpolation"
   | "search-term"
   | "number"
   | "duration"

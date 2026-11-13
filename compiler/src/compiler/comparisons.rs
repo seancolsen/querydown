@@ -498,6 +498,7 @@ fn expr_all_match(expr: &Expr) -> bool {
                 && expr_all_match(&c.fallback)
         }
         ExprKind::Call(c) => c.args.iter().all(expr_all_match),
+        ExprKind::FormatString(parts) => parts.iter().filter_map(|p| p.expr()).all(expr_all_match),
         ExprKind::Path(parts) => parts.iter().all(pathpart_all_match),
         ExprKind::Window(w) => {
             w.args.iter().all(expr_all_match)
@@ -580,6 +581,10 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
         ExprKind::Call(c) => c
             .args
             .iter_mut()
+            .for_each(|e| rewrite_match_operator(e, new_operator)),
+        ExprKind::FormatString(parts) => parts
+            .iter_mut()
+            .filter_map(|p| p.expr_mut())
             .for_each(|e| rewrite_match_operator(e, new_operator)),
         ExprKind::Path(parts) => parts
             .iter_mut()

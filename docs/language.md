@@ -13,6 +13,8 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Built-in constants](#built-in-constants)
   - [String literals](#string-literals)
   - [Flagged strings](#flagged-strings)
+    - [The `f` flag](#the-f-flag)
+    - [The `e` flag](#the-e-flag)
   - [Date literals](#date-literals)
   - [Duration literals](#duration-literals)
 - [Computations](#computations)
@@ -60,7 +62,6 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Single related records via table name](#single-related-records-via-table-name)
   - [Scoped comparisons](#scoped-comparisons)
   - [One-to-one relationships](#one-to-one-relationships)
-  - [Single records related through multi-column foreign keys](#single-records-related-through-multi-column-foreign-keys)
 - [Referencing _multiple_ related records](#referencing-multiple-related-records)
   - [Mandatory aggregation](#mandatory-aggregation)
   - [Aggregate counts](#aggregate-counts)
@@ -97,7 +98,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
     - [Querydown's JSON variant](#querydowns-json-variant)
   - [Query-level annotations](#query-level-annotations)
 - [Limit and offset](#limit-and-offset)
-- [Modules](#modules)
+- [Things you can't do (yet?)](#things-you-cant-do-yet)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -167,30 +168,60 @@ Additional constants can be [defined](#user-defined-constants).
 
 - Strings can be quoted with single quotes or double quotes
 - Strings are raw: there are no escape sequences. A backslash is a literal character, so `'\n'` is a backslash followed by `n` rather than a newline, and a regular expression like `title:~'v\d+'` needs no doubled backslashes.
-- A string can't contain its own quote character, so quote it with the other one instead, e.g. `"can't"` or `'say "hi"'`. _(A string containing both kinds of quote will be possible with [flagged strings](#flagged-strings).)_
+- A string can't contain its own quote character, so quote it with the other one instead, e.g. `"can't"` or `'say "hi"'`. For a string containing both kinds of quote, use a [flagged string](#flagged-strings).
 - Strings may span multiple lines.
 
 ### Flagged strings
 
-_(🚧 Not yet implemented)_
-
-Strings can be prefixed with multiple flags to alter their behavior.
+Strings can be prefixed with `^` and some flags to alter their behavior.
 
 | Example | Explanation |
 | -- | -- |
-| `^f"Hello {username}!"`   | F-strings style formatting interpolation |
+| `^f"Hello {username}!"`   | Using the `f` flag to interpolate values |
 | `^e'Don\'t say "never"'` | Using the `e` flag to interpret escape sequences |
 | `^^Don't say "never"^`   | Using a custom quote character to avoid escape sequences |
 
 | Flag | Meaning |
 | --   | -- |
-| `f`  | **formatting** (aka interpolation) via `{ }` |
-| `e`  | interpret **escape** sequences (default is raw) |
+| `f`  | **format**: interpolate the expressions written within `{ }` |
+| `e`  | interpret **escape** sequences (strings are raw by default) |
 
-- Multiple flags can be applied to the same string.
-- The block of all flags must be prefixed with `^`.
-- The flags block can also be empty, meaning that `^` is allowed to prefix a string. This is said to be a "flagged string", even if no flags are present.
-- Flagged strings may be quoted with any of the following characters: `" ' ^ # / |`.
+- The flags follow `^` directly, in any order. Each may be given at most once, and they're case-sensitive.
+- The flags can also be omitted, so `^` alone can prefix a string. This is still a "flagged string", and is useful for its choice of quotes.
+- A flagged string may be quoted with any of the following characters: `" ' ^ # / |`. Choose one the string doesn't contain, e.g. `^/v\d+/` or `^|say "can't"|`.
+- Like other strings, flagged strings may span multiple lines.
+
+#### The `f` flag
+
+> Show each user's name and email address, formatted together as one value.
+
+```qd
+#users $^f"{username} <{email}>" -> contact
+```
+
+- Any expression can be interpolated, e.g. `^f"{title|uppercase} ({#comments} comments)"`.
+- Within `{ }`, a bare word is always a column reference, even on the [right-hand-side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison). For example, `description:^f"see {title}"` finds issues whose description contains the text "see " followed by the issue's own title.
+- The string ends at the first quote character _outside_ of the `{ }`, so an expression within the braces can contain the quote character, e.g. `^f"{status|concat("!")}"`. It may even contain another formatted string.
+- To write a literal brace, double it: `{{` or `}}`.
+- An interpolated value that isn't text is converted to text, and a `NULL` value becomes empty text. (The string compiles to SQL `concat`.)
+- There are no format specifiers like Python's `{x:.2f}`. Within the braces, `:` is a [comparison](#comparisons-and-conditions) as usual, so `{a:b}` interpolates a boolean. To format a value, pipe it to a [function](./functions.md) instead.
+- Like any string, a formatted string standing alone as a condition is a [default text search](#default-text-search).
+
+#### The `e` flag
+
+The `e` flag interprets these escape sequences:
+
+| Escape | Meaning |
+| -- | -- |
+| `\\` | a backslash |
+| `\n` | a newline |
+| `\t` | a tab |
+| `\r` | a carriage return |
+| `\u{e9}` | the Unicode character with the given hexadecimal code point (one to six digits), here `é` |
+| `\"` | the string's quote character, whichever it is, e.g. `\'` in `^e'it\'s'` |
+| `\{` and `\}` | a literal brace, with the `f` flag |
+
+Any other character after a backslash is an error.
 
 ### Date literals
 
@@ -456,6 +487,8 @@ Here `foo` and `bar` are **string literals**, because they sit on the right-hand
 Here `status` and `title` are **column references**, because this is a [result column](#result-columns), not the right-hand-side of a comparison.
 
 This boundary even resets within a nested comparison. In `#issues description:(title:foo)`, the inner `title` is on the _left_ of its own comparison, so it is a column reference, while `foo` (on the inner right-hand-side) remains a string literal.
+
+It also resets within the `{ }` of a [formatted string](#the-f-flag). In `#issues description:^f"see {title}"`, `title` is a column reference.
 
 #### Referencing a column on the right-hand-side
 

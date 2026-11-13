@@ -12,7 +12,7 @@ use querydown_parser::ast::*;
 use querydown_parser::highlight::{Grammar, Token};
 use querydown_parser::{parse, parse_conditions, parse_definitions, parse_display, parse_sorting};
 
-use super::site::{closing, open_brackets, Sigil, Site};
+use super::site::{open_brackets, Sigil, Site};
 use super::{section_definitions, CompletionRequest, Located};
 use crate::compiler::Compiler;
 use crate::schema::links::Link;
@@ -112,7 +112,7 @@ pub(super) fn locate(
     let closers: String = open_brackets(source, site.word_start, tokens)
         .iter()
         .rev()
-        .map(|(_, open)| closing(*open))
+        .map(|bracket| bracket.close.as_str())
         .collect();
     let mut endings = vec![source[site.word_end..].to_string(), closers.clone()];
     if request.grammar == Grammar::Query {
@@ -400,6 +400,18 @@ impl Walker<'_> {
                 }),
             },
             ExprKind::String(_) => None,
+            // An interpolation is code, in which a bare word is a column even on the right-hand
+            // side of a comparison.
+            ExprKind::FormatString(parts) => {
+                let env = Env {
+                    rhs: false,
+                    ..env.clone()
+                };
+                parts
+                    .iter()
+                    .filter_map(|p| p.expr())
+                    .find_map(|e| self.expr(e, &env, false))
+            }
             ExprKind::Variable(name) if is_sentinel(name) => env.found(Target::Variable),
             ExprKind::Variable(_) => None,
             ExprKind::Path(parts) => self.path(parts, env, condition),
