@@ -1,6 +1,10 @@
-use chumsky::prelude::*;
+use chumsky::{
+    input::{Emitter, MapExtra},
+    prelude::*,
+};
 
 use crate::ast::*;
+use crate::highlight::TokenKind;
 use crate::labels;
 use crate::parser::expr::condition_set::expansion_set;
 use crate::parser::utils::*;
@@ -86,17 +90,100 @@ fn range<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, Range> {
 
 pub fn operator<'src>() -> impl Psr<'src, Operator> {
     choice((
+        flagged_regex_operator(),
         // Three character
         exactly(COMPARE_EQ_CASE_SENSITIVE).to(Operator::Eq),
         exactly(COMPARE_GTE).to(Operator::Gte),
         exactly(COMPARE_LTE).to(Operator::Lte),
         exactly(COMPARE_LIKE).to(Operator::Like),
         // Two character
-        exactly(COMPARE_REGEX).to(Operator::RegexMatch),
+        exactly(COMPARE_REGEX).to(Operator::RegexMatch(RegexFlags::default())),
         exactly(COMPARE_EQ).to(Operator::EqCi),
         exactly(COMPARE_GT).to(Operator::Gt),
         exactly(COMPARE_LT).to(Operator::Lt),
         // One character
         exactly(COMPARE_MATCH).to(Operator::Match),
     ))
+}
+
+/// A regular-expression match operator with flags, e.g. `:\cm~`: a `:`, then a backslash and the
+/// flags, then a `~`. See [`RegexFlags`] for the flags. An unknown or repeated flag is reported but
+/// otherwise ignored, as is a trailing `~` that makes it look like a flagged `:~~` (LIKE) operator.
+fn flagged_regex_operator<'src>() -> impl Psr<'src, Operator> {
+    let flags = just(REGEX_FLAGS_PREFIX).ignore_then(
+        any()
+            .filter(char::is_ascii_alphabetic)
+            .repeated()
+            .to_slice()
+            .validate(regex_flags),
+    );
+    let tilde = &COMPARE_REGEX[COMPARE_MATCH.len()..];
+    let like = just(tilde).validate(|_, extra, emitter: &mut Emitter<Rich<'src, char>>| {
+        let message = format!(
+            "Regex flags can't be used with the `{COMPARE_LIKE}` (LIKE) operator, only with \
+             `{COMPARE_REGEX}`"
+        );
+        emitter.emit(Rich::custom(extra.span(), message));
+    });
+    just(COMPARE_MATCH)
+        .ignore_then(mark(TokenKind::Flag, flags))
+        .then_ignore(just(tilde))
+        .then_ignore(like.or_not())
+        .map(Operator::RegexMatch)
+}
+
+/// Reads the letters of a flagged regex operator into [`RegexFlags`], reporting any that are
+/// unknown or repeated, or that there are none.
+fn regex_flags<'src>(
+    letters: &'src str,
+    extra: &mut MapExtra<'src, '_, &'src str, Extra<'src>>,
+    emitter: &mut Emitter<Rich<'src, char>>,
+) -> RegexFlags {
+    let span: SimpleSpan = extra.span();
+    if letters.is_empty() {
+        // Point at the backslash, which precedes the (empty) flags.
+        let message = format!(
+            "Expected regex flags after `{REGEX_FLAGS_PREFIX}`. {}",
+            regex_flags_hint()
+        );
+        emitter.emit(Rich::custom((span.start - 1..span.start).into(), message));
+    }
+    let mut flags = RegexFlags::default();
+    for (i, letter) in letters.char_indices() {
+        let flag = match letter {
+            REGEX_FLAG_CASE_SENSITIVE => &mut flags.case_sensitive,
+            REGEX_FLAG_MULTILINE => &mut flags.multiline,
+            REGEX_FLAG_DOT_ALL => &mut flags.dot_all,
+            _ => {
+                let message = if letter == 'i' {
+                    format!(
+                        "Regex matching is already case-insensitive, so there is no `i` flag. Use \
+                         `{REGEX_FLAG_CASE_SENSITIVE}` to make it case-sensitive"
+                    )
+                } else {
+                    format!("Unknown regex flag `{letter}`. {}", regex_flags_hint())
+                };
+                let start = span.start + i;
+                emitter.emit(Rich::custom(
+                    (start..start + letter.len_utf8()).into(),
+                    message,
+                ));
+                continue;
+            }
+        };
+        if *flag {
+            let start = span.start + i;
+            let message = format!("Repeated regex flag `{letter}`");
+            emitter.emit(Rich::custom((start..start + 1).into(), message));
+        }
+        *flag = true;
+    }
+    flags
+}
+
+fn regex_flags_hint() -> String {
+    format!(
+        "The flags are `{REGEX_FLAG_CASE_SENSITIVE}` (case-sensitive), `{REGEX_FLAG_MULTILINE}` \
+         (`^` and `$` match at line breaks), and `{REGEX_FLAG_DOT_ALL}` (`.` matches a newline)"
+    )
 }

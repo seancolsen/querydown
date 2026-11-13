@@ -292,6 +292,37 @@ fn test_operators() {
 }
 
 #[test]
+fn test_regex_flags() {
+    check(
+        Conditions,
+        r"title:\cm~'^a.b$' body:~x",
+        "title:column ::comparison-operator \\cm:flag ~:comparison-operator '^a.b$':string \
+         body:column :~:comparison-operator x:string",
+    );
+    // Within an expansion, bare words are still string literals.
+    check(
+        Conditions,
+        r"title:\s~[a b]",
+        "title:column ::comparison-operator \\s:flag ~:comparison-operator [:bracket a:string \
+         b:string ]:bracket",
+    );
+}
+
+#[test]
+fn test_invalid_regex_flags() {
+    // Unknown flags are still flags (the parser reports them), as is a backslash with none. A
+    // missing `~` is tolerated, and a doubled one is taken whole.
+    check(
+        Conditions,
+        r"a:\xi~1 b:\~2 c:\c d:\c~~3",
+        "a:column ::comparison-operator \\xi:flag ~:comparison-operator 1:number b:column \
+         ::comparison-operator \\:flag ~:comparison-operator 2:number c:column \
+         ::comparison-operator \\c:flag d:string ::comparison-operator \\c:flag \
+         ~~:comparison-operator 3:number",
+    );
+}
+
+#[test]
 fn test_invalid_source_degrades_to_the_lexer() {
     // The first comparison parsed before the error, so the parser's marks stand; the rest is lexed.
     check(
@@ -347,7 +378,7 @@ fn test_non_ascii() {
 /// Tokenizing never panics and always upholds its guarantees, even midway through typing.
 #[test]
 fn test_every_prefix_is_well_formed() {
-    let query = "@@f = @a => @a + 1\n#t.c = x|f\n#issues /* c */ title:~[\"a\\n\" b] \
+    let query = "@@f = @a => @a + 1\n#t.c = x|f\n#issues /* c */ title:~[\"a\\n\" b] body:\\cms~x \
                  ++#comments(author){x} due:@2024-01-01..<@now created:3d..1y6m \
                  \\\\created_at \\d $author.* $%count -> total \\s2d @{w:100 t:[a b] ok:@true} \
                  $? s:=1 ~ 'é' ~~ -1.5 $%%(a\\p d\\s)%sum(x) ~~~ $*(id\\h) $`naïve`.( $y ) \

@@ -39,7 +39,7 @@ export const samples: Sample[] = [
     valid: true,
     source: String.raw`accessibility "localhost:3000" foo,!bar
 status:="do" title:=="Do" id:123 created_at:<6m
-description:~'front[ -]?end\n' title:foo|concat(bar)
+description:~'front[ -]?end\n' title:\cm~'^Fix' title:foo|concat(bar)
 {title description}:~[foo bar] status:[open reopened]
 created_at|year:2010..<2019 due_date:@2024-01-01..@2024-12-31
 issue{title:dashboard} --#blocks(blocker) #issues:>0

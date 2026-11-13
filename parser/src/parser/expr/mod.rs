@@ -1211,6 +1211,34 @@ mod tests {
     }
 
     #[test]
+    fn test_regex_flags() {
+        let operator = |s: &str| match expr().then_ignore(end()).parse(s).into_result() {
+            Ok(Expr {
+                kind: ExprKind::Comparison(c),
+                ..
+            }) => Ok(c.operator),
+            other => Err(format!("{other:?}")),
+        };
+        let flags = |case_sensitive, multiline, dot_all| {
+            Ok(Operator::RegexMatch(RegexFlags {
+                case_sensitive,
+                multiline,
+                dot_all,
+            }))
+        };
+        assert_eq!(operator("a:~x"), flags(false, false, false));
+        assert_eq!(operator(r"a:\c~x"), flags(true, false, false));
+        assert_eq!(operator(r"a:\m~x"), flags(false, true, false));
+        assert_eq!(operator(r"a:\s~x"), flags(false, false, true));
+        // In any order, and with the right-hand side still read as a bare string.
+        assert_eq!(operator(r"a:\smc~ x"), flags(true, true, true));
+        // `:~~` is the LIKE operator, to which flags don't apply; nor is there an `i` flag.
+        assert_eq!(operator("a:~~x"), Ok(Operator::Like));
+        assert!(operator(r"a:\c~~x").is_err());
+        assert!(operator(r"a:\i~x").is_err());
+    }
+
+    #[test]
     fn test_bare_text_on_comparison_rhs_is_a_string_at_any_depth() {
         let p = |s: &str| {
             expr()
@@ -1232,7 +1260,7 @@ mod tests {
                 left: ComparisonSide::Expr(
                     ExprKind::Path(vec![PathPartKind::Column("title".to_string()).into()]).into()
                 ),
-                operator: Operator::RegexMatch,
+                operator: Operator::RegexMatch(RegexFlags::default()),
                 right: ComparisonSide::Expansion(ConditionSet {
                     conjunction: Conjunction::Or,
                     entries: vec![

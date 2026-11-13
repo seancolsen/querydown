@@ -1,7 +1,7 @@
-use querydown_parser::ast::{Date, Duration};
+use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::{
-    dialect::{duration_part, Dialect, NormalizedDuration, RegExFlags},
+    dialect::{duration_part, Dialect, NormalizedDuration, RegexPattern},
     expr::{
         build::{cmp::comparison, cond, sql_func},
         SqlExpr,
@@ -73,13 +73,23 @@ impl Dialect for DuckDB {
     fn match_regex(
         &self,
         a: SqlExpr,
-        b: SqlExpr,
+        pattern: RegexPattern,
         is_positive: bool,
-        flags: &RegExFlags,
+        flags: &RegexFlags,
     ) -> SqlExpr {
         // DuckDB doesn't support Postgres's `~*` family of regex operators. Instead it provides
         // the `regexp_matches` function, with an optional `'i'` argument for case-insensitivity.
-        let positive = if flags.is_case_sensitive {
+        // Its RE2 engine shares Python's defaults (`.` doesn't match a newline; `^` and `$` match
+        // only at the ends of the text) and its `m` and `s` inline flags, which we write into the
+        // pattern. (DuckDB's own `'m'` and `'s'` options mean something else.)
+        let prefix = match (flags.multiline, flags.dot_all) {
+            (false, false) => "",
+            (false, true) => "(?s)",
+            (true, false) => "(?m)",
+            (true, true) => "(?ms)",
+        };
+        let b = self.prefixed_regex_pattern(prefix, pattern);
+        let positive = if flags.case_sensitive {
             sql_func("regexp_matches", [a, b])
         } else {
             sql_func("regexp_matches", [a, b, SqlExpr::atom("'i'".to_string())])

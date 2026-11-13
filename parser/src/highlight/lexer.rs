@@ -263,6 +263,9 @@ impl Lexer<'_> {
             }
             COMPOSITION_PIPE_AGGREGATE => self.emit(K::Pipe, 1, Context::AggregatePipe),
             COMPOSITION_PIPE_SCALAR => self.emit(K::Pipe, 1, Context::ScalarPipe),
+            ':' if self.rest()[COMPARE_MATCH.len()..].starts_with(REGEX_FLAGS_PREFIX) => {
+                self.flagged_regex_operator()
+            }
             ':' => {
                 let op = COMPARISON_OPERATORS
                     .iter()
@@ -330,6 +333,29 @@ impl Lexer<'_> {
             }
             _ => self.emit(K::Invalid, c.len_utf8(), Context::None),
         }
+    }
+
+    /// Lexes a flagged regex operator, e.g. `:\cm~`, as its `:`, its flags, and its `~`. Any letters
+    /// are lexed as flags (the parser reports unknown ones), and a missing `~` is tolerated.
+    fn flagged_regex_operator(&mut self) {
+        use TokenKind as K;
+        self.push(K::ComparisonOperator, COMPARE_MATCH.len());
+        let letters = self.run_len(1, |c| c.is_ascii_alphabetic());
+        let kind = if letters > 0 { K::Flag } else { K::Invalid };
+        self.push(kind, REGEX_FLAGS_PREFIX.len_utf8() + letters);
+        // Take a doubled `~` too, as though the flags were given to `:~~`, which the parser
+        // reports.
+        let tilde_len = [
+            &COMPARE_LIKE[COMPARE_MATCH.len()..],
+            &COMPARE_REGEX[COMPARE_MATCH.len()..],
+        ]
+        .into_iter()
+        .find(|tilde| self.starts_with(tilde))
+        .map_or(0, str::len);
+        if tilde_len > 0 {
+            self.push(K::ComparisonOperator, tilde_len);
+        }
+        self.context = Context::ComparisonOperator;
     }
 
     /// Whether the next character closes the innermost interpolation, i.e. no bracket is open

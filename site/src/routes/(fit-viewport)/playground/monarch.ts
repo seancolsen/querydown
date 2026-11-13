@@ -25,6 +25,8 @@ export const qd_monarch: languages.IMonarchLanguage = {
       [/@(@identifier)/, 'constant'],
       [/@\d\d\d\d-\d\d-\d\d/, 'date'],
 
+      // a regex match with flags, e.g. `:\cm~`
+      [/(:)(\\[a-zA-Z]*)(~~?)/, ['comparison-operator', 'column-control', 'comparison-operator']],
       [/(\.\.)?(:|!)(~~|~|>=|>|<=|<)?(\.\.)?/, 'comparison-operator'],
 
       [/<?\.\.<?/, 'range-separator'],

@@ -7,7 +7,7 @@ use crate::{
     sql::{
         expr::build::*,
         tree::{CtePurpose, SqlExpr},
-        RegExFlags,
+        RegexPattern,
     },
     Error,
 };
@@ -15,7 +15,7 @@ use crate::{
 use super::{
     constants::LINKED_RECORD_COMPARISON_NAME,
     paths::{clarify_path, ClarifiedPathTail},
-    scope::{Expansion, Scope},
+    scope::{Expansion, Scope, VariableLookup},
     temporal::{now_operand, reconcile, TemporalZone},
     typing::infer_type,
 };
@@ -180,13 +180,6 @@ fn convert_simple_comparison(
         scope.options.dialect.as_ref(),
     );
 
-    let match_regex = |a: SqlExpr, b: SqlExpr, scope: &mut Scope| {
-        let flags = RegExFlags {
-            is_case_sensitive: false,
-        };
-        scope.options.dialect.match_regex(a, b, true, &flags)
-    };
-
     match &operator {
         Eq => Ok(cmp::eq(left_converted, right_converted)),
         // Case-insensitive equality (`:=`): when the left-hand side is known to be text, compare
@@ -207,7 +200,16 @@ fn convert_simple_comparison(
         Lt => Ok(cmp::lt(left_converted, right_converted)),
         Lte => Ok(cmp::lte(left_converted, right_converted)),
         Like => Ok(cmp::like(left_converted, right_converted)),
-        RegexMatch => Ok(match_regex(left_converted, right_converted, scope)),
+        RegexMatch(flags) => {
+            let pattern = match string_literal(right, scope) {
+                Some(s) => RegexPattern::Literal(s),
+                None => RegexPattern::Expr(right_converted),
+            };
+            Ok(scope
+                .options
+                .dialect
+                .match_regex(left_converted, pattern, true, flags))
+        }
         // The match operator applies type-aware matching: case-insensitive "contains" when the
         // left-hand side is known to be text, falling back to exact equality otherwise. An empty
         // string literal on the right is a special case: "contains" would match every row, so we
@@ -224,6 +226,22 @@ fn convert_simple_comparison(
                 Ok(cmp::eq(left_converted, right_converted))
             }
         }
+    }
+}
+
+/// The text of `expr` when it is a string literal, seeing through any variables (e.g. a custom
+/// comparison's parameter) bound to one, just as [`convert_expr`] inlines them.
+fn string_literal(expr: &Expr, scope: &Scope) -> Option<String> {
+    match &expr.kind {
+        ExprKind::String(s) => Some(s.clone()),
+        ExprKind::Variable(name) => match scope.lookup_variable(name) {
+            VariableLookup::Found(bound, id) => {
+                let _guard = scope.hide_binding(id);
+                string_literal(&bound, scope)
+            }
+            VariableLookup::OnlyHidden(_) | VariableLookup::NotFound => None,
+        },
+        _ => None,
     }
 }
 
@@ -246,7 +264,7 @@ fn numeric_comparison(operator: Operator) -> Option<fn(SqlExpr, SqlExpr) -> SqlE
         Gte => Some(cmp::gte),
         Lt => Some(cmp::lt),
         Lte => Some(cmp::lte),
-        Like | RegexMatch => None,
+        Like | RegexMatch(_) => None,
     }
 }
 

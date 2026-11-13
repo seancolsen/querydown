@@ -701,3 +701,93 @@ fn unterminated_flagged_string() {
         ],
     );
 }
+
+#[test]
+fn unknown_regex_flag() {
+    assert_render(
+        parse,
+        r"#issues title:\x~a",
+        &[
+            "syntax error: Unknown regex flag `x`. The flags are `c` (case-sensitive), `m` (`^` and `$` match at line breaks), and `s` (`.` matches a newline).",
+            " --> line 1, column 16",
+            "  |",
+            r"1 | #issues title:\x~a",
+            "  |                ^",
+        ],
+    );
+}
+
+#[test]
+fn case_insensitive_regex_flag() {
+    assert_render(
+        parse,
+        r"#issues title:\i~a",
+        &[
+            "syntax error: Regex matching is already case-insensitive, so there is no `i` flag. Use `c` to make it case-sensitive.",
+            " --> line 1, column 16",
+            "  |",
+            r"1 | #issues title:\i~a",
+            "  |                ^",
+        ],
+    );
+}
+
+#[test]
+fn repeated_regex_flag() {
+    assert_render(
+        parse,
+        r"#issues title:\cc~a",
+        &[
+            "syntax error: Repeated regex flag `c`.",
+            " --> line 1, column 17",
+            "  |",
+            r"1 | #issues title:\cc~a",
+            "  |                 ^",
+        ],
+    );
+}
+
+#[test]
+fn missing_regex_flags() {
+    assert_render(
+        parse,
+        r"#issues title:\~a",
+        &[
+            "syntax error: Expected regex flags after `\\`. The flags are `c` (case-sensitive), `m` (`^` and `$` match at line breaks), and `s` (`.` matches a newline).",
+            " --> line 1, column 15",
+            "  |",
+            r"1 | #issues title:\~a",
+            "  |               ^",
+        ],
+    );
+}
+
+#[test]
+fn regex_flags_on_like_operator() {
+    assert_render(
+        parse,
+        r"#issues title:\c~~a",
+        &[
+            "syntax error: Regex flags can't be used with the `:~~` (LIKE) operator, only with `:~`.",
+            " --> line 1, column 18",
+            "  |",
+            r"1 | #issues title:\c~~a",
+            "  |                  ^",
+        ],
+    );
+}
+
+#[test]
+fn regex_flags_without_tilde() {
+    assert_render(
+        parse,
+        r"#issues title:\c",
+        &[
+            "syntax error: Unexpected end of input. Expected `~`.",
+            " --> line 1, column 17",
+            "  |",
+            r"1 | #issues title:\c",
+            "  |                 ^",
+        ],
+    );
+}

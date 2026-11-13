@@ -1,11 +1,15 @@
 use std::fmt::Display;
 
-use querydown_parser::ast::{Date, Duration};
+use querydown_parser::ast::{Date, Duration, RegexFlags};
 
-use super::expr::SqlExpr;
+use super::expr::{SqlExpr, SqlExprPrecedence};
 
-pub struct RegExFlags {
-    pub is_case_sensitive: bool,
+/// The pattern of a regular-expression match. A literal pattern is kept apart from other
+/// expressions so that the flags a dialect writes into the pattern itself (e.g. `(?m)`) can be
+/// merged into the literal at compile time rather than concatenated at run time.
+pub enum RegexPattern {
+    Literal(String),
+    Expr(SqlExpr),
 }
 
 const SECONDS_PER_MINUTE: i64 = 60;
@@ -128,12 +132,33 @@ pub trait Dialect {
     /// Render a regular expression comparison between two values
     ///
     /// * `a` - The left-hand side of the comparison
-    /// * `b` - The right-hand side of the comparison
+    /// * `pattern` - The right-hand side of the comparison
     /// * `is_positive` - true when you want the comparison to return true for matching values,
     ///   false when the comparison is negated.
-    /// * `flags` - Flags to control the behavior of the regular expression
-    fn match_regex(&self, a: SqlExpr, b: SqlExpr, is_positive: bool, flags: &RegExFlags)
-        -> SqlExpr;
+    /// * `flags` - Flags to control the behavior of the regular expression. Every dialect must
+    ///   give them the same meaning, which follows Python's inline flags; see [`RegexFlags`].
+    fn match_regex(
+        &self,
+        a: SqlExpr,
+        pattern: RegexPattern,
+        is_positive: bool,
+        flags: &RegexFlags,
+    ) -> SqlExpr;
+
+    /// Render a regex `pattern` with the inline options `prefix` (e.g. `(?m)`) written before it.
+    /// A literal pattern absorbs the prefix; any other is concatenated with it at run time, which
+    /// keeps a NULL pattern NULL.
+    fn prefixed_regex_pattern(&self, prefix: &str, pattern: RegexPattern) -> SqlExpr {
+        match pattern {
+            RegexPattern::Literal(s) => SqlExpr::atom(self.quote_string(&format!("{prefix}{s}"))),
+            RegexPattern::Expr(e) if prefix.is_empty() => e,
+            RegexPattern::Expr(e) => SqlExpr::atom(format!(
+                "({} || {})",
+                self.quote_string(prefix),
+                e.for_precedence(SqlExprPrecedence::Atom)
+            )),
+        }
+    }
 
     /// Render a case-insensitive "contains" text comparison: true when `haystack` contains `needle`
     /// as a substring. A NULL `haystack` or `needle` yields FALSE (not NULL).

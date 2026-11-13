@@ -31,7 +31,7 @@ CREATE TABLE profiles (id integer PRIMARY KEY, \"user\" integer UNIQUE REFERENCE
 
 #[test]
 fn test_postgres_introspection() {
-    let env = PgEnv::setup();
+    let env = PgEnv::setup("introspect", DDL);
     let json = env.run_query(Postgres().introspection_sql());
     drop(env);
     assert_introspection(&json, Box::new(Postgres()));
@@ -39,7 +39,7 @@ fn test_postgres_introspection() {
 
 #[test]
 fn test_duckdb_introspection() {
-    let env = DuckEnv::setup();
+    let env = DuckEnv::setup(DDL);
     let json = env.run_query(DuckDB().introspection_sql());
     drop(env);
     assert_introspection(&json, Box::new(DuckDB()));
@@ -98,16 +98,19 @@ fn assert_introspection(json: &str, dialect: Box<dyn Dialect>) {
 
 // --- Postgres ---------------------------------------------------------------------------------
 
-struct PgEnv {
+/// A throwaway Postgres server, loaded with some DDL, which is stopped and removed on drop. Shared
+/// with other DB tests that need a database of their own.
+pub(super) struct PgEnv {
     root: PathBuf,
     pg_data: PathBuf,
     pg_sock: PathBuf,
 }
 
 impl PgEnv {
-    fn setup() -> Self {
+    /// Starts a server in a temp dir named after `label` and loads `ddl` into it.
+    pub(super) fn setup(label: &str, ddl: &str) -> Self {
         let root =
-            std::env::temp_dir().join(format!("querydown_introspect_pg_{}", std::process::id()));
+            std::env::temp_dir().join(format!("querydown_{label}_pg_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let pg_sock = root.join("sock");
         fs::create_dir_all(&pg_sock).expect("create socket dir");
@@ -144,7 +147,7 @@ impl PgEnv {
                 .args(["-w", "start"]),
             "pg_ctl start",
         );
-        run_checked(env.psql().args(["-c", DDL]), "load DDL into postgres");
+        run_checked(env.psql().args(["-c", ddl]), "load DDL into postgres");
         env
     }
 
@@ -165,7 +168,8 @@ impl PgEnv {
         cmd
     }
 
-    fn run_query(&self, sql: &str) -> String {
+    /// Runs `sql`, returning its output (unaligned, without headers), and panicking on any error.
+    pub(super) fn run_query(&self, sql: &str) -> String {
         capture(self.psql().args(["-c", sql]))
     }
 }
@@ -183,22 +187,24 @@ impl Drop for PgEnv {
 
 // --- DuckDB -----------------------------------------------------------------------------------
 
-struct DuckEnv {
+/// An in-memory DuckDB database, loaded with some DDL. Shared with other DB tests.
+pub(super) struct DuckEnv {
     conn: duckdb::Connection,
 }
 
 impl DuckEnv {
-    fn setup() -> Self {
+    pub(super) fn setup(ddl: &str) -> Self {
         let conn = duckdb::Connection::open_in_memory().expect("open in-memory DuckDB");
-        conn.execute_batch(DDL).expect("load DDL into duckdb");
+        conn.execute_batch(ddl).expect("load DDL into duckdb");
         DuckEnv { conn }
     }
 
-    fn run_query(&self, sql: &str) -> String {
-        // The introspection query yields a single row with the schema JSON in its lone column.
+    /// Runs `sql`, which must yield a single row with a single text column, returning that text and
+    /// panicking on any error.
+    pub(super) fn run_query(&self, sql: &str) -> String {
         self.conn
             .query_row(sql, [], |row| row.get::<_, String>(0))
-            .unwrap_or_else(|e| panic!("duckdb introspection query failed: {e}"))
+            .unwrap_or_else(|e| panic!("duckdb query failed: {e}\n{sql}"))
     }
 }
 

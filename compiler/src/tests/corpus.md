@@ -243,7 +243,7 @@ SELECT
   "issues"."due_date"
 FROM "issues"
 WHERE
-  "issues"."title" ~* 'v\d+' AND
+  "issues"."title" ~* '(?p)v\d+' AND
   lower("issues"."description" COLLATE "C") = lower('a\nb' COLLATE "C");
 ```
 
@@ -716,7 +716,7 @@ SELECT
   "issues"."due_date"
 FROM "issues"
 WHERE
-  "issues"."title" ~* 'foo';
+  "issues"."title" ~* '(?p)foo';
 ```
 
 ### Expansion
@@ -741,7 +741,7 @@ SELECT
   "issues"."due_date"
 FROM "issues"
 WHERE
-  ("issues"."title" ~* 'color' OR "issues"."title" ~* 'colour');
+  ("issues"."title" ~* '(?p)color' OR "issues"."title" ~* '(?p)colour');
 ```
 
 ### Dual expansion
@@ -766,8 +766,8 @@ SELECT
   "issues"."due_date"
 FROM "issues"
 WHERE
-  ("issues"."title" ~* 'color' OR "issues"."title" ~* 'colour') AND
-  ("issues"."description" ~* 'color' OR "issues"."description" ~* 'colour');
+  ("issues"."title" ~* '(?p)color' OR "issues"."title" ~* '(?p)colour') AND
+  ("issues"."description" ~* '(?p)color' OR "issues"."description" ~* '(?p)colour');
 ```
 
 ### Expansion of a boolean comparison
@@ -840,6 +840,144 @@ SELECT
 FROM "issues"
 WHERE
   regexp_matches("issues"."title", 'foo', 'i');
+```
+
+### Regex with the case-sensitive flag
+
+> The `c` flag makes the match case-sensitive, using `~` rather than `~*`. Every Postgres regex
+> begins with an embedded option setting its newline handling; with no `m` or `s` flag, that's `p`
+> (partial newline-sensitive), so that `.` doesn't match a newline.
+
+```qd
+#issues title:\c~'^Foo' $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" ~ '(?p)^Foo';
+```
+
+### Regex with the multi-line flag
+
+> With `m`, `^` and `$` match at line breaks (Postgres's `n` option).
+
+```qd
+#issues description:\m~'^todo:' $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."description" ~* '(?n)^todo:';
+```
+
+### Regex with the dot-all flag
+
+> With `s`, `.` matches a newline, which is Postgres's default, so the pattern needs no option.
+
+```qd
+#issues description:\s~'a.b' $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."description" ~* 'a.b';
+```
+
+### Regex with all flags
+
+> The flags may be given in any order. `m` with `s` is Postgres's `w` option.
+
+```qd
+#issues description:\smc~'^a.b$' $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."description" ~ '(?w)^a.b$';
+```
+
+### Regex flags with a pattern from a column
+
+> A literal pattern absorbs the option at compile time; any other is concatenated with it.
+
+```qd
+#issues title:\s~`description` description:~`title` $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" ~* "issues"."description" AND
+  "issues"."description" ~* ('(?p)' || "issues"."title");
+```
+
+### Negated regex with flags
+
+```qd
+#issues !title:\c~foo $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  NOT "issues"."title" ~ '(?p)foo';
+```
+
+### Regex flags (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> RE2 shares Python's defaults, so a pattern needs an inline flag only for `m` or `s`.
+
+```qd
+#issues title:\c~'^Foo' description:\m~'^todo:' $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  regexp_matches("issues"."title", '^Foo') AND
+  regexp_matches("issues"."description", '(?m)^todo:', 'i');
+```
+
+### Regex flags with a pattern from a column (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+```qd
+#issues description:\ms~'^a.b$' title:~`description` title:\s~`description` $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  regexp_matches("issues"."description", '(?ms)^a.b$', 'i') AND
+  regexp_matches("issues"."title", "issues"."description", 'i') AND
+  regexp_matches("issues"."title", ('(?s)' || "issues"."description"), 'i');
 ```
 
 ### Duration (DuckDB)
@@ -4839,7 +4977,36 @@ WITH
       "comments"."issue" AS "pk"
     FROM "comments"
     WHERE
-      "comments"."body" ~* 'work[ -]?around'
+      "comments"."body" ~* '(?p)work[ -]?around'
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison called with a flagged regex operator
+
+> The flags travel with the operator substituted into the body, and a literal argument still
+> absorbs the regex option.
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues comment:\c~"work[ -]?around" $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      "comments"."body" ~ '(?p)work[ -]?around'
     GROUP BY "comments"."issue"
   )
 SELECT

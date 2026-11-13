@@ -32,6 +32,15 @@ pub(crate) const COMPARE_LIKE: &str = ":~~";
 pub(crate) const COMPARE_LT: &str = ":<";
 pub(crate) const COMPARE_LTE: &str = ":<=";
 pub(crate) const COMPARE_REGEX: &str = ":~";
+/// Introduces the flags of a regular-expression match, written between the `:` and `~` of the
+/// operator, e.g. the `\` of `:\cm~`.
+pub(crate) const REGEX_FLAGS_PREFIX: char = '\\';
+/// Regex flag making the match case-sensitive (it is case-insensitive by default).
+pub(crate) const REGEX_FLAG_CASE_SENSITIVE: char = 'c';
+/// Regex flag making `^` and `$` match at the start and end of each line.
+pub(crate) const REGEX_FLAG_MULTILINE: char = 'm';
+/// Regex flag making `.` match a newline.
+pub(crate) const REGEX_FLAG_DOT_ALL: char = 's';
 pub(crate) const COMPARISON_RANGE_BOUND_SEPARATOR: &str = "..";
 pub(crate) const COMPARISON_RANGE_BOUND_EXCLUSIVE: &str = "<";
 pub(crate) const COMPOSITION_ARGUMENT_BRACE_L: char = '(';

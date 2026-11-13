@@ -630,11 +630,25 @@ pub enum Operator {
     Lt,
     Lte,
     Like,
-    /// Regular-expression match (`:~`).
-    RegexMatch,
+    /// Regular-expression match (`:~`), optionally with flags (e.g. `:\c~`).
+    RegexMatch(RegexFlags),
     /// The general-purpose "match" operator (`:`). Behaves like [`Operator::Eq`] except that it
     /// applies type-aware matching (e.g. case-insensitive "contains" for text values).
     Match,
+}
+
+/// The flags of a regular-expression match, written between the `:` and `~` of the operator after a
+/// backslash, e.g. `:\cm~`. They mirror Python's inline flags of the same letters, except that
+/// matching is case-insensitive unless `c` is given. With no flags, `.` doesn't match a newline,
+/// and `^` and `$` match only at the start and end of the whole text.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RegexFlags {
+    /// `c`: match case-sensitively.
+    pub case_sensitive: bool,
+    /// `m`: `^` and `$` also match at the start and end of each line.
+    pub multiline: bool,
+    /// `s`: `.` also matches a newline.
+    pub dot_all: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

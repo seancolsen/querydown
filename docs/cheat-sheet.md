@@ -59,15 +59,17 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `:>` | greater than | ✅ |
 | `:>=` | greater or equal | ✅ |
 | `:~` | match regex | ✅ |
-| `:\c~` | match regex with flags | ❌ |
+| `:\cms~` | match regex with [flags](./language.md#regex-flags) (any of `c`, `m`, `s`) | ✅ |
 
 A bare (unquoted) word _anywhere_ on the right-hand-side of a comparison — at any depth — is a [string literal](./language.md#bare-text-on-the-right-hand-side-of-a-comparison), e.g. `title:performance` is the same as `title:"performance"`, and `title:~[color colour]` searches for either literal. Quote it with backticks to reference a column instead. Outside the right-hand-side — and within a formatted string's `{ }` — a bare word is a column reference.
 
 The `!` operator negates any comparison (or expression) e.g. `!foo:2`
 
-Regex flags
+Regex flags (written between `:` and `~` after a `\`, e.g. `title:\cm~'^Fix'`):
 
-- `c` - make RegEx comparison case sensitive (the default is case insensitive)
+- `c` - case-sensitive (the default is case-insensitive)
+- `m` - multi-line: `^` and `$` match at the start and end of each line
+- `s` - dot-all: `.` matches a newline too
 
 ## Result column control
 

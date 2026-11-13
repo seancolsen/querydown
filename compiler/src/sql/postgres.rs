@@ -1,7 +1,7 @@
-use querydown_parser::ast::{Date, Duration};
+use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::{
-    dialect::{duration_part, Dialect, NormalizedDuration, RegExFlags},
+    dialect::{duration_part, Dialect, NormalizedDuration, RegexPattern},
     expr::{
         build::{cmp::comparison, sql_func},
         SqlExpr,
@@ -63,17 +63,35 @@ impl Dialect for Postgres {
     fn match_regex(
         &self,
         a: SqlExpr,
-        b: SqlExpr,
+        pattern: RegexPattern,
         is_positive: bool,
-        flags: &RegExFlags,
+        flags: &RegexFlags,
     ) -> SqlExpr {
-        let op = match (is_positive, flags.is_case_sensitive) {
+        let op = match (is_positive, flags.case_sensitive) {
             (true, true) => "~",
             (true, false) => "~*",
             (false, true) => "!~",
             (false, false) => "!~*",
         };
-        comparison(a, op, b)
+        // Postgres's newline handling is set by an embedded option, which must begin the pattern
+        // (and of which there may only be one group). Its options don't share Python's letters:
+        //
+        // | Python flags | `.` matches newline | `^` `$` at lines | Postgres option  |
+        // | ------------ | ------------------- | ---------------- | ---------------- |
+        // | (none)       | no                  | no               | `p` (partial)    |
+        // | `s`          | yes                 | no               | `s` (default)    |
+        // | `m`          | no                  | yes              | `n` (newline)    |
+        // | `m` `s`      | yes                 | yes              | `w` (weird)      |
+        //
+        // One divergence remains: when `.` doesn't match a newline, Postgres's negated bracket
+        // expressions (e.g. `[^a]`) don't either, whereas Python's do.
+        let prefix = match (flags.multiline, flags.dot_all) {
+            (false, false) => "(?p)",
+            (false, true) => "",
+            (true, false) => "(?n)",
+            (true, true) => "(?w)",
+        };
+        comparison(a, op, self.prefixed_regex_pattern(prefix, pattern))
     }
 
     fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr {

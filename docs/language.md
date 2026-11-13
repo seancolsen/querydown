@@ -29,6 +29,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Numeric comparisons](#numeric-comparisons)
   - [Comparing dates with durations](#comparing-dates-with-durations)
   - [Regular expression matching](#regular-expression-matching)
+    - [Regex flags](#regex-flags)
   - [All comparison operators](#all-comparison-operators)
   - [Bare text on the right-hand-side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison)
     - [The rule applies at any depth](#the-rule-applies-at-any-depth)
@@ -59,9 +60,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Scoped sorting expressions](#scoped-sorting-expressions)
 - [Referencing _single_ related records](#referencing-single-related-records)
   - [Single related records via column name chains](#single-related-records-via-column-name-chains)
-  - [Single related records via table name](#single-related-records-via-table-name)
   - [Scoped comparisons](#scoped-comparisons)
-  - [One-to-one relationships](#one-to-one-relationships)
 - [Referencing _multiple_ related records](#referencing-multiple-related-records)
   - [Mandatory aggregation](#mandatory-aggregation)
   - [Aggregate counts](#aggregate-counts)
@@ -442,7 +441,38 @@ If you actually want to account for the direction of the difference, compare aga
 #issues description:~'front[ -]?end'
 ```
 
-This is case insensitive by default. See [comparison operators](./cheat-sheet.md#comparison-operators) for information on how to use regex flags.
+Regex matching is case-insensitive by default. Patterns are [raw strings](#string-literals), so a backslash reaches the regex engine intact (e.g. `'v\d+'`). The regex syntax itself is your database's: [POSIX-style "advanced" regular expressions](https://www.postgresql.org/docs/current/functions-matching.html#POSIX-SYNTAX-DETAILS) in Postgres, and [RE2](https://github.com/google/re2/wiki/Syntax) in DuckDB.
+
+#### Regex flags
+
+To change how a regex matches, write flags between the `:` and the `~` of the operator, after a backslash:
+
+> Find issues whose title starts with "Fix", matching case-sensitively
+
+```qd
+#issues title:\c~'^Fix'
+```
+
+| Flag | Effect |
+| -- | -- |
+| `c` | Match case-sensitively. |
+| `m` | Multi-line: `^` and `$` match at the start and end of each line, rather than only at the start and end of the whole text. |
+| `s` | Dot-all: `.` matches a newline too. |
+
+The flags may be combined in any order, e.g. `\ms`.
+
+> Find issues whose description has a line consisting only of "TODO"
+
+```qd
+#issues description:\cm~'^TODO$'
+```
+
+Without any flags, a regex matches the same way in every database: case-insensitively, with `.` matching any character _except_ a newline, and with `^` and `$` matching only at the start and end of the whole text. The `m` and `s` flags mean what they do in Python (and JavaScript, Perl, etc.). There's no `i` flag, since case-insensitivity is the default. Python's `x`, `a`, `u`, and `L` flags aren't supported, because the databases don't support them.
+
+A few behaviors differ between databases, because Querydown hands the pattern to the database's own regex engine:
+
+- In Postgres, a negated bracket expression such as `[^a]` doesn't match a newline unless the `s` flag is given. In DuckDB (and Python) it always does.
+- Postgres lets an embedded options group like `(?x)` appear only at the very start of a pattern, but Querydown already puts its own options there. Use Querydown's flags instead.
 
 ### All comparison operators
 

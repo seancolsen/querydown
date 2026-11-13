@@ -4,6 +4,8 @@ pub(crate) mod corpus_loader;
 mod db_corpus;
 #[cfg(feature = "db-tests")]
 mod db_introspection;
+#[cfg(feature = "db-tests")]
+mod db_regex_flags;
 mod default_text_search;
 mod definitions;
 mod equality_operators;
