@@ -186,10 +186,10 @@ Strings can be prefixed with multiple flags to alter their behavior.
 | `f`  | **formatting** (aka interpolation) via `{ }` |
 | `e`  | interpret **escape** sequences (default is raw) |
 
-- The block of all flags must be prefixed with `^`.
 - Multiple flags can be applied to the same string.
+- The block of all flags must be prefixed with `^`.
 - The flags block can also be empty, meaning that `^` is allowed to prefix a string. This is said to be a "flagged string", even if no flags are present.
-- Flagged strings may be quoted with any of the following characters: `" ' ^ # / | @`
+- Flagged strings may be quoted with any of the following characters: `" ' ^ # / |`.
 
 ### Date literals
 
@@ -239,11 +239,11 @@ Basic arithmetic operators are supported in expressions, along with their standa
 |  `*` | Multiplication |
 |  `/` | Division |
 
-No other operators exist. All other functions must be applied by name.
+No other math operators exist. All other functions must be applied by name.
 
 ### Function piping
 
-Functions can be applied to values via `|` (pipe) syntax.
+Scalar functions can be applied to values via `|` (pipe) syntax.
 
 > Show issues, along with the number of days until the due date.
 
@@ -253,14 +253,11 @@ Functions can be applied to values via `|` (pipe) syntax.
 
 - See a list of [all named functions](./functions.md).
 - Pipe has the highest [operator precedence](./cheat-sheet.md#operator-precedence), meaning that it gets evaluated before multiplication or division.
+- Note that [_aggregate_ functions](#specifying-an-aggregate-function) are applied via `%` instead of `|`.
 
 ### Case expressions
 
-- `?` begins a case expression.
-- `~` denotes a case variant and separates a test expression (first) from a corresponding value expression (second).
-- `~~` prefixes the fallback value and indicates the end of the case expression.
-
-A case expression requires at least one variant and a fallback. It compiles to a SQL searched `CASE` expression, evaluating the variants in order and yielding the value of the first variant whose test expression is true, or the fallback if none are. The test expressions, value expressions, and fallback may each be any expression.
+Use `?`, `~` and `~~` for case expressions, which are similar to if/else (ternary) expressions.
 
 > Categorize each issue into being either "overdue", "due soon", or "due later".
 
@@ -270,8 +267,14 @@ $title
 $ ?
   due_date|countdown|days:<0  ~ "overdue"
   due_date|countdown|days:<30 ~ "due soon"
-  ~~                       "due later"
+  ~~ "due later"
 ```
+
+- `?` begins a case expression.
+- `~` denotes a case variant by separating its test expression from its corresponding value expression.
+- `~~` prefixes the fallback value and indicates the end of the case expression.
+
+A case expression requires at least one variant and a fallback. It compiles to a SQL `CASE` expression, evaluating the variants in order and yielding the value of the first variant whose test expression is true, or the fallback if none are.
 
 ### Anonymous functions
 
@@ -903,12 +906,6 @@ A few details:
 _(🚧 Not yet implemented)_
 
 The `>>` syntax can also be used bidirectionally for one-to-one relationships to satisfy the use case when a single related record cannot be referenced by a column.
-
-### Single records related through multi-column foreign keys
-
-_(🚧 Not yet implemented)_
-
-If the relationship uses a multi-column foreign key, then any of the foreign key columns can be used in a column name chain.
 
 ## Referencing _multiple_ related records
 
@@ -1650,7 +1647,7 @@ $#comments @{formattingConditions:[
   {gte:5 bg:'#d5d2ff'}
 ]}
 ```
-In additon to the query SQL, this also produces the following annotations:
+In addition to the query SQL, this also produces the following annotations:
 
 ```json
 {
@@ -1705,52 +1702,12 @@ _(🚧 Not yet implemented)_
 
 Limits and offsets are specified as options to the Querydown compiler. This gives pagination control to the _application_ instead of the query author.
 
-## Modules
+## Things you can't do (yet?)
 
-_(🚧 Not yet implemented. This design is still quite rough as well!)_
+- Join on arbitrary columns
+- Inequality joins
+- Lots of functions missing!
+- Data series generation (e.g. number of issues opened each month, showing rows for months with zero issues opened)
+- Hierarchical data traversal
 
-All user-defined variables are private by default.
 
-Examples:
-
-- In module `foo/bar`:
-
-    Use `===` export the definition of `#issues.involves` (a [custom comparison](#custom-comparisons))
-
-    ```qd
-    === #issues.involves:@u = [
-      ++#assignments{user.username:=@u}
-      ++#comments{author.username:=@u}
-      author.username:=@u
-    ]
-    ```
-
-- In another module, import and use `#issues.involves`
-
-    ```qd
-    <<< foo/bar(#issues.involves)
-
-    #issues involves:alice
-    ```
-
-- Or, import it but alias it as `has` instead
-
-    ```qd
-    <<< foo/bar(#issues.involves->has)
-
-    #issues has:alice
-    ```
-
-- Or, import _all exports_ from `foo/bar`
-
-    ```qd
-    <<< foo/bar(*)
-
-    #issues involves:alice
-    ```
-
-- Re-export an import
-
-    ```qd
-    === ./foo/bar(*)
-    ```
