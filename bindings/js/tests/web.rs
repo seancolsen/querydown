@@ -32,7 +32,7 @@ fn read_sql(value: &JsValue) -> String {
 
 #[wasm_bindgen_test]
 fn compile_returns_typed_object() {
-    let result = compile(SCHEMA, "postgres", "#t $id".to_string()).expect("compiles");
+    let result = compile(SCHEMA, "postgres", "#t $id".to_string(), None).expect("compiles");
     let value: JsValue = result.unchecked_into();
 
     // The return value is an object, not the JSON string it used to be.
@@ -50,6 +50,7 @@ fn compile_returns_annotations() {
         SCHEMA,
         "postgres",
         r"#t $id @{width:100} $name \\\{view:table size:[1 2]}".to_string(),
+        None,
     )
     .expect("compiles");
     let value: JsValue = result.unchecked_into();
@@ -59,7 +60,7 @@ fn compile_returns_annotations() {
     assert_eq!(get_num(&value, "queryAnnotation.size.1"), 2.0);
 
     // Without a query annotation, `queryAnnotation` is `null` (not missing).
-    let result = compile(SCHEMA, "postgres", "#t $id".to_string()).expect("compiles");
+    let result = compile(SCHEMA, "postgres", "#t $id".to_string(), None).expect("compiles");
     let value: JsValue = result.unchecked_into();
     assert!(get(&value, "queryAnnotation").is_null());
 }
@@ -67,8 +68,8 @@ fn compile_returns_annotations() {
 #[wasm_bindgen_test]
 fn compile_sections_matches_whole_query() {
     // A sectioned query compiles to the same SQL as the equivalent whole-query source.
-    let whole = compile(SCHEMA, "postgres", "#t $id".to_string()).expect("whole compiles");
-    let sectioned = compile_sections(SCHEMA, "postgres", "t".to_string(), "", "", "", "$id")
+    let whole = compile(SCHEMA, "postgres", "#t $id".to_string(), None).expect("whole compiles");
+    let sectioned = compile_sections(SCHEMA, "postgres", "t".to_string(), "", "", "", "$id", None)
         .expect("sections compile");
 
     let whole_sql = read_sql(&whole.unchecked_into());
@@ -88,6 +89,7 @@ fn compile_sections_isolates_sections() {
         "",
         "$id",
         "$id",
+        None,
     ));
     let message = js_sys::Reflect::get(&err, &JsValue::from_str("message"))
         .ok()
@@ -97,6 +99,76 @@ fn compile_sections_isolates_sections() {
         message.starts_with("Sort section:"),
         "error should be attributed to the sort section, got: {message}"
     );
+}
+
+/// A JS object with the given properties, as options for `compile` and `compile_sections`.
+fn compile_options(properties: &[(&str, JsValue)]) -> querydown_js::JsCompileOptionsObject {
+    let object = js_sys::Object::new();
+    for (key, value) in properties {
+        js_sys::Reflect::set(&object, &(*key).into(), value).unwrap();
+    }
+    JsValue::from(object).unchecked_into()
+}
+
+#[wasm_bindgen_test]
+fn compile_applies_limit_and_offset() {
+    let options = compile_options(&[("limit", 10.into()), ("offset", 20.into())]);
+    let result =
+        compile(SCHEMA, "postgres", "#t $id".to_string(), Some(options)).expect("compiles");
+    let sql = read_sql(&result.unchecked_into());
+    assert!(sql.ends_with("LIMIT 10\nOFFSET 20;"), "got: {sql}");
+
+    let options = compile_options(&[("offset", 5.into())]);
+    let result = compile_sections(
+        SCHEMA,
+        "postgres",
+        "t".to_string(),
+        "",
+        "",
+        "",
+        "$id",
+        Some(options),
+    )
+    .expect("compiles");
+    let sql = read_sql(&result.unchecked_into());
+    assert!(sql.ends_with("FROM \"t\"\nOFFSET 5;"), "got: {sql}");
+}
+
+#[wasm_bindgen_test]
+fn compile_treats_null_options_as_absent() {
+    let plain = read_sql(
+        &compile(SCHEMA, "postgres", "#t $id".to_string(), None)
+            .expect("compiles")
+            .unchecked_into(),
+    );
+    for options in [
+        JsValue::NULL.unchecked_into(),
+        compile_options(&[]),
+        compile_options(&[("limit", JsValue::NULL), ("offset", JsValue::UNDEFINED)]),
+    ] {
+        let result =
+            compile(SCHEMA, "postgres", "#t $id".to_string(), Some(options)).expect("compiles");
+        assert_eq!(read_sql(&result.unchecked_into()), plain);
+    }
+}
+
+#[wasm_bindgen_test]
+fn compile_rejects_invalid_limits_and_offsets() {
+    for (key, value) in [
+        ("limit", JsValue::from(-1)),
+        ("limit", JsValue::from(1.5)),
+        ("offset", JsValue::from("10")),
+    ] {
+        let options = compile_options(&[(key, value)]);
+        let err = thrown(compile(
+            SCHEMA,
+            "postgres",
+            "#t $id".to_string(),
+            Some(options),
+        ));
+        assert_eq!(get_str(&err, "kind"), "argument");
+        assert!(get_str(&err, "message").starts_with("Invalid compile options:"));
+    }
 }
 
 /// Calls `f`, expecting it to throw, and returns the thrown value.
@@ -127,7 +199,12 @@ fn get_num(value: &JsValue, path: &str) -> f64 {
 
 #[wasm_bindgen_test]
 fn syntax_error_is_a_located_querydown_error() {
-    let err = thrown(compile(SCHEMA, "postgres", "#t\n  name:)".to_string()));
+    let err = thrown(compile(
+        SCHEMA,
+        "postgres",
+        "#t\n  name:)".to_string(),
+        None,
+    ));
 
     // A real `Error`, recognizable by name and by the exported type guard.
     assert!(err.is_instance_of::<js_sys::Error>());
@@ -161,7 +238,7 @@ fn span_offsets_and_columns_are_utf16_code_units() {
     // `😀` is one char in Rust but two UTF-16 code units in JS, so everything after it is shifted
     // by one relative to a char count (and by three relative to a byte count).
     let source = "#t name:'😀' [id:1";
-    let err = thrown(compile(SCHEMA, "postgres", source.to_string()));
+    let err = thrown(compile(SCHEMA, "postgres", source.to_string(), None));
     assert_eq!(
         get_str(&err, "reason"),
         "Unclosed `[`. Expected a matching `]` before the end of input."
@@ -189,6 +266,7 @@ fn section_syntax_error_is_attributed_to_its_section() {
         "name:1",
         r"\\id $id",
         "",
+        None,
     ));
     assert_eq!(get_str(&err, "kind"), "syntax");
     assert_eq!(get_str(&err, "section"), "sorting");
@@ -200,7 +278,12 @@ fn section_syntax_error_is_attributed_to_its_section() {
 
 #[wasm_bindgen_test]
 fn compile_error_is_located() {
-    let err = thrown(compile(SCHEMA, "postgres", "#t\n  $id $nope".to_string()));
+    let err = thrown(compile(
+        SCHEMA,
+        "postgres",
+        "#t\n  $id $nope".to_string(),
+        None,
+    ));
     assert!(querydown_js::is_querydown_error(&err));
     assert_eq!(get_str(&err, "kind"), "compile");
     assert_eq!(
@@ -229,6 +312,7 @@ fn section_compile_error_is_attributed_to_its_section() {
         "name:x",
         "",
         "$id\n$name|nope",
+        None,
     ));
     // The span is relative to the display section's own text.
     assert_eq!(get_str(&err, "kind"), "compile");
@@ -251,6 +335,7 @@ fn compile_error_about_the_base_table_of_sections_has_no_section() {
         "",
         "",
         "",
+        None,
     ));
     assert_eq!(get_str(&err, "kind"), "compile");
     assert!(get(&err, "span").is_null());
@@ -263,11 +348,11 @@ fn compile_error_about_the_base_table_of_sections_has_no_section() {
 
 #[wasm_bindgen_test]
 fn schema_and_argument_errors_have_their_own_kinds() {
-    let err = thrown(compile("{", "postgres", "#t".to_string()));
+    let err = thrown(compile("{", "postgres", "#t".to_string(), None));
     assert_eq!(get_str(&err, "kind"), "schema");
     assert!(get_str(&err, "message").starts_with("The schema is not valid"));
 
-    let err = thrown(compile(SCHEMA, "mysql", "#t".to_string()));
+    let err = thrown(compile(SCHEMA, "mysql", "#t".to_string(), None));
     assert_eq!(get_str(&err, "kind"), "argument");
     assert!(get_str(&err, "message").contains("mysql"));
 

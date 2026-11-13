@@ -5367,3 +5367,244 @@ FROM "pipe0"
 WHERE
   "pipe0"."seq" = 1;
 ```
+
+## Limit and offset
+
+Limits and offsets are not part of the Querydown language. They're supplied as options to the compiler (set here via `limit` and `offset` in a case's options block), which applies them to the outermost query.
+
+### Limit
+
+```toml options
+limit = 10
+```
+
+> The ten most recently-created issues
+
+```qd
+#issues \\created_at \d $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  "issues"."created_at" DESC NULLS LAST
+LIMIT 10;
+```
+
+### Offset
+
+```toml options
+offset = 20
+```
+
+> Every issue after the first twenty
+
+```qd
+#issues \\id $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  "issues"."id" ASC NULLS LAST
+OFFSET 20;
+```
+
+### Limit and offset
+
+```toml options
+limit = 10
+offset = 20
+```
+
+> The third page of ten issues
+
+```qd
+#issues \\id $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  "issues"."id" ASC NULLS LAST
+LIMIT 10
+OFFSET 20;
+```
+
+### Zero limit
+
+```toml options
+limit = 0
+```
+
+> A limit of zero returns no rows, while still producing the result's columns.
+
+```qd
+#issues $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+LIMIT 0;
+```
+
+### Limit and offset (DuckDB)
+
+```toml options
+dialect = "duckdb"
+limit = 10
+offset = 20
+```
+
+```qd
+#issues \\id $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  "issues"."id" ASC NULLS LAST
+LIMIT 10
+OFFSET 20;
+```
+
+### Limit and offset with grouping
+
+```toml options
+limit = 5
+offset = 5
+```
+
+> The limit applies to the grouped rows, after the `GROUP BY`.
+
+```qd
+#issues $status \g $%count \sd
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(*)
+FROM "issues"
+GROUP BY "issues"."status"
+ORDER BY
+  count(*) DESC NULLS LAST
+LIMIT 5
+OFFSET 5;
+```
+
+### Limit and offset with related records
+
+```toml options
+limit = 10
+offset = 30
+```
+
+> The limit applies to the base table's rows, never to the related records aggregated into them.
+
+```qd
+#issues \\id $title $#comments
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+ORDER BY
+  "issues"."id" ASC NULLS LAST
+LIMIT 10
+OFFSET 30;
+```
+
+### Limit and offset on a pipeline
+
+```toml options
+limit = 10
+offset = 20
+```
+
+> Only the final stage is limited; earlier stages are materialized in full.
+
+```qd
+#issues $project \g $%count -> issue_count
+~~~
+issue_count:>=2 \\issue_count \d
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."project" AS "project",
+      count(*) AS "issue_count"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "pipe0"."project",
+  "pipe0"."issue_count"
+FROM "pipe0"
+WHERE
+  "pipe0"."issue_count" >= 2
+ORDER BY
+  "pipe0"."issue_count" DESC NULLS LAST
+LIMIT 10
+OFFSET 20;
+```
+
+### Limit and offset with a user-defined table and a subquery
+
+```toml options
+limit = 10
+offset = 20
+```
+
+> Neither the user-defined table's CTE nor the scalar subquery is limited.
+
+```qd
+@latest = #( #comments $created_at%max )
+#recent = #( #issues $id $created_at )
+#recent created_at:<=@latest $id
+```
+
+```sql
+WITH
+  "recent" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."created_at" AS "created_at"
+    FROM "issues"
+  )
+SELECT
+  "recent"."id"
+FROM "recent"
+WHERE
+  "recent"."created_at" <= (
+    SELECT
+      max("comments"."created_at")
+    FROM "comments"
+  )
+LIMIT 10
+OFFSET 20;
+```

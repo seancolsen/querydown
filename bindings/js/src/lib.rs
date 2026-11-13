@@ -1,6 +1,6 @@
 use querydown::ast::Query;
 use querydown::*;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -43,6 +43,21 @@ export interface CompileResult {
    * has none. Always `null` from `compile_sections`, whose sections have no place to write one.
    */
   queryAnnotation: AnnotationValue | null;
+}
+
+/** Options for {@link compile} and {@link compile_sections}. */
+export interface QuerydownCompileOptions {
+  /**
+   * The maximum number of rows the query returns, rendered as a `LIMIT` clause on the outermost
+   * query (never on a user-defined table, an earlier pipeline stage, or a subquery). Must be a
+   * non-negative integer. Omit it, or pass `null`, for no limit.
+   */
+  limit?: number | null;
+  /**
+   * The number of rows to skip before returning any, rendered as an `OFFSET` clause on the
+   * outermost query. Must be a non-negative integer. Omit it, or pass `null`, to skip no rows.
+   */
+  offset?: number | null;
 }
 
 /**
@@ -329,6 +344,10 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "CompileResult")]
     pub type JsCompileResult;
 
+    /// The options object passed to `compile` and `compile_sections`.
+    #[wasm_bindgen(typescript_type = "QuerydownCompileOptions")]
+    pub type JsCompileOptionsObject;
+
     /// The options object passed to `QuerydownCompleter.complete`.
     #[wasm_bindgen(typescript_type = "QuerydownCompletionOptions")]
     pub type JsCompletionOptionsObject;
@@ -500,12 +519,41 @@ fn parse_dialect(dialect: &str) -> Result<Box<dyn Dialect>, JsValue> {
     }
 }
 
-/// Builds a [`Compiler`] for the given schema and dialect, mapping any setup error to a thrown
-/// `QuerydownError`.
-fn make_compiler(schema_json: &str, dialect: &str) -> Result<Compiler, JsValue> {
+/// Reads an optional options object passed from JavaScript, treating `undefined` and `null` as
+/// all-default options. `what` names the options in the error thrown when they are invalid.
+fn read_options<T: DeserializeOwned + Default>(
+    options: Option<JsValue>,
+    what: &str,
+) -> Result<T, JsValue> {
+    match options {
+        Some(value) if !value.is_undefined() && !value.is_null() => {
+            serde_wasm_bindgen::from_value(value)
+                .map_err(|e| argument_error(format!("Invalid {what} options: {e}")))
+        }
+        _ => Ok(T::default()),
+    }
+}
+
+/// The options accepted by [`compile`] and [`compile_sections`]; see `QuerydownCompileOptions` in
+/// the TypeScript declarations above.
+#[derive(Deserialize, Default)]
+struct JsCompileOptions {
+    limit: Option<u64>,
+    offset: Option<u64>,
+}
+
+/// Builds a [`Compiler`] for the given schema, dialect, and options, mapping any setup error to a
+/// thrown `QuerydownError`.
+fn make_compiler(
+    schema_json: &str,
+    dialect: &str,
+    compile_options: JsCompileOptions,
+) -> Result<Compiler, JsValue> {
     let options = Options {
         dialect: parse_dialect(dialect)?,
         identifier_resolution: IdentifierResolution::Flexible,
+        limit: compile_options.limit,
+        offset: compile_options.offset,
     };
     Compiler::new(schema_json, options).map_err(|e| to_js_error(&e, schema_json))
 }
@@ -530,13 +578,17 @@ pub fn introspection_sql(dialect: &str) -> Result<String, JsValue> {
 
 /// Compiles whole-query Querydown source into SQL plus its annotations, returning a typed
 /// `CompileResult` object. Failures are thrown as `QuerydownError`s, whose spans refer to `input`.
+/// The optional `options` supply a limit and offset for the result set; invalid options are thrown
+/// as a `QuerydownError` of kind `"argument"`.
 #[wasm_bindgen]
 pub fn compile(
     schema_json: &str,
     dialect: &str,
     input: String,
+    options: Option<JsCompileOptionsObject>,
 ) -> Result<JsCompileResult, JsValue> {
-    let compiler = make_compiler(schema_json, dialect)?;
+    let options = read_options(options.map(JsValue::from), "compile")?;
+    let compiler = make_compiler(schema_json, dialect, options)?;
     let result = compiler
         .compile(input.clone())
         .map_err(|e| to_js_error(&e, &input))?;
@@ -551,7 +603,9 @@ pub fn compile(
 /// result set). An error's `section` names the section it is located in, its `span` is relative to
 /// that section's text, and its `message` is prefixed with the section's name. This applies to
 /// compile errors as well as syntax errors; only an error with no location (e.g. about the
-/// `base_table`) has no section.
+/// `base_table`) has no section. The optional `options` are as for [`compile`].
+// The parameters are the function's positional JS arguments, so they can't be bundled into a struct.
+#[allow(clippy::too_many_arguments)]
 #[wasm_bindgen]
 pub fn compile_sections(
     schema_json: &str,
@@ -561,7 +615,9 @@ pub fn compile_sections(
     conditions: &str,
     sorting: &str,
     display: &str,
+    options: Option<JsCompileOptionsObject>,
 ) -> Result<JsCompileResult, JsValue> {
+    let options = read_options(options.map(JsValue::from), "compile")?;
     let sources = SectionSources {
         definitions,
         conditions,
@@ -580,7 +636,7 @@ pub fn compile_sections(
         parse_sorting(sorting).map_err(to_js_error)?,
         parse_display(display).map_err(to_js_error)?,
     );
-    let compiler = make_compiler(schema_json, dialect)?;
+    let compiler = make_compiler(schema_json, dialect, options)?;
     let result = compiler.compile_query(query).map_err(to_js_error)?;
     to_js_result(&result)
 }
@@ -674,7 +730,7 @@ impl Completer {
         #[wasm_bindgen(js_name = schemaJson)] schema_json: &str,
     ) -> Result<Completer, JsValue> {
         // The dialect doesn't affect completion.
-        let compiler = make_compiler(schema_json, "postgres")?;
+        let compiler = make_compiler(schema_json, "postgres", JsCompileOptions::default())?;
         Ok(Completer { compiler })
     }
 
@@ -688,13 +744,7 @@ impl Completer {
         cursor: usize,
         options: Option<JsCompletionOptionsObject>,
     ) -> Result<JsValue, JsValue> {
-        let options: JsCompletionOptions = match options.map(JsValue::from) {
-            Some(value) if !value.is_undefined() && !value.is_null() => {
-                serde_wasm_bindgen::from_value(value)
-                    .map_err(|e| argument_error(format!("Invalid completion options: {e}")))?
-            }
-            _ => JsCompletionOptions::default(),
-        };
+        let options: JsCompletionOptions = read_options(options.map(JsValue::from), "completion")?;
         let grammar = parse_grammar(options.grammar.as_deref().unwrap_or("query"))?;
         let completions = self.compiler.complete(&completion::CompletionRequest {
             source,

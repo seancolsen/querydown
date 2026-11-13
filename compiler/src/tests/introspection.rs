@@ -64,6 +64,8 @@ fn introspection_output_round_trips_into_compiler() {
     let options = Options {
         dialect: Box::new(Postgres()),
         identifier_resolution: IdentifierResolution::Flexible,
+        limit: None,
+        offset: None,
     };
     let compiler = Compiler::new(SAMPLE_INTROSPECTION_OUTPUT, options)
         .expect("introspection output should parse into a schema");

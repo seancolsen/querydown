@@ -24,6 +24,10 @@ pub struct Opts {
     pub schema_name: String,
     pub identifier_resolution: IdentifierResolution,
     pub dialect: String,
+    /// The compiler's `limit` option.
+    pub limit: Option<u64>,
+    /// The compiler's `offset` option.
+    pub offset: Option<u64>,
     /// Controls whether this case is executed against real databases. See [`DbSkip`].
     #[cfg_attr(not(feature = "db-tests"), allow(dead_code))]
     pub db_skip: DbSkip,
@@ -60,6 +64,8 @@ impl Default for Opts {
             schema_name: "issues".to_owned(),
             identifier_resolution: IdentifierResolution::Flexible,
             dialect: "postgres".to_owned(),
+            limit: None,
+            offset: None,
             db_skip: DbSkip::None,
         }
     }
@@ -90,6 +96,14 @@ fn get_dialect(toml_values: &Map<String, Value>) -> Option<&str> {
     toml_values.get("dialect").map(|v| v.as_str())?
 }
 
+fn get_u64(toml_values: &Map<String, Value>, key: &str) -> Option<u64> {
+    let value = toml_values.get(key)?;
+    let int = value
+        .as_integer()
+        .unwrap_or_else(|| panic!("`{key}` must be an integer, not {value}"));
+    Some(u64::try_from(int).unwrap_or_else(|_| panic!("`{key}` must not be negative")))
+}
+
 fn get_db_skip(toml_values: &Map<String, Value>) -> Option<DbSkip> {
     match toml_values.get("db_skip")? {
         Value::Boolean(true) => Some(DbSkip::All),
@@ -117,6 +131,8 @@ impl MergeSerialized for Opts {
             dialect: get_dialect(&values)
                 .map(|d| d.to_owned())
                 .unwrap_or_else(|| self.dialect.clone()),
+            limit: get_u64(&values, "limit").or(self.limit),
+            offset: get_u64(&values, "offset").or(self.offset),
             db_skip: get_db_skip(&values).unwrap_or_else(|| self.db_skip.clone()),
         })
     }
@@ -138,6 +154,18 @@ pub fn build_options(identifier_resolution: IdentifierResolution, dialect: &str)
             "duckdb" => Box::new(DuckDB()),
             other => panic!("Unknown dialect: {other}"),
         },
+        limit: None,
+        offset: None,
+    }
+}
+
+/// Builds compiler [`Options`] for a case, targeting `dialect` independent of the dialect the case
+/// declares.
+pub fn build_case_options(opts: &Opts, dialect: &str) -> Options {
+    Options {
+        limit: opts.limit,
+        offset: opts.offset,
+        ..build_options(opts.identifier_resolution, dialect)
     }
 }
 

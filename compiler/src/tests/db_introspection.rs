@@ -86,6 +86,8 @@ fn assert_introspection(json: &str, dialect: Box<dyn Dialect>) {
     let options = Options {
         dialect,
         identifier_resolution: IdentifierResolution::Flexible,
+        limit: None,
+        offset: None,
     };
     let compiler = Compiler::new(json, options).expect("introspected schema should compile");
     let result = compiler

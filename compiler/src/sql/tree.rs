@@ -15,6 +15,8 @@ pub struct Select {
     pub conditions: SqlExpr,
     pub sorting: Vec<SortEntry>,
     pub grouping: Vec<SqlExpr>,
+    pub limit: Option<u64>,
+    pub offset: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -85,6 +87,8 @@ impl From<String> for Select {
             conditions: SqlExpr::default(),
             sorting: vec![],
             grouping: vec![],
+            limit: None,
+            offset: None,
         }
     }
 }

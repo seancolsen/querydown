@@ -1725,9 +1725,41 @@ A few rules:
 
 ## Limit and offset
 
-_(🚧 Not yet implemented)_
+Limits and offsets are specified as options to the Querydown compiler, not written in the query. This gives pagination control to the _application_ instead of the query author: the same query can be compiled once per page, and an end-user can't write a query that fetches more rows than the application allows.
 
-Limits and offsets are specified as options to the Querydown compiler. This gives pagination control to the _application_ instead of the query author.
+| Option   | SQL      | Effect                                           |
+| -------- | -------- | ------------------------------------------------ |
+| `limit`  | `LIMIT`  | The maximum number of rows to return             |
+| `offset` | `OFFSET` | The number of rows to skip before returning any  |
+
+Both are optional non-negative integers, and either may be used without the other. Each consumer of the compiler exposes them in its own way:
+
+- Rust: the `limit` and `offset` fields of `Options` (each an `Option<u64>`)
+- JavaScript: an options object passed as the last argument to `compile` or `compile_sections`, e.g. `compile(schema, "postgres", query, { limit: 50, offset: 100 })`
+- CLI: `querydown compile --limit 50 --offset 100 …`
+
+> With a limit of `50` and an offset of `100`, the third page of issues, oldest first:
+
+```qd
+#issues \\created_at \\id $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  "issues"."created_at" ASC NULLS LAST,
+  "issues"."id" ASC NULLS LAST
+LIMIT 50
+OFFSET 100;
+```
+
+A few things to keep in mind:
+
+- The limit and offset apply only to the outermost query — that is, to the rows of the final result. A [user-defined table](#user-defined-tables), an earlier stage of a [pipeline](#pipeline-of-multiple-queries), and a scalar subquery are never limited.
+- Because all [joined data is aggregated](#mandatory-aggregation) with respect to the base table, the limit counts rows of the result (base table rows, or groups when [grouping](#grouping-and-aggregation)), never related records.
+- Without sorting, a database is free to return rows in any order, so pages may overlap or skip rows. To paginate reliably, sort on something unique, such as the primary key (e.g. `\\id` as the last sorting expression).
 
 ## Things you can't do (yet?)
 

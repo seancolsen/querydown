@@ -58,7 +58,15 @@ impl Render for Select {
             let sorting = indent(self.sorting.render(scope));
             format!("ORDER BY\n{sorting}")
         };
-        [ctes, main, where_, group, order]
+        let limit = self
+            .limit
+            .map(|limit| format!("LIMIT {limit}"))
+            .unwrap_or_default();
+        let offset = self
+            .offset
+            .map(|offset| format!("OFFSET {offset}"))
+            .unwrap_or_default();
+        [ctes, main, where_, group, order, limit, offset]
             .into_iter()
             .filter(|s| !s.is_empty())
             .join("\n")

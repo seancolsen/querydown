@@ -13,6 +13,8 @@ fn options() -> Options {
     Options {
         dialect: Box::new(Postgres()),
         identifier_resolution: IdentifierResolution::Flexible,
+        limit: None,
+        offset: None,
     }
 }
 

@@ -63,13 +63,33 @@ Returns the static SQL that introspects a database of the given `dialect` (`"pos
 a single row with a single column containing the JSON. Throws a [`QuerydownError`](#errors) of kind
 `"argument"` on an unknown dialect.
 
-### `compile(schemaJson: string, dialect: string, input: string): CompileResult`
+### `compile(schemaJson: string, dialect: string, input: string, options?: QuerydownCompileOptions): CompileResult`
 
 Compiles whole-query Querydown `input` against `schemaJson` for the given `dialect`. Returns a typed
 `CompileResult` **object** (see below). Throws a [`QuerydownError`](#errors) on a syntax, schema,
-compile, or argument (unknown dialect) failure; its `span` is relative to `input`.
+compile, or argument (unknown dialect, invalid options) failure; its `span` is relative to `input`.
 
-### `compile_sections(schemaJson, dialect, baseTable, definitions, conditions, sorting, display): CompileResult`
+`options` (all optional) control pagination, which belongs to the application rather than to the
+query's author:
+
+| Option   | Type             | Meaning                                                           |
+| -------- | ---------------- | ----------------------------------------------------------------- |
+| `limit`  | `number \| null` | The maximum number of rows to return, rendered as `LIMIT`         |
+| `offset` | `number \| null` | The number of rows to skip before returning any, rendered as `OFFSET` |
+
+Each must be a non-negative integer; omitting it (or passing `null`) imposes no limit or offset. They
+apply to the outermost query only — never to a user-defined table, an earlier pipeline stage, or a
+subquery. For stable pages, sort the query on something unique (e.g. `\\id`).
+
+```ts
+// The third page of 50 issues
+const { sql } = compile(schemaJson, "postgres", String.raw`#issues \\id $title`, {
+  limit: 50,
+  offset: 100,
+});
+```
+
+### `compile_sections(schemaJson, dialect, baseTable, definitions, conditions, sorting, display, options?): CompileResult`
 
 Compiles a query supplied as **independently-parsed sections** plus a base table, instead of one
 whole-query string:
@@ -84,10 +104,10 @@ whole-query string:
 
 Each section is parsed with its own parser, so one section's syntax cannot leak into another — a
 stray display `$` typed into the sorting input is reported as a `"Sort section: …"` error rather
-than silently changing the result set. This mirrors a multi-input query-builder UI. Returns the same
-`CompileResult` as `compile`; throws a [`QuerydownError`](#errors) on failure. A syntax error names
-the section it occurred in (`err.section`, plus a prefix such as `"Sort section: "` on
-`err.message`), and its `span` is relative to that section's text.
+than silently changing the result set. This mirrors a multi-input query-builder UI. Takes the same
+`options` as `compile` and returns the same `CompileResult`; throws a [`QuerydownError`](#errors)
+on failure. A syntax error names the section it occurred in (`err.section`, plus a prefix such as
+`"Sort section: "` on `err.message`), and its `span` is relative to that section's text.
 
 ### `tokenize(source: string, grammar: QuerydownGrammar): QuerydownToken[]`
 

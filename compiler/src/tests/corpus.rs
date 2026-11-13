@@ -3,7 +3,7 @@ fn test_corpus() {
     use testcase_markdown::TestCase;
 
     use super::corpus_loader::{
-        build_options, clean, has_soloed, is_skipped, is_soloed, load_cases, report, Opts,
+        build_case_options, clean, has_soloed, is_skipped, is_soloed, load_cases, report, Opts,
     };
     use crate::Compiler;
 
@@ -13,7 +13,7 @@ fn test_corpus() {
         let input = case.args.first().expect("missing input code block").clone();
         let expected_sql = case.args.get(1).expect("missing SQL code block").clone();
         let expected_json = case.args.get(2).cloned();
-        let options = build_options(case.options.identifier_resolution, &case.options.dialect);
+        let options = build_case_options(&case.options, &case.options.dialect);
         let compiler = Compiler::new(&case.options.schema_json, options).unwrap();
         let result = compiler.compile(input.clone()).unwrap();
 

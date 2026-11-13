@@ -22,7 +22,7 @@ use std::process::Command;
 use testcase_markdown::TestCase;
 
 use super::corpus_loader::{
-    build_options, has_soloed, is_skipped, is_soloed, load_cases, report, Opts,
+    build_case_options, has_soloed, is_skipped, is_soloed, load_cases, report, Opts,
 };
 use super::{get_test_resource, get_test_resource_path};
 use crate::Compiler;
@@ -74,7 +74,7 @@ fn test_db_corpus() {
 /// formatted report on failure.
 fn check_case(env: &TestEnv, case: &TestCase<Opts>, dialect: &str) -> Result<(), String> {
     let input = case.args.first().expect("missing input code block").clone();
-    let options = build_options(case.options.identifier_resolution, dialect);
+    let options = build_case_options(&case.options, dialect);
     let compile_error = |e: crate::Error| {
         report(
             case,

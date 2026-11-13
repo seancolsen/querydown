@@ -1,4 +1,4 @@
-//! Tests of how the CLI reports failures.
+//! Tests of how the CLI handles its arguments and reports failures.
 
 use std::process::{Command, Output};
 
@@ -27,6 +27,22 @@ fn success_prints_sql_and_exits_zero() {
     let output = querydown(&["compile", "-s", SCHEMA, "#issues $id"]);
     assert!(output.status.success());
     assert!(stdout(&output).contains("SELECT"));
+}
+
+#[test]
+fn limit_and_offset_flags_paginate_the_result() {
+    let args = ["compile", "-s", SCHEMA, "--limit", "10", "--offset", "20"];
+    let output = querydown(&[&args[..], &["#issues $id"]].concat());
+    assert!(output.status.success());
+    assert!(stdout(&output).ends_with("LIMIT 10\nOFFSET 20;\n"));
+}
+
+#[test]
+fn negative_limit_is_rejected() {
+    let output = querydown(&["compile", "-s", SCHEMA, "--limit=-1", "#issues $id"]);
+    assert!(!output.status.success());
+    assert_eq!(stdout(&output), "");
+    assert!(stderr(&output).contains("--limit"));
 }
 
 #[test]

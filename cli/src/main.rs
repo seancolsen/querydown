@@ -45,6 +45,12 @@ struct CompileArgs {
     /// The SQL dialect to target.
     #[arg(short, long, value_enum, default_value_t = DialectOption::Postgres)]
     dialect: DialectOption,
+    /// The maximum number of rows the query returns, rendered as a `LIMIT` clause.
+    #[arg(long)]
+    limit: Option<u64>,
+    /// The number of rows to skip before returning any, rendered as an `OFFSET` clause.
+    #[arg(long)]
+    offset: Option<u64>,
     /// The querydown query to execute. If empty, stdin will be used.
     query: Option<String>,
 }
@@ -113,6 +119,8 @@ fn compile(args: CompileArgs) -> ExitCode {
     let options = Options {
         dialect,
         identifier_resolution: IdentifierResolution::Flexible,
+        limit: args.limit,
+        offset: args.offset,
     };
     let compiler = match Compiler::new(&schema_json, options) {
         Ok(compiler) => compiler,

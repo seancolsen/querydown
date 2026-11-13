@@ -119,6 +119,11 @@ impl Compiler {
         ctes.append(&mut final_stage.select.ctes);
         final_stage.select.ctes = ctes;
 
+        // Pagination applies to the result set as a whole, so only the outermost query is limited:
+        // never a user-defined table, an earlier pipeline stage, or a subquery.
+        final_stage.select.limit = self.options.limit;
+        final_stage.select.offset = self.options.offset;
+
         // Rendering only needs the dialect (for quoting), so the base table chosen here is
         // irrelevant; any real table works (and the query's own base table may be a user-defined
         // table that does not exist in the schema).
