@@ -60,7 +60,6 @@ _See the **[Language Guide](./language.md)** for more detail._
 | `:>=` | greater or equal | ✅ |
 | `:~` | match regex | ✅ |
 | `:\c~` | match regex with flags | ❌ |
-| `:~~` | LIKE | ❌ |
 
 A bare (unquoted) word _anywhere_ on the right-hand-side of a comparison — at any depth — is a [string literal](./language.md#bare-text-on-the-right-hand-side-of-a-comparison), e.g. `title:performance` is the same as `title:"performance"`, and `title:~[color colour]` searches for either literal. Quote it with backticks to reference a column instead. Outside the right-hand-side — and within a formatted string's `{ }` — a bare word is a column reference.
 
@@ -101,7 +100,6 @@ Column control flags:
 | `#` | [table sigil](./language.md#identifiers-table-names-and-column-names) | ✅ |
 | `.` | [path separator](./language.md#single-related-records-via-column-name-chains) | ✅ |
 | _alphanumeric identifier_ | column | ✅ |
-| `>>` | path to [table with a single record](./language.md#single-related-records-via-table-name) | ❌ |
 | `path{ }` `path[ ]` | [scoped comparison](./language.md#scoped-comparisons) (path immediately before a condition set, no space) | ✅ |
 
 ## Case expressions
@@ -133,7 +131,6 @@ See [case expressions](./language.md#case-expressions) docs.
 | `#foo.bar = baz + bat` | [computed column](./language.md#computed-columns) | ✅ |
 | `@@plus_one = @v => @v + 1` | [scalar function](./language.md#user-defined-functions) | ✅ |
 | `@@plus = @a @b => a + b` | function with two params | ❌ |
-| `#foo.@@bar = @a => @a + col` | [table-scoped function](./language.md#table-scoped-functions) | ❌ |
 | `#foo = #( )` | [temporary table](./language.md#user-defined-tables) | ✅ |
 | `@foo = #( )` | [constant from a subquery](./language.md#defining-a-constant-using-the-result-of-a-query) | ✅ |
 

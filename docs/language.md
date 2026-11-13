@@ -350,7 +350,7 @@ The above query is equivalent to:
 #issues $title $due_date|age|days|max(0)
 ```
 
-Sometimes the pipe syntax is more readable. Other times the direct call is more readable, especially when using [table-scoped functions](#table-scoped-functions).
+Sometimes the pipe syntax is more readable. Other times the direct call is more readable.
 
 ## Comparisons and conditions
 
@@ -877,24 +877,6 @@ When a column links to another table, the `.` character can be used after the co
 #issues author.team.name:"Backend" $id $title $author.username
 ```
 
-### Single related records via table name
-
-You can also refer to related tables by name.
-
-> All issues associated with the "Foo" client.
-
-```
-#issues >>#clients.name:"Foo"
-```
-
-This expands to:
-
-```
-#issues project.product.client.name:"Foo"
-```
-
-The `>>` syntax is shorthand only works if there is one unambiguous path from the base table to the linked table. The longer form is required if there is more than one way to join the two tables.
-
 ### Scoped comparisons
 
 When several conditions all reference the same related record, you can factor the path out: write it once, immediately followed by a condition set. This is the condition-side counterpart to [nesting result columns](#nesting-result-columns).
@@ -934,12 +916,6 @@ A few details:
 - There must be **no space** between the path and the condition set. With a space, `#comments issue {id:7}` is instead a [default text search](#default-text-search) for "issue" (on `#comments`) alongside a separate condition set, exactly as before.
 - Scopes may be nested, and the paths compose: `issue{project{name:foo}}` is the same as `issue.project.name:foo`.
 - The path steps through _single_ related records (a column-name chain, or the `>>` form above). A path whose last step is a to-many table like `#comments{ ... }` is instead a [filter on those related records](#conditions-to-filter-aggregate-data), which is an existing, separate feature.
-
-### One-to-one relationships
-
-_(🚧 Not yet implemented)_
-
-The `>>` syntax can also be used bidirectionally for one-to-one relationships to satisfy the use case when a single related record cannot be referenced by a column.
 
 ## Referencing _multiple_ related records
 
