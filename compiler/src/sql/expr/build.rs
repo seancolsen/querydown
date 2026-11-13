@@ -12,6 +12,7 @@ fn binary_op(a: SqlExpr, op: &str, b: SqlExpr, precedence: SqlExprPrecedence) ->
             b.for_precedence(precedence)
         ),
         precedence,
+        never_null: false,
     }
 }
 
@@ -109,14 +110,17 @@ pub mod cmp {
             Conjunction::And => SqlExprPrecedence::LogicalAnd,
             Conjunction::Or => SqlExprPrecedence::LogicalOr,
         };
+        let conditions: Vec<SqlExpr> = conditions.into_iter().filter(|e| !e.is_empty()).collect();
+        // `AND` and `OR` over operands that are never NULL are never NULL either.
+        let never_null = !conditions.is_empty() && conditions.iter().all(|c| c.never_null);
         SqlExpr {
             content: conditions
                 .into_iter()
-                .filter(|e| !e.is_empty())
                 .map(|c| c.for_precedence(precedence).content)
                 .collect::<Vec<_>>()
                 .join(separator),
             precedence,
+            never_null,
         }
     }
 
@@ -142,6 +146,7 @@ pub mod cmp {
                 SqlExpr {
                     content: format!("{} <> {}", a.content, b.content),
                     precedence: SqlExprPrecedence::Comparison,
+                    never_null: false,
                 }
             })
             .unwrap_or_else(super::value::false_)
@@ -179,6 +184,7 @@ pub mod cmp {
         SqlExpr {
             content: format!("{} IS NULL", a.content),
             precedence: SqlExprPrecedence::Comparison,
+            never_null: true,
         }
     }
 
@@ -186,6 +192,7 @@ pub mod cmp {
         SqlExpr {
             content: format!("{} IS NOT NULL", a.content),
             precedence: SqlExprPrecedence::Comparison,
+            never_null: true,
         }
     }
 }
@@ -213,13 +220,35 @@ pub mod cond {
         sql_func("COALESCE", args)
     }
 
-    pub fn not(a: SqlExpr) -> SqlExpr {
-        SqlExpr {
-            content: format!(
+    /// Querydown's `!`: true exactly when `a` isn't true, i.e. when it's false *or NULL*.
+    ///
+    /// SQL's `NOT` maps NULL to NULL, so a negated condition over a NULL operand (a nullable column,
+    /// a to-one path whose link is unset, an aggregate over no related records) would drop the row
+    /// just as the positive condition does. `IS NOT TRUE` (which Postgres and DuckDB both support)
+    /// instead makes `!X` keep exactly the rows `X` drops. When `a` is known never to be NULL (an
+    /// `IS NULL` test, a coalesced text match), the two agree, and we emit the plainer `NOT`.
+    ///
+    /// For `IS NOT TRUE`, the operand is parenthesized unless atomic, for legibility: `IS` binds
+    /// more loosely than `=` in both engines, but `a = b IS NOT TRUE` reads ambiguously. Either way,
+    /// the result is marked with `NOT`'s precedence (looser than `IS NOT TRUE` actually binds), so
+    /// that a surrounding comparison parenthesizes it.
+    pub fn not_true(a: SqlExpr) -> SqlExpr {
+        let content = if a.never_null {
+            // Parenthesize a nested negation too: `NOT (x IS NOT TRUE)`, not `NOT x IS NOT TRUE`.
+            format!(
                 "NOT {}",
-                a.for_precedence(SqlExprPrecedence::LogicalNot).content
-            ),
+                a.for_precedence(SqlExprPrecedence::Comparison).content
+            )
+        } else {
+            format!(
+                "{} IS NOT TRUE",
+                a.for_precedence(SqlExprPrecedence::Atom).content
+            )
+        };
+        SqlExpr {
+            content,
             precedence: SqlExprPrecedence::LogicalNot,
+            never_null: true,
         }
     }
 }

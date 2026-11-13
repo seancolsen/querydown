@@ -98,7 +98,7 @@ impl Dialect for DuckDB {
             "COALESCE(contains(lower(strip_accents({haystack})), lower(strip_accents({needle}))), FALSE)",
             haystack = haystack.content,
             needle = needle.content,
-        ))
+        )).never_null()
     }
 
     fn text_eq(&self, a: SqlExpr, b: SqlExpr) -> SqlExpr {

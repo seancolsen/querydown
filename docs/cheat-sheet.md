@@ -62,7 +62,7 @@ _See the **[Language Guide](./language.md)** for more detail._
 
 A bare (unquoted) word _anywhere_ on the right-hand-side of a comparison — at any depth — is a [string literal](./language.md#bare-text-on-the-right-hand-side-of-a-comparison), e.g. `title:performance` is the same as `title:"performance"`, and `title:~[color colour]` searches for either literal. Quote it with backticks to reference a column instead. Outside the right-hand-side — and within a formatted string's `{ }` — a bare word is a column reference.
 
-The `!` operator negates any comparison (or expression) e.g. `!foo:2`
+The `!` operator [negates](./language.md#negation) any comparison (or expression) e.g. `!foo:2`. `!X` finds exactly the records `X` doesn't, including those where `X` compares against NULL.
 
 Regex flags (written between `:` and `~` after a `\`, e.g. `title:\cm~'^Fix'`):
 

@@ -70,7 +70,7 @@ fn convert_expr_kind(kind: ExprKind, loc: Loc, scope: &mut Scope) -> Result<SqlE
             Ok(math::subtract(left, right))
         }
         ExprKind::Comparison(c) => convert_comparison(*c, scope),
-        ExprKind::Not(e) => Ok(cond::not(convert_expr(*e, scope)?)),
+        ExprKind::Not(e) => Ok(cond::not_true(convert_expr(*e, scope)?)),
         ExprKind::Window(w) => super::window::convert_window(w, scope),
         ExprKind::AnonymousFunctionCall(c) => convert_anonymous_function_call(*c, scope),
         ExprKind::Subquery(q) => super::convert_subquery(*q, scope),
@@ -272,7 +272,7 @@ fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr
         kind @ (ExprKind::String(_) | ExprKind::FormatString(_)) => {
             convert_default_text_search(kind, loc, scope)
         }
-        ExprKind::Not(inner) => Ok(cond::not(convert_condition_set_entry(*inner, scope)?)),
+        ExprKind::Not(inner) => Ok(cond::not_true(convert_condition_set_entry(*inner, scope)?)),
         kind => convert_expr(Expr::new(kind, loc), scope),
     }
     .map_err(|err| err.or_at(loc))

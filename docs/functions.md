@@ -31,7 +31,7 @@ Returns the first non-null value among its arguments, compiling to SQL `COALESCE
 
 ### `not`
 
-Negates a boolean value, compiling to SQL `NOT`.
+Negates a boolean value, just like the [`!` operator](./language.md#negation): true unless the value is true, so a NULL value gives `true`. Compiles to SQL `IS NOT TRUE`.
 
 ```qd
 #projects $name $is_active|not -> inactive

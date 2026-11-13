@@ -340,7 +340,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("minutes",     |e, s| args_1(e, s, minutes),                Fixed(Unknown)),
         ("mod",         |e, s| args_2(e, s, modulo),                 Fixed(Number)),
         ("month",       |e, s| calendar_field(e, s, "month"),        Fixed(Number)),
-        ("not",         |e, s| args_1(e, s, not),                    Fixed(Boolean)),
+        ("not",         |e, s| args_1(e, s, not_true),               Fixed(Boolean)),
         ("or",          |e, s| args_v(e, s, build::cmp::or),         Fixed(Boolean)),
         ("plus",        |e, s| args_2(e, s, add),                    SameAsArg(0)),
         ("pow",         |e, s| args_2(e, s, power),                  Fixed(Number)),

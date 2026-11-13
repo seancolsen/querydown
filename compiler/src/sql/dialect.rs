@@ -153,7 +153,8 @@ pub trait Dialect {
     }
 
     /// Render a case-insensitive "contains" text comparison: true when `haystack` contains `needle`
-    /// as a substring. A NULL `haystack` or `needle` yields FALSE (not NULL).
+    /// as a substring. A NULL `haystack` or `needle` yields FALSE (not NULL), and the result is
+    /// marked [`SqlExpr::never_null`] to say so.
     ///
     /// * `haystack` - The text being searched (the left-hand side of the `:` comparison)
     /// * `needle` - The text being searched for (the right-hand side of the `:` comparison)

@@ -40,6 +40,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [AND condition sets](#and-condition-sets)
   - [OR condition sets](#or-condition-sets)
   - [Nested condition sets](#nested-condition-sets)
+  - [Negation](#negation)
   - [Comparison expansion](#comparison-expansion)
     - [Without comparison expansion](#without-comparison-expansion)
   - [Dual expansion](#dual-expansion)
@@ -646,6 +647,28 @@ Conditions can be nested
   {status:"reopened" created_at:>@2022-11-22}
 ]
 ```
+
+### Negation
+
+Prefix a comparison, a condition set, or any other condition with `!` to negate it. `!X` finds exactly the records that `X` doesn't.
+
+> Issues that aren't in the "Website" project
+
+```qd
+#issues !project.name:="Website"
+```
+
+That includes issues with no project at all. A comparison whose operand is NULL (here an issue with no project has no project name) doesn't hold, so its negation does. The same goes for a nullable column (`!status:="open"` includes issues with no status) and for an aggregate over no related records:
+
+> Issues with no comment in the past week, including issues with no comments
+
+```qd
+#issues !#comments.created_at%max:<1w
+```
+
+So you never need to add a separate `:@null` check to a negated condition. Negating a condition set works the same way: `![project.id:3 status:="closed"]` finds issues that are neither in project 3 nor closed, including open issues with no project.
+
+In SQL terms, `!X` compiles to `X IS NOT TRUE` (or to a plain `NOT X` where `X` can't be NULL), not to a bare `NOT X`, which would be NULL and so drop the record whenever `X` is. The rule holds everywhere `!` appears, including in a result column: `#projects $!is_active` is `true`, not NULL, for a project whose `is_active` is NULL. The [`not`](./functions.md#not) function behaves the same way.
 
 ### Comparison expansion
 

@@ -634,7 +634,7 @@ WHERE
 
 ### Negated comparison
 
-> Issues whose status is not "open"
+> Issues whose status is not "open", including issues with no status
 
 ```qd
 #issues !status:="open"
@@ -653,7 +653,7 @@ SELECT
   "issues"."due_date"
 FROM "issues"
 WHERE
-  NOT lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C");
+  (lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C")) IS NOT TRUE;
 ```
 
 ### Negated expression as a result column
@@ -666,7 +666,7 @@ WHERE
 
 ```sql
 SELECT
-  NOT "projects"."is_active" AS "inactive"
+  "projects"."is_active" IS NOT TRUE AS "inactive"
 FROM "projects";
 ```
 
@@ -691,8 +691,102 @@ SELECT
   "issues"."due_date"
 FROM "issues"
 WHERE
-  NOT (lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") AND
-  lower("issues"."status" COLLATE "C") = lower('high' COLLATE "C"));
+  (lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") AND
+  lower("issues"."status" COLLATE "C") = lower('high' COLLATE "C")) IS NOT TRUE;
+```
+
+### Negated comparison through a to-one path
+
+> Issues that aren't in the "Website" project, including issues with no project. The LEFT JOIN gives an issue with no project a NULL name, and `IS NOT TRUE` keeps it.
+
+```qd
+#issues !project.name:="Website" $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+WHERE
+  (lower("projects"."name" COLLATE "C") = lower('Website' COLLATE "C")) IS NOT TRUE;
+```
+
+### Negated aggregate comparison
+
+> Issues with no comment in the past week, including issues with no comments at all (whose `max` is NULL)
+
+```qd
+#issues !#comments.created_at%max:<1w $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  (ABS(EXTRACT(epoch FROM NOW() - "cte0"."v1")) < EXTRACT(epoch FROM make_interval(weeks => 1))) IS NOT TRUE;
+```
+
+### Negated OR condition set
+
+> Issues that are neither in project 3 nor closed. An open issue with no project gives `NULL OR FALSE`, which is NULL, so the negation must still keep it.
+
+```qd
+#issues ![project.id:3 status:="closed"] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+WHERE
+  ("projects"."id" = 3 OR lower("issues"."status" COLLATE "C") = lower('closed' COLLATE "C")) IS NOT TRUE;
+```
+
+### Negated condition that is never NULL
+
+> `IS NULL` is never NULL, so a plain `NOT` already negates it correctly
+
+```qd
+#issues !duplicate_of:@null $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  NOT "issues"."duplicate_of" IS NULL;
+```
+
+### Double negation
+
+```qd
+#issues !!project.is_active $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+WHERE
+  NOT ("projects"."is_active" IS NOT TRUE);
 ```
 
 ### Regex
@@ -936,7 +1030,7 @@ SELECT
   "issues"."id"
 FROM "issues"
 WHERE
-  NOT "issues"."title" ~ '(?p)foo';
+  ("issues"."title" ~ '(?p)foo') IS NOT TRUE;
 ```
 
 ### Regex flags (DuckDB)
@@ -2651,7 +2745,7 @@ WITH
         LEFT JOIN "issues" ON
           "comments"."issue" = "issues"."id"
         WHERE
-          NOT "comments"."user" = "issues"."author"
+          ("comments"."user" = "issues"."author") IS NOT TRUE
         GROUP BY "comments"."issue", "users"."username"
       )
     SELECT
@@ -2809,7 +2903,7 @@ WITH
         LEFT JOIN "issues" ON
           "comments"."issue" = "issues"."id"
         WHERE
-          NOT "comments"."user" = "issues"."author"
+          ("comments"."user" = "issues"."author") IS NOT TRUE
         GROUP BY "comments"."issue", "users"."username"
       )
     SELECT

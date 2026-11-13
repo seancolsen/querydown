@@ -105,9 +105,10 @@ fn negated_bare_word_is_a_negated_search() {
 
 #[test]
 fn repeated_negation_of_a_search_term_double_negates() {
-    // Each `!` adds a `NOT` layer, so `!!term` negates the search twice.
+    // Each `!` adds a `NOT` layer, so `!!term` negates the search twice. (The search is never
+    // NULL, so neither is its negation, and each layer can be a plain `NOT`.)
     let sql = compile("#issues !!backend $id").unwrap();
-    assert!(sql.contains("NOT NOT ("), "got: {sql}");
+    assert!(sql.contains("NOT (NOT ("), "got: {sql}");
 }
 
 #[test]
@@ -125,7 +126,10 @@ fn backtick_quoting_negates_a_column_reference_rather_than_a_search() {
     // Just as a bare word searches, a *negated* bare word negates a search. Backtick-quoting instead
     // negates the column of that name — here the boolean `is_active` column of `projects`.
     let sql = compile("#projects !`is_active` $id").unwrap();
-    assert!(sql.contains(r#"NOT "projects"."is_active""#), "got: {sql}");
+    assert!(
+        sql.contains(r#""projects"."is_active" IS NOT TRUE"#),
+        "got: {sql}"
+    );
     assert!(!sql.contains("strpos"), "got: {sql}");
 }
 

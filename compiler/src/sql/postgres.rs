@@ -91,7 +91,7 @@ impl Dialect for Postgres {
             r#"COALESCE(strpos(lower({haystack} COLLATE "C"), lower({needle} COLLATE "C")) > 0, FALSE)"#,
             haystack = haystack.content,
             needle = needle.content,
-        ))
+        )).never_null()
     }
 
     fn text_eq(&self, a: SqlExpr, b: SqlExpr) -> SqlExpr {
