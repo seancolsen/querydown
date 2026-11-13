@@ -15,7 +15,6 @@ _See the **[Language Guide](./language.md)** for more detail._
 - [Functions](#functions)
 - [Variables](#variables)
 - [Transformations](#transformations)
-- [Modules](#modules)
 - [Operator precedence](#operator-precedence)
 - [Not used](#not-used)
 
@@ -132,7 +131,7 @@ See [case expressions](./language.md#case-expressions) docs.
 | `@foo = 42` | [constant](./language.md#user-defined-constants) | ✅ |
 | `#foo.bar = baz + bat` | [computed column](./language.md#computed-columns) | ✅ |
 | `@@plus_one = @v => @v + 1` | [scalar function](./language.md#user-defined-functions) | ✅ |
-| `@@plus = @a @b => a + b` | function with two params | ❌ |
+| `@@plus = @a @b => @a + @b` | [function with multiple params](./language.md#function-with-multiple-parameters) | ✅ |
 | `#foo = #( )` | [temporary table](./language.md#user-defined-tables) | ✅ |
 | `@foo = #( )` | [constant from a subquery](./language.md#defining-a-constant-using-the-result-of-a-query) | ✅ |
 

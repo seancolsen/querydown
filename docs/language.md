@@ -87,6 +87,7 @@ _Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
   - [Defining a constant using the result of a query](#defining-a-constant-using-the-result-of-a-query)
   - [Computed columns](#computed-columns)
   - [User-defined functions](#user-defined-functions)
+  - [Function with multiple parameters](#function-with-multiple-parameters)
   - [Function containing an assignment](#function-containing-an-assignment)
   - [Custom Comparisons](#custom-comparisons)
   - [Linked record comparisons](#linked-record-comparisons)
@@ -327,6 +328,16 @@ In the code above:
     ```
 
 1. The body of the anonymous function can reference `@d` as the number of days until the issues due date, using the same value in multiple places with minimal repetition.
+
+An anonymous function can take more than one parameter. The piped-in value binds to the first parameter, and the remaining arguments are supplied in parentheses (separated by spaces) directly after the function:
+
+```qd
+#issues
+$title
+$due_date|countdown|days|(@due @age => ? @due:<0 ~ "overdue" @age:>365 ~ "stale" ~~ "on track")(created_at|age|days)
+```
+
+Here `@due` is the number of days until the due date (piped in), and `@age` is the number of days since the issue was created (from the trailing `(created_at|age|days)`).
 
 ### Function calling
 
@@ -1549,6 +1560,20 @@ a built-in scalar function: it can be applied via a pipe (`value|name`) or with 
 (`value|name(extra)`), where the piped-in value becomes the first argument. When applied, the
 arguments are bound to the parameters and the body is **inlined** into the generated SQL. (Built-in
 functions take precedence over a user-defined function of the same name.)
+
+### Function with multiple parameters
+
+> Show each issue's title along with the number of days until it's due, clamped between 0 and 30
+
+```qd
+@@clamp = @value @low @high => @value|max(@low)|min(@high)
+#issues $title $due_date|countdown|days|clamp(0 30)
+```
+
+- Parameters are separated by spaces, as are arguments.
+- The piped-in value (`due_date|countdown|days`) is bound to the first parameter (`@value`), and the parenthesized arguments are bound to the rest, in order (`@low` = `0`, `@high` = `30`).
+- The function can also be [called](#function-calling) without a pipe, passing all arguments in parentheses: `$@@clamp(due_date|countdown|days 0 30)`.
+- The number of arguments must match the number of parameters, otherwise the compiler reports an error.
 
 ### Function containing an assignment
 
