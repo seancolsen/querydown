@@ -133,17 +133,9 @@ pub trait Dialect {
     ///
     /// * `a` - The left-hand side of the comparison
     /// * `pattern` - The right-hand side of the comparison
-    /// * `is_positive` - true when you want the comparison to return true for matching values,
-    ///   false when the comparison is negated.
     /// * `flags` - Flags to control the behavior of the regular expression. Every dialect must
     ///   give them the same meaning, which follows Python's inline flags; see [`RegexFlags`].
-    fn match_regex(
-        &self,
-        a: SqlExpr,
-        pattern: RegexPattern,
-        is_positive: bool,
-        flags: &RegexFlags,
-    ) -> SqlExpr;
+    fn match_regex(&self, a: SqlExpr, pattern: RegexPattern, flags: &RegexFlags) -> SqlExpr;
 
     /// Render a regex `pattern` with the inline options `prefix` (e.g. `(?m)`) written before it.
     /// A literal pattern absorbs the prefix; any other is concatenated with it at run time, which

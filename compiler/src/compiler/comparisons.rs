@@ -208,7 +208,7 @@ fn convert_simple_comparison(
             Ok(scope
                 .options
                 .dialect
-                .match_regex(left_converted, pattern, true, flags))
+                .match_regex(left_converted, pattern, flags))
         }
         // The match operator applies type-aware matching: case-insensitive "contains" when the
         // left-hand side is known to be text, falling back to exact equality otherwise. An empty

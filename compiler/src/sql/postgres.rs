@@ -60,19 +60,8 @@ impl Dialect for Postgres {
         format!("make_interval({args})")
     }
 
-    fn match_regex(
-        &self,
-        a: SqlExpr,
-        pattern: RegexPattern,
-        is_positive: bool,
-        flags: &RegexFlags,
-    ) -> SqlExpr {
-        let op = match (is_positive, flags.case_sensitive) {
-            (true, true) => "~",
-            (true, false) => "~*",
-            (false, true) => "!~",
-            (false, false) => "!~*",
-        };
+    fn match_regex(&self, a: SqlExpr, pattern: RegexPattern, flags: &RegexFlags) -> SqlExpr {
+        let op = if flags.case_sensitive { "~" } else { "~*" };
         // Postgres's newline handling is set by an embedded option, which must begin the pattern
         // (and of which there may only be one group). Its options don't share Python's letters:
         //
