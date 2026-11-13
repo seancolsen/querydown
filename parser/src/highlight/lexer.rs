@@ -276,6 +276,10 @@ impl Lexer<'_> {
             _ if self.starts_with(TRANSFORMATION_DELIMITER) => {
                 self.emit(K::Pipeline, TRANSFORMATION_DELIMITER.len(), Context::None)
             }
+            // Before `++`, which begins it.
+            _ if self.starts_with(UNION_DELIMITER) => {
+                self.emit(K::Union, UNION_DELIMITER.len(), Context::None)
+            }
             _ if self.starts_with(CASE_FALLBACK) => {
                 self.emit(K::Case, CASE_FALLBACK.len(), Context::None)
             }

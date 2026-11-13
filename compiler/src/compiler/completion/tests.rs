@@ -334,6 +334,32 @@ fn pipeline_stages_offer_the_previous_stages_columns() {
 }
 
 #[test]
+fn union_members_offer_their_own_base_tables_columns() {
+    assert_columns("#issues $id +++ #teams $‸", &["id", "name"]);
+    assert_columns(
+        "#teams $id +++ #issues $id\n+++\n#teams $‸ ~~~ $id",
+        &["id", "name"],
+    );
+    // The first query is unaffected by those after it.
+    assert_columns("#teams $‸ +++ #issues $id", &["id", "name"]);
+    // Within a subquery.
+    assert_columns("#pm = #( #issues $id +++ #teams $‸ )\n#pm", &["id", "name"]);
+}
+
+#[test]
+fn union_members_complete_their_base_table() {
+    let completions = complete("#issues $id +++ #te‸");
+    assert!(labels_of(&completions, CompletionKind::Table).contains(&"teams"));
+}
+
+#[test]
+fn a_stage_after_a_union_offers_the_unions_columns() {
+    // Named by the last query of the union.
+    let source = "#issues $id $title\n+++\n#teams $id -> key $name -> label\n~~~\n$‸";
+    assert_columns(source, &["key", "label"]);
+}
+
+#[test]
 fn user_defined_tables_offer_their_columns() {
     let source = "#pm = #( #issues $project \\g $%count -> n )\n#pm n:>3 $‸";
     assert_columns(source, &["project", "n"]);

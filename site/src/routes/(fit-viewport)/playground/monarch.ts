@@ -46,6 +46,8 @@ export const qd_monarch: languages.IMonarchLanguage = {
       // flagged strings, e.g. `^f"Hi {name}"`: the state's arguments are the quote and the flags
       [/\^([a-zA-Z]*)(["'^#/|])/, { token: 'string.flags', next: '@flagged.$2.$1' } ],
 
+      // before `++`, which begins it; the next table is the base table of the union's next query
+      [/\+\+\+/, 'union', '@unionBaseTable'],
       [/\+\+|--/, 'has'],
 
       [/(\+|-|\*\/)/, 'operator'],
@@ -55,6 +57,12 @@ export const qd_monarch: languages.IMonarchLanguage = {
       [/->/, 'alias-prefix', '@alias'],
 
       [/\\[a-z][a-z0-9]*/, 'column-control'],
+    ],
+
+    unionBaseTable: [
+      { include: '@whitespace' },
+      [/#(@identifier)/, 'base-table', '@pop'],
+      [/(?=.)/, '', '@pop'],
     ],
 
     scalarFunction: [
@@ -131,6 +139,7 @@ export const qd_theme: editor.IStandaloneThemeData = {
     { token: 'comparison-operator', foreground: '000be3', fontStyle: 'bold' },
     { token: 'range-separator', foreground: 'a19483' },
     { token: 'has', foreground: '787113', fontStyle: 'bold' },
+    { token: 'union', foreground: 'c2185b', fontStyle: 'bold' },
     { token: 'scalar-pipe', foreground: '787113', fontStyle: 'bold' },
     { token: 'scalar-function', foreground: '787113' },
     { token: 'aggregate-pipe', foreground: 'b1ad70', fontStyle: 'bold' },

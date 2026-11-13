@@ -84,6 +84,8 @@ pub enum TokenKind {
     AnnotationBracket,
     /// The `~~~` that separates the stages of a query pipeline.
     Pipeline,
+    /// The `+++` that separates the queries of a union.
+    Union,
     /// The `=` and `=>` within definitions, e.g. `@@plus_one = @x => @x + 1`.
     Definition,
     /// A bracket: `(`, `)`, `[`, `]`, `{`, or `}`.
@@ -96,7 +98,7 @@ pub enum TokenKind {
 
 impl TokenKind {
     /// Every kind, in declaration order.
-    pub const ALL: [TokenKind; 36] = [
+    pub const ALL: [TokenKind; 37] = [
         TokenKind::Comment,
         TokenKind::String,
         TokenKind::StringFlags,
@@ -129,6 +131,7 @@ impl TokenKind {
         TokenKind::AnnotationValue,
         TokenKind::AnnotationBracket,
         TokenKind::Pipeline,
+        TokenKind::Union,
         TokenKind::Definition,
         TokenKind::Bracket,
         TokenKind::Punctuation,
@@ -170,6 +173,7 @@ impl TokenKind {
             TokenKind::AnnotationValue => "annotation-value",
             TokenKind::AnnotationBracket => "annotation-bracket",
             TokenKind::Pipeline => "pipeline",
+            TokenKind::Union => "union",
             TokenKind::Definition => "definition",
             TokenKind::Bracket => "bracket",
             TokenKind::Punctuation => "punctuation",

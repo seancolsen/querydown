@@ -292,6 +292,24 @@ fn test_operators() {
 }
 
 #[test]
+fn test_union() {
+    // Each query of a union has a base table, and `+++` is one token rather than `++` plus `+`.
+    check(
+        Query,
+        "#issues $id $\"a\"+++ #blocks $blocker +++#blocks $blocking ~~~ $*",
+        "#issues:base-table $:result-column id:column $:result-column \"a\":string +++:union \
+         #blocks:base-table $:result-column blocker:column +++:union #blocks:base-table \
+         $:result-column blocking:column ~~~:pipeline $:result-column *:glob",
+    );
+    // Invalid source still lexes `+++` as a union, not a quantity.
+    check(
+        Query,
+        "#issues $id +++ ",
+        "#issues:base-table $:result-column id:column +++:union",
+    );
+}
+
+#[test]
 fn test_regex_flags() {
     check(
         Conditions,

@@ -557,3 +557,54 @@ fn window_conditions_combine_with_grouping() {
         compile(r"#issues %%(project\p created_at\sd)%row_number:1 $status \g $%count").is_ok()
     );
 }
+
+// ------------------------------------------------------------------------------------------------
+// Unions
+// ------------------------------------------------------------------------------------------------
+
+#[test]
+fn union_member_with_unknown_base_table_is_located_at_it() {
+    let input = "#issues $id +++ #nope $id";
+    let err = compile_error(input);
+    assert_eq!(err.message, "Base table `nope` does not exist.");
+    assert_eq!(located(input, &err), "#nope");
+}
+
+#[test]
+fn union_members_must_have_the_same_number_of_columns() {
+    let input = "#issues $id $title +++ #projects $id +++ #users $id $username";
+    let err = compile_error(input);
+    assert_eq!(
+        err.message,
+        "Each query in a union (`+++`) must have the same number of result columns. This query \
+         has 1 column, but the first has 2 columns."
+    );
+    assert_eq!(located(input, &err), "#projects");
+    // Columns emitted by a glob, or by default, count too.
+    let input = "#issues $id +++ #projects";
+    let err = compile_error(input);
+    assert_eq!(located(input, &err), "#projects");
+    assert!(err.message.contains("has 5 columns"), "{}", err.message);
+    compile("#projects $* +++ #projects").unwrap();
+}
+
+#[test]
+fn union_members_cannot_be_sorted() {
+    let message = "A query within a union (`+++`) can't be sorted, because the union doesn't keep \
+                   the order of its queries' rows. To sort the union's result, add a pipeline \
+                   stage after it, e.g. `~~~ \\\\created_at`.";
+    for (input, at) in [
+        (r"#issues \\created_at $id +++ #projects $id", "created_at"),
+        (r"#issues $id +++ #projects $id \s", "id"),
+        (
+            r"#issues $id +++ #projects $*(name \sd) +++ #users $id",
+            "name",
+        ),
+    ] {
+        let err = compile_error(input);
+        assert_eq!(err.message, message, "{input}");
+        assert_eq!(located(input, &err), at, "{input}");
+    }
+    // Sorting the union's result in a later stage is fine.
+    compile(r"#issues $id +++ #projects $id ~~~ \\id").unwrap();
+}

@@ -17,6 +17,30 @@ pub fn base_table_not_found(table_name: &str) -> Error {
     Error::compile(format!("Base table `{table_name}` does not exist."))
 }
 
+pub fn sorting_within_union() -> Error {
+    Error::compile(
+        "A query within a union (`+++`) can't be sorted, because the union doesn't keep the order \
+         of its queries' rows. To sort the union's result, add a pipeline stage after it, e.g. \
+         `~~~ \\\\created_at`.",
+    )
+}
+
+pub fn union_column_count_mismatch(expected: usize, actual: usize) -> Error {
+    let columns = |n: usize| {
+        if n == 1 {
+            "1 column".to_string()
+        } else {
+            format!("{n} columns")
+        }
+    };
+    Error::compile(format!(
+        "Each query in a union (`+++`) must have the same number of result columns. This query has \
+         {}, but the first has {}.",
+        columns(actual),
+        columns(expected),
+    ))
+}
+
 pub fn schema_has_no_tables() -> Error {
     Error::schema("The schema contains no tables.")
 }

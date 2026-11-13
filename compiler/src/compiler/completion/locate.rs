@@ -225,6 +225,17 @@ impl Walker<'_> {
         if is_sentinel(&query.base_table) {
             return found(Target::BaseTable);
         }
+        // Each query of a union reads from its own base table.
+        for member in &query.unions {
+            if is_sentinel(&member.base_table) {
+                return found(Target::BaseTable);
+            }
+            if contains_sentinel(&member.transformation) {
+                let definitions = scoped_definitions(query, outer_tables);
+                let table = base_table_ctx(self.compiler, &member.base_table, &definitions);
+                return self.transformation(&member.transformation, &Env::new(table));
+            }
+        }
         let (index, transformation) = query
             .transformations
             .iter()
@@ -237,10 +248,7 @@ impl Walker<'_> {
     /// The table that a query's stage `index` reads from: the base table for the first stage, or
     /// the previous stage's output.
     fn stage_table(&self, query: &Query, index: usize, outer_tables: &[TableDef]) -> TableCtx {
-        let mut definitions = query.definitions.clone();
-        definitions
-            .tables
-            .splice(0..0, outer_tables.iter().cloned());
+        let definitions = scoped_definitions(query, outer_tables);
         if index == 0 {
             return base_table_ctx(self.compiler, &query.base_table, &definitions);
         }
@@ -249,6 +257,8 @@ impl Walker<'_> {
             base_table: query.base_table.clone(),
             base_table_loc: query.base_table_loc,
             transformations: query.transformations[..index].to_vec(),
+            // The union is performed before the second stage, so it is one of the earlier stages.
+            unions: query.unions.clone(),
             annotation: None,
         };
         virtual_table(self.compiler, earlier_stages)
@@ -598,6 +608,16 @@ pub(super) fn follow_path(compiler: &Compiler, table: TableCtx, parts: &[PathPar
     })
 }
 
+/// The definitions in scope within `query`: its own, plus the user-defined tables of the queries
+/// that enclose it.
+fn scoped_definitions(query: &Query, outer_tables: &[TableDef]) -> Definitions {
+    let mut definitions = query.definitions.clone();
+    definitions
+        .tables
+        .splice(0..0, outer_tables.iter().cloned());
+    definitions
+}
+
 /// The table a query is based on: a user-defined table from `definitions`, or one in the schema.
 pub(super) fn base_table_ctx(
     compiler: &Compiler,
@@ -617,6 +637,7 @@ pub(super) fn base_table_ctx(
                 base_table: name.to_string(),
                 base_table_loc: Loc::NONE,
                 transformations: vec![],
+                unions: vec![],
                 annotation: None,
             },
         );

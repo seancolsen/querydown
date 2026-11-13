@@ -70,23 +70,60 @@ fn query_body<'src>() -> impl Psr<'src, Query> {
             just(TABLE_SIGIL).ignore_then(db_identifier().labelled(labels::TABLE_NAME)),
         ))
         .labelled(labels::BASE_TABLE);
-        let transformations = transformation()
-            .separated_by(
-                pad()
-                    .then(exactly(TRANSFORMATION_DELIMITER).labelled(labels::PIPELINE_DELIMITER))
-                    .then(pad()),
-            )
+        let union_delimiter = pad()
+            .then(exactly(UNION_DELIMITER).labelled(labels::UNION_DELIMITER))
+            .then(pad());
+        let pipeline_delimiter = pad()
+            .then(exactly(TRANSFORMATION_DELIMITER).labelled(labels::PIPELINE_DELIMITER))
+            .then(pad());
+        // Each query of a union has its own base table and a single stage.
+        let union_member = base_table
+            .clone()
+            .then_ignore(pad())
+            .then(transformation())
+            .map(
+                |((base_table, base_table_loc), transformation)| UnionMember {
+                    base_table,
+                    base_table_loc,
+                    transformation,
+                },
+            );
+        let unions = union_delimiter
+            .clone()
+            .ignore_then(union_member.clone())
+            .repeated()
+            .collect::<Vec<UnionMember>>();
+        let later_stages = pipeline_delimiter
+            .ignore_then(transformation())
+            .repeated()
             .collect::<Vec<Transformation>>();
+        // A union binds more tightly than a pipeline, so one can't follow a `~~~`. It is parsed
+        // anyway so that it can be reported plainly, rather than as an unexpected `+`.
+        let misplaced_union = union_delimiter
+            .ignore_then(union_member)
+            .validate(|_, extra, emitter| {
+                emitter.emit(Rich::custom(
+                    extra.span(),
+                    "A union (`+++`) can't follow a pipeline stage (`~~~`), because the union is \
+                     performed first. To union the result of a pipeline, define it as a table \
+                     (`#name = #( ... )`) and use that as a base table.",
+                ))
+            })
+            .repeated();
         definitions_with(query)
             .then(base_table)
             .then_ignore(pad())
-            .then(transformations)
+            .then(transformation())
+            .then(unions)
+            .then(later_stages)
+            .then_ignore(misplaced_union)
             .map(
-                |((definitions, (base_table, base_table_loc)), transformations)| Query {
+                |((((definitions, (base_table, base_table_loc)), first), unions), later)| Query {
                     definitions,
                     base_table,
                     base_table_loc,
-                    transformations,
+                    transformations: std::iter::once(first).chain(later).collect(),
+                    unions,
                     annotation: None,
                 },
             )
@@ -391,6 +428,7 @@ mod tests {
                         annotation: None,
                     })],
                 }],
+                unions: vec![],
                 annotation: None,
             })
         );
@@ -473,6 +511,63 @@ mod tests {
         // A subquery can't have one.
         fails(r"#t = #( #issues \\\{foo:100} ) #t");
         fails(r"@n = #( #issues $%count \\\{foo:100} ) #issues");
+    }
+
+    /// The base tables of a query's union, in order, plus how many stages its pipeline has.
+    fn union_shape(source: &str) -> (Vec<String>, usize) {
+        let query = query().parse(source).into_result().unwrap();
+        let tables = std::iter::once(query.base_table)
+            .chain(query.unions.into_iter().map(|member| member.base_table))
+            .collect();
+        (tables, query.transformations.len())
+    }
+
+    #[test]
+    fn test_parse_union() {
+        let tables = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert_eq!(union_shape("#a"), (tables(&["a"]), 1));
+        assert_eq!(union_shape("#a +++ #b"), (tables(&["a", "b"]), 1));
+        // With no whitespace, after a value that `+` could otherwise continue into a sum.
+        assert_eq!(union_shape("#a $x:1+++#b $2"), (tables(&["a", "b"]), 1));
+        assert_eq!(
+            union_shape("#a x:1 $y \n+++\n#b $z\n+++\n#c $w ~~~ $* ~~~"),
+            (tables(&["a", "b", "c"]), 3)
+        );
+        // The union's members are parsed like the first query.
+        let parsed = query()
+            .parse("@n = 1 #a x:@n $y +++ #b z:2 $w -> y")
+            .into_result()
+            .unwrap();
+        assert_eq!(parsed.definitions.constants.len(), 1);
+        let member = &parsed.unions[0];
+        assert_eq!(member.transformation.conditions.entries.len(), 1);
+        assert_eq!(member.transformation.result_columns.len(), 1);
+        // Within a subquery.
+        let parsed = query()
+            .parse("#t = #( #a +++ #b ) #t")
+            .into_result()
+            .unwrap();
+        assert_eq!(parsed.definitions.tables[0].query.unions.len(), 1);
+        // A sum is still a sum.
+        let sum = query().parse("#a $x+1 $x + 2").into_result().unwrap();
+        assert!(sum.unions.is_empty());
+        assert_eq!(sum.transformations[0].result_columns.len(), 2);
+        // And a quantity is still a quantity.
+        let has = query().parse("#a x:1 ++#b").into_result().unwrap();
+        assert!(has.unions.is_empty());
+        assert_eq!(has.transformations[0].conditions.entries.len(), 2);
+    }
+
+    #[test]
+    fn test_union_placement() {
+        let fails = |source: &str| assert!(query().parse(source).has_errors(), "{source}");
+        // Each query needs a base table.
+        fails("#a +++");
+        fails("#a +++ $x");
+        // A union can't follow a pipeline stage.
+        fails("#a ~~~ $x +++ #b");
+        // Nor a query annotation.
+        fails(r"#a \\\{x:1} +++ #b");
     }
 
     #[test]

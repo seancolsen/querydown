@@ -5301,6 +5301,379 @@ WHERE
   "pipe0"."comment_count" >= 10;
 ```
 
+## Unions
+
+Queries separated by `+++` are combined with an SQL `UNION`. The union's columns are named by the last query, so the first query (whose columns name an SQL union's) takes those names as aliases. A union is performed before any pipeline stage that follows it.
+
+### Union of two queries
+
+> Issues and projects, listed together by id and name. The second query's aliases name the union's columns.
+
+```qd
+#issues $id $title
++++
+#projects $id $name -> title
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title"
+FROM "issues"
+UNION
+SELECT
+  "projects"."id",
+  "projects"."name" AS "title"
+FROM "projects";
+```
+
+### Union of three queries followed by a pipeline
+
+> All the issues related to issue 1234, along with the way in which they are related, sorted by creation date.
+> The union is performed before the pipeline stage, which reads the union's result.
+
+```qd
+#issues duplicate_of:1234
+$id
+$title
+$created_at
+$"Duplicate"
++++
+#blocks blocker:1234
+$blocking.id
+$blocking.title
+$blocking.created_at
+$"Dependent"
++++
+#blocks blocking:1234
+$blocker.id         -> id
+$blocker.title      -> title
+$blocker.created_at -> created_at
+$"Dependency"       -> relationship
+~~~
+$*(created_at \s)
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title",
+      "issues"."created_at" AS "created_at",
+      'Duplicate' AS "relationship"
+    FROM "issues"
+    WHERE
+      "issues"."duplicate_of" = 1234
+    UNION
+    SELECT
+      "blocking"."id",
+      "blocking"."title",
+      "blocking"."created_at",
+      'Dependent'
+    FROM "blocks"
+    LEFT JOIN "issues" AS "blocking" ON
+      "blocks"."blocking" = "blocking"."id"
+    WHERE
+      "blocks"."blocker" = 1234
+    UNION
+    SELECT
+      "blocker"."id" AS "id",
+      "blocker"."title" AS "title",
+      "blocker"."created_at" AS "created_at",
+      'Dependency' AS "relationship"
+    FROM "blocks"
+    LEFT JOIN "issues" AS "blocker" ON
+      "blocks"."blocker" = "blocker"."id"
+    WHERE
+      "blocks"."blocking" = 1234
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."title",
+  "pipe0"."created_at",
+  "pipe0"."relationship"
+FROM "pipe0"
+ORDER BY
+  "pipe0"."created_at" ASC NULLS LAST;
+```
+
+### Column names come from the last query
+
+> Where the last query doesn't name a column (here, the computed second column), the first query's name for it applies.
+
+```qd
+#issues $id -> issue $title|length -> label
++++
+#projects $id -> project $name|length
+```
+
+```sql
+SELECT
+  "issues"."id" AS "project",
+  char_length("issues"."title") AS "label"
+FROM "issues"
+UNION
+SELECT
+  "projects"."id" AS "project",
+  char_length("projects"."name")
+FROM "projects";
+```
+
+### Column names come from the last query, before a pipeline
+
+> Projects with more than ten issues, or more than ten comments on their issues. The last query leaves its count unnamed, so the first query's name for it, `n`, is the one the next stage reads.
+
+```qd
+#issues $project \g $%count -> n
++++
+#comments $issue.project \g $%count
+~~~
+n:>10 $*
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."project" AS "project",
+      count(*) AS "n"
+    FROM "issues"
+    GROUP BY "issues"."project"
+    UNION
+    SELECT
+      "issues"."project",
+      count(*)
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "pipe0"."project",
+  "pipe0"."n"
+FROM "pipe0"
+WHERE
+  "pipe0"."n" > 10;
+```
+
+### Union of queries with their own CTEs
+
+> Issues with comments and projects without issues. The second query's CTE is scoped to it with parentheses, so it may share a name with the first query's.
+
+```qd
+#issues ++#comments $id $title
++++
+#projects --#issues $id $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "issues"."title" AS "name"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL
+UNION
+(
+  WITH
+    "cte0" AS (
+      SELECT
+        "issues"."project" AS "pk"
+      FROM "issues"
+      GROUP BY "issues"."project"
+    )
+  SELECT
+    "projects"."id",
+    "projects"."name"
+  FROM "projects"
+  LEFT JOIN "cte0" ON
+    "projects"."id" = "cte0"."pk"
+  WHERE
+    "cte0"."pk" IS NULL
+);
+```
+
+### Union of queries with their own CTEs (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+```qd
+#issues ++#comments $id $title
++++
+#projects --#issues $id $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "issues"."title" AS "name"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL
+UNION
+(
+  WITH
+    "cte0" AS (
+      SELECT
+        "issues"."project" AS "pk"
+      FROM "issues"
+      GROUP BY "issues"."project"
+    )
+  SELECT
+    "projects"."id",
+    "projects"."name"
+  FROM "projects"
+  LEFT JOIN "cte0" ON
+    "projects"."id" = "cte0"."pk"
+  WHERE
+    "cte0"."pk" IS NULL
+);
+```
+
+### Union with every column of the base tables
+
+> With no result columns, each query emits every column of its base table.
+
+```qd
+#issues duplicate_of:@null
++++
+#issues !duplicate_of:@null
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues"
+WHERE
+  "issues"."duplicate_of" IS NULL
+UNION
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues"
+WHERE
+  NOT "issues"."duplicate_of" IS NULL;
+```
+
+### Union with grouping
+
+> The number of issues each user has written, alongside the number of comments each has written. Each query of a union may group its own rows.
+
+```qd
+#issues $author -> user \g $%count -> n
++++
+#comments $user \g $%count
+```
+
+```sql
+SELECT
+  "issues"."author" AS "user",
+  count(*) AS "n"
+FROM "issues"
+GROUP BY "issues"."author"
+UNION
+SELECT
+  "comments"."user",
+  count(*)
+FROM "comments"
+GROUP BY "comments"."user";
+```
+
+### Union in a user-defined table
+
+> A user-defined table can hold a union, which is then filtered like any other table.
+
+```qd
+#people = #(
+  #users $id $username -> name
+  +++
+  #projects $id $name
+)
+#people name:~'^a'
+```
+
+```sql
+WITH
+  "people" AS (
+    SELECT
+      "users"."id" AS "id",
+      "users"."username" AS "name"
+    FROM "users"
+    UNION
+    SELECT
+      "projects"."id",
+      "projects"."name"
+    FROM "projects"
+  )
+SELECT
+  "people"."id",
+  "people"."name"
+FROM "people"
+WHERE
+  "people"."name" ~* '(?p)^a';
+```
+
+### Union with a limit
+
+```toml options
+limit = 5
+```
+
+> A limit applies to the union as a whole.
+
+```qd
+#issues $title
++++
+#projects $name
+```
+
+```sql
+SELECT
+  "issues"."title" AS "name"
+FROM "issues"
+UNION
+SELECT
+  "projects"."name"
+FROM "projects"
+LIMIT 5;
+```
+
 ## User-defined tables
 
 A user-defined table, written as `#name = #( query )` before the base table, names a subquery that compiles to a CTE. The name can then be used as the base table of the query, or of a later user-defined table.

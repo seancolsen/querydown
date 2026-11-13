@@ -190,8 +190,9 @@ and, for a column, which table it belongs to:
 The table in scope follows the language's rules: paths (`author.team.`), scoped conditions
 (`issue{…}`), filters on related records (`#comments{…}`), sorting within an aggregate
 (`#labels.name%list(\\…)`), column globs and nesting groups (`$issue.( … )`), the tables of
-computed column and custom comparison definitions, subqueries, user-defined tables, and pipeline
-stages (where the columns are those output by the previous stage).
+computed column and custom comparison definitions, subqueries, user-defined tables, the queries
+of a union (each with its own base table), and pipeline stages (where the columns are those output
+by the previous stage).
 
 Completion starts by itself after something completable has been typed: a letter, or one of
 `#` `.` `$` `\` `|` `%` `@`. Press <kbd>Ctrl</kbd>-<kbd>Space</kbd> to ask for it anywhere else.
@@ -329,6 +330,7 @@ returns the options a JSON Schema offers at a position within an annotation.
 | `annotation-value` | the `100` in `@{width:100}`, including strings and `@true` |
 | `annotation-bracket` | the brackets in `@{tags:[a b]}` |
 | `pipeline` | `~~~` |
+| `union` | `+++` |
 | `definition` | `=`, `=>` in definitions |
 | `bracket` | `( ) [ ] { }` |
 | `punctuation` | the `:` in `@{width:100}` |

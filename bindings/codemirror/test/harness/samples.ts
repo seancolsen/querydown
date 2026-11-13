@@ -87,11 +87,11 @@ $title @{width:200 align:left tags:[a b] wrap:@true}`,
   },
   {
     name: "pipeline",
-    title: "A pipeline",
+    title: "A union and a pipeline",
     grammar: "query",
     valid: true,
     source: String.raw`#issues $project \g $%count -> n
-~~~ n:>10 $*`,
++++ #comments $issue.project \g $%count ~~~ n:>10 $*`,
   },
   {
     name: "invalid",

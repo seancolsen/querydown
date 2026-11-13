@@ -182,7 +182,16 @@ pub struct Query {
     pub base_table: String,
     /// Where the base table was named (e.g. `#issues`).
     pub base_table_loc: Loc,
+    /// The stages of the query's pipeline, separated by `~~~`. The first applies to the base table
+    /// (and, together with it, forms the first member of any [union](Query::unions)); each later
+    /// stage applies to the result of the stage before.
     pub transformations: Vec<Transformation>,
+    /// The further queries of a union, each written after a `+++`. Their results are combined (via
+    /// SQL `UNION`) with the result of the first stage — the base table and the first
+    /// transformation. A union binds more tightly than a pipeline: the union is performed first,
+    /// and the later stages of [`transformations`](Query::transformations) then apply to its
+    /// result. Empty when the query has no union.
+    pub unions: Vec<UnionMember>,
     /// The query-level annotation written at the very end of the query, e.g. `\\\{foo:100}`. Like
     /// a column annotation, it is passed through to the compiler output uninterpreted. Only a whole
     /// query has one: a subquery (`#( ... )`) never does.
@@ -221,6 +230,7 @@ impl Query {
                 sorting,
                 result_columns: display,
             }],
+            unions: vec![],
             annotation: None,
         }
     }
@@ -321,6 +331,17 @@ pub struct CustomComparisonDef {
     /// The parameter name, without the `@` sigil.
     pub param: String,
     pub body: Expr,
+}
+
+/// A query written after a `+++`, whose result is combined with those of the queries before it in a
+/// union. It has its own base table and a single stage, but shares the enclosing query's
+/// definitions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionMember {
+    pub base_table: String,
+    /// Where the base table was named (e.g. `#issues`).
+    pub base_table_loc: Loc,
+    pub transformation: Transformation,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

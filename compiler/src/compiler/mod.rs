@@ -16,8 +16,8 @@ mod window;
 use std::collections::HashMap;
 
 use querydown_parser::ast::{
-    AnnotationValue, ComputedColumn, ConstantDef, CustomComparisonDef, Expr, ExprKind, FunctionDef,
-    Query, TableDef, Transformation,
+    AnnotationValue, Definitions, Expr, ExprKind, Loc, Query, ResultColumnStatement, TableDef,
+    Transformation, UnionMember,
 };
 use querydown_parser::parse;
 use serde::Serialize;
@@ -181,9 +181,10 @@ impl Compiler {
     }
 }
 
-/// Compiles a whole query (which may itself be a multi-stage `~~~` pipeline) into a single
-/// [`StageOutput`]. `extra_tables` are synthetic base tables — the user-defined tables already in
-/// scope — that the query's first stage may use as its base table in addition to the schema's tables.
+/// Compiles a whole query (which may itself be a multi-stage `~~~` pipeline, beginning with a `+++`
+/// union) into a single [`StageOutput`]. `extra_tables` are synthetic base tables — the user-defined
+/// tables already in scope — that the query's first stage (each query of its union) may use as its
+/// base table in addition to the schema's tables.
 ///
 /// When `final_is_cte` is true, the pipeline's final stage is given explicit column aliases (exactly
 /// like a non-final stage), so that the whole result can itself be materialized as a CTE — this is
@@ -201,6 +202,7 @@ fn compile_pipeline(
         query.transformations
     };
     let n_stages = transformations.len();
+    let mut unions = query.unions;
 
     // Each non-final stage of the pipeline is compiled into a CTE. The CTE is also represented as a
     // synthetic `Table` (with the same name as the CTE) whose columns are the stage's output
@@ -214,24 +216,33 @@ fn compile_pipeline(
         // When the whole pipeline's output will itself become a CTE, even the final stage is given
         // explicit column aliases, just like a non-final stage.
         let is_last = is_final && !final_is_cte;
-        // Confine the borrow of the stage's base table (which, for later stages, points into
-        // `synthetic_tables`) to this block so that we can push to `synthetic_tables` after.
-        let stage = {
-            let base_table: &Table = if i == 0 {
-                resolve_base_table(options, schema, &query.base_table, extra_tables)
-                    .map_err(|err| err.at(query.base_table_loc))?
-            } else {
-                &synthetic_tables[i - 1]
+        // A later stage's base table borrows from `synthetic_tables` only within this expression,
+        // so that we can push to `synthetic_tables` after.
+        let stage = if i == 0 {
+            let first = UnionMember {
+                base_table: query.base_table.clone(),
+                base_table_loc: query.base_table_loc,
+                transformation,
             };
+            // The union is performed first, so its members all belong to the first stage.
+            let members = std::iter::once(first)
+                .chain(std::mem::take(&mut unions))
+                .collect();
+            compile_union(
+                options,
+                schema,
+                members,
+                &query.definitions,
+                extra_tables,
+                is_last,
+            )?
+        } else {
             compile_stage(
                 options,
                 schema,
-                base_table,
+                &synthetic_tables[i - 1],
                 transformation,
-                &query.definitions.constants,
-                &query.definitions.functions,
-                &query.definitions.custom_comparisons,
-                &query.definitions.computed_columns,
+                &query.definitions,
                 is_last,
             )?
         };
@@ -271,21 +282,145 @@ pub(super) fn convert_subquery(query: Query, scope: &mut Scope) -> Result<SqlExp
     Ok(SqlExpr::atom(format!("({sql})")))
 }
 
+/// Compiles the first stage of a query pipeline: the union of `members`, each of which reads from its
+/// own base table (resolved among the schema's tables and the user-defined tables in
+/// `extra_tables`). With a single member, this is simply that member's query.
+///
+/// The union is a `UNION` of the members' selects. Its columns are named as in the last member
+/// (wherever that member names a column, and otherwise as in the first), so the first member's
+/// columns — which name the columns of a SQL `UNION` — take those names as aliases. As in
+/// [`compile_stage`], a non-final stage's columns are all given explicit, unique aliases.
+fn compile_union(
+    options: &Options,
+    schema: &Schema,
+    members: Vec<UnionMember>,
+    definitions: &Definitions,
+    extra_tables: &[Table],
+    is_last: bool,
+) -> Result<StageOutput, Error> {
+    let compile_member = |member: UnionMember, is_last: bool| {
+        let base_table = resolve_base_table(options, schema, &member.base_table, extra_tables)
+            .map_err(|err| err.at(member.base_table_loc))?;
+        compile_stage(
+            options,
+            schema,
+            base_table,
+            member.transformation,
+            definitions,
+            is_last,
+        )
+    };
+    if members.len() == 1 {
+        let member = members.into_iter().next().unwrap();
+        return compile_member(member, is_last);
+    }
+
+    // A union doesn't preserve the order of its members' rows, so sorting one would be misleading.
+    if let Some(loc) = members.iter().find_map(|m| sort_loc(&m.transformation)) {
+        return Err(msg::sorting_within_union().at(loc));
+    }
+    let mut outputs = Vec::with_capacity(members.len());
+    for member in members {
+        let loc = member.base_table_loc;
+        // Each member is compiled as if it were the final stage, so that its columns keep their
+        // own aliases; the union's column names are settled below.
+        outputs.push((compile_member(member, true)?, loc));
+    }
+    let width = outputs[0].0.select.columns.len();
+    for (output, loc) in &outputs[1..] {
+        let actual = output.select.columns.len();
+        if actual != width {
+            return Err(msg::union_column_count_mismatch(width, actual).at(*loc));
+        }
+    }
+
+    let mut outputs: Vec<StageOutput> = outputs.into_iter().map(|(output, _)| output).collect();
+    // An annotation applies to the union's column, wherever it was written; if several members
+    // annotate the same column, the last of them wins, like its name.
+    let column_annotations = (0..width)
+        .map(|i| {
+            outputs
+                .iter()
+                .rev()
+                .find_map(|output| output.column_annotations[i].clone())
+        })
+        .collect();
+    let last = outputs.pop().unwrap();
+    let mut first = outputs.remove(0);
+    // Each column is named by the last member, unless that member leaves it unnamed, in which case
+    // the first member's name for it stands (as it would in SQL).
+    let named: Vec<bool> = (0..width)
+        .map(|i| last.named[i] || first.named[i])
+        .collect();
+    let names: Vec<String> = (0..width)
+        .map(|i| {
+            let source = if last.named[i] { &last } else { &first };
+            source.output_names[i].clone()
+        })
+        .collect();
+    let output_names = if is_last {
+        // Only the columns whose names the first member doesn't already give them need aliases.
+        for (i, column) in first.select.columns.iter_mut().enumerate() {
+            if last.named[i] && !(first.named[i] && first.output_names[i] == names[i]) {
+                column.alias = Some(names[i].clone());
+            }
+        }
+        names
+    } else {
+        let names = dedupe_names(names);
+        for (column, name) in first.select.columns.iter_mut().zip(&names) {
+            column.alias = Some(name.clone());
+        }
+        names
+    };
+    first.select.unions = outputs
+        .into_iter()
+        .map(|output| output.select)
+        .chain(std::iter::once(last.select))
+        .collect();
+    Ok(StageOutput {
+        select: first.select,
+        output_names,
+        named,
+        column_annotations,
+    })
+}
+
+/// Where `transformation` sorts its result, if it does: its first standalone sort expression, or
+/// else the first result column with a sort flag.
+fn sort_loc(transformation: &Transformation) -> Option<Loc> {
+    if let Some(sort) = transformation.sorting.first() {
+        return Some(sort.expr.loc);
+    }
+    transformation
+        .result_columns
+        .iter()
+        .flat_map(|statement| match statement {
+            ResultColumnStatement::Spec(spec) => std::slice::from_ref(spec),
+            ResultColumnStatement::Glob(glob) => glob.specs.as_slice(),
+        })
+        .find(|spec| spec.column_control.sort.is_some())
+        .map(|spec| spec.expr.loc)
+}
+
 /// Compiles a single stage of a query pipeline into a [`Select`], using `base_table` as the
 /// stage's base table. For a non-final stage, every output column is given an explicit alias so
 /// that the resulting CTE has well-defined column names for the next stage to reference.
-#[allow(clippy::too_many_arguments)]
 fn compile_stage(
     options: &Options,
     schema: &Schema,
     base_table: &Table,
     transformation: Transformation,
-    constants: &[ConstantDef],
-    functions: &[FunctionDef],
-    custom_comparisons: &[CustomComparisonDef],
-    computed_columns: &[ComputedColumn],
+    definitions: &Definitions,
     is_last: bool,
 ) -> Result<StageOutput, Error> {
+    let Definitions {
+        constants,
+        functions,
+        custom_comparisons,
+        computed_columns,
+        tables: _,
+    } = definitions;
     let mut scope = Scope::build_with_base_table(options, schema, base_table);
     // The query's definitions are in scope for every stage of the pipeline.
     scope.register_constants(constants.to_vec());
@@ -354,6 +489,7 @@ fn compile_stage(
         grouping,
         mut column_annotations,
         mut output_names,
+        mut named,
     } = convert_result_columns(transformation.result_columns, &mut scope)?;
     if let Some(window_loc) = scope.compiled_window().filter(|_| !grouping.is_empty()) {
         return Err(msg::window_in_grouped_stage().at(window_loc));
@@ -364,6 +500,7 @@ fn compile_stage(
         // set of columns Querydown knows about, in a deterministic order.
         let (expanded, names) = expand_base_table_columns(base_table, &scope);
         column_annotations = vec![None; expanded.len()];
+        named = vec![true; expanded.len()];
         columns = expanded;
         output_names = names;
     }
@@ -396,6 +533,7 @@ fn compile_stage(
     Ok(StageOutput {
         select,
         output_names,
+        named,
         column_annotations,
     })
 }
@@ -426,6 +564,9 @@ struct StageOutput {
     /// The names of the stage's output columns, used to build the synthetic table for the next
     /// stage. Only meaningful for non-final stages.
     output_names: Vec<String>,
+    /// Whether each output column has a name of its own, rather than an autogenerated one (see
+    /// [`ConvertedResultColumns::named`]).
+    named: Vec<bool>,
     column_annotations: Vec<Option<AnnotationValue>>,
 }
 

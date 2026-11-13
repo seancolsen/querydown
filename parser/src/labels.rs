@@ -19,6 +19,7 @@ pub(crate) const SORT_EXPR: &str = "a sort expression (`\\\\`)";
 pub(crate) const RESULT_COLUMN: &str = "a result column (`$`)";
 pub(crate) const RESULT_COLUMN_BODY: &str = "a column, an expression, or `*`";
 pub(crate) const PIPELINE_DELIMITER: &str = "`~~~`";
+pub(crate) const UNION_DELIMITER: &str = "`+++`";
 
 // Expressions
 pub(crate) const VALUE: &str = "a value";

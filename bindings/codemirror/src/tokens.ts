@@ -36,6 +36,7 @@ export const TOKEN_KINDS = [
   "annotation-value",
   "annotation-bracket",
   "pipeline",
+  "union",
   "definition",
   "bracket",
   "punctuation",

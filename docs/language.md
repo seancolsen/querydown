@@ -1363,9 +1363,7 @@ Notes:
 
 ## Union of multiple queries
 
-_(🚧 Not yet implemented)_
-
-The `+++` operator performs an SQL `UNION`, appending the results of one query to the results of another.
+The `+++` operator performs an SQL `UNION`, combining the results of several queries into one result.
 
 > List all the issues related to issue 1234, along with the way in which they are related
 
@@ -1379,7 +1377,7 @@ $"Duplicate"
 #blocks blocker:1234
 $blocking.id
 $blocking.title
-$created_at
+$blocking.created_at
 $"Dependent"
 +++
 #blocks blocking:1234
@@ -1391,11 +1389,16 @@ $"Dependency"       -> relationship
 $*(created_at \s)
 ```
 
-Note:
+Each query in a union has its own base table, conditions, and result columns. The definitions written before the first query (constants, functions, user-defined tables, and so on) are available to all of them.
 
-- The quantity and types of result column must be identical on both sides of the union.
-- Column aliases are taken from the last query in a union.
+Notes:
+
+- Each query in a union must have the same number of result columns, and the types of the columns must be compatible across the queries.
+- Column names are taken from the last query in a union. Where the last query leaves a column unnamed (a computed column without an alias, e.g. `$title|length`), the first query's name for that column is used instead.
+- As with SQL's `UNION`, duplicate rows are removed from the result.
+- The queries in a union can't be sorted, because a union doesn't keep the order of its queries' rows. To sort the result of a union, sort it in a [pipeline](#pipeline-of-multiple-queries) stage, as in the example above.
 - Union has higher precedence than pipeline (the union will be performed before the pipeline). [User-defined tables](#user-defined-tables) can be used if you need a pipeline within a union.
+- [Column annotations](#column-level-annotations) may be written in any query of a union. If more than one query annotates the same column, the last annotation wins.
 
 
 ## Window functions

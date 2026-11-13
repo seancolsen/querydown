@@ -52,6 +52,19 @@ impl Render for Select {
                 .join(", ");
             format!("GROUP BY {grouping}")
         };
+        let unions = self
+            .unions
+            .iter()
+            .map(|member| {
+                let sql = member.render(scope);
+                // A member's own CTEs must be scoped to it, which takes parentheses.
+                if member.ctes.is_empty() {
+                    format!("UNION\n{sql}")
+                } else {
+                    format!("UNION\n(\n{}\n)", indent(sql))
+                }
+            })
+            .join("\n");
         let order = if self.sorting.is_empty() {
             String::new()
         } else {
@@ -66,7 +79,7 @@ impl Render for Select {
             .offset
             .map(|offset| format!("OFFSET {offset}"))
             .unwrap_or_default();
-        [ctes, main, where_, group, order, limit, offset]
+        [ctes, main, where_, group, unions, order, limit, offset]
             .into_iter()
             .filter(|s| !s.is_empty())
             .join("\n")

@@ -428,10 +428,14 @@ fn multiplication<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
 }
 
 fn addition<'src>(e: impl Psr<'src, Expr>) -> impl Psr<'src, Expr> {
-    let op = choice((
-        operator(EXPR_PLUS, ExprKind::Sum),
-        operator(EXPR_MINUS, ExprKind::Difference),
-    ));
+    // A `+` that begins a `+++` union delimiter ends the query before it rather than adding to it.
+    let plus = mark(
+        TokenKind::Operator,
+        just(EXPR_PLUS).and_is(exactly(UNION_DELIMITER).not()),
+    )
+    .padded_by(pad())
+    .to(ExprKind::Sum as BinaryKind);
+    let op = choice((plus, operator(EXPR_MINUS, ExprKind::Difference)));
     binary(e, op)
 }
 

@@ -180,6 +180,7 @@ export type QuerydownGrammar = "query" | QuerydownSection;
  *   `width` in `@{width:100}`
  * - `"annotation-value"`: a scalar in an annotation, e.g. `100`; `"annotation-bracket"`: its `{ } [ ]`
  * - `"pipeline"`: `~~~`
+ * - `"union"`: `+++`
  * - `"definition"`: `=` and `=>` in definitions
  * - `"bracket"`: `( ) [ ] { }`
  * - `"punctuation"`: e.g. the `:` in an annotation entry
@@ -220,6 +221,7 @@ export type QuerydownTokenKind =
   | "annotation-value"
   | "annotation-bracket"
   | "pipeline"
+  | "union"
   | "definition"
   | "bracket"
   | "punctuation"

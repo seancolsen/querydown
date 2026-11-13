@@ -791,3 +791,37 @@ fn regex_flags_without_tilde() {
         ],
     );
 }
+
+#[test]
+fn union_member_without_base_table() {
+    assert_render(
+        parse,
+        "#issues $id\n+++\n$id",
+        &[
+            "syntax error: Unexpected `$`. Expected a base table.",
+            " --> line 3, column 1",
+            "  |",
+            "3 | $id",
+            "  | ^",
+            "  |",
+            "  = hint: A query must begin with its base table, written with a `#` prefix, e.g. `#issues`.",
+        ],
+    );
+}
+
+#[test]
+fn union_after_pipeline_stage() {
+    assert_render(
+        parse,
+        "#issues $id ~~~ $id +++ #blocks $blocker",
+        &[
+            "syntax error: A union (`+++`) can't follow a pipeline stage (`~~~`), because the union \
+             is performed first. To union the result of a pipeline, define it as a table (`#name = \
+             #( ... )`) and use that as a base table.",
+            " --> line 1, column 21",
+            "  |",
+            "1 | #issues $id ~~~ $id +++ #blocks $blocker",
+            "  |                     ^^^^^^^^^^^^^^^^^^^^",
+        ],
+    );
+}
