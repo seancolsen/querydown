@@ -45,6 +45,16 @@ fn compile_returns_typed_object() {
 }
 
 #[wasm_bindgen_test]
+fn compile_returns_annotations() {
+    let result =
+        compile(SCHEMA, "postgres", "#t $id @{width:100} $name".to_string()).expect("compiles");
+    let value: JsValue = result.unchecked_into();
+    // A plain object (not a `Map`), and `null` (not `undefined`) where a column has none.
+    assert_eq!(get_num(&value, "columnAnnotations.0.width"), 100.0);
+    assert!(get(&value, "columnAnnotations.1").is_null());
+}
+
+#[wasm_bindgen_test]
 fn compile_sections_matches_whole_query() {
     // A sectioned query compiles to the same SQL as the equivalent whole-query source.
     let whole = compile(SCHEMA, "postgres", "#t $id".to_string()).expect("whole compiles");

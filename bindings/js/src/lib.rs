@@ -500,7 +500,10 @@ fn make_compiler(schema_json: &str, dialect: &str) -> Result<Compiler, JsValue> 
 
 /// Serializes a [`CompileResult`] into the typed JS object returned to callers.
 fn to_js_result(result: &CompileResult) -> Result<JsCompileResult, JsValue> {
-    serde_wasm_bindgen::to_value(result)
+    // JSON-compatible, as `CompileResult` is declared: annotation objects become plain objects
+    // rather than `Map`s, and absent annotations become `null` rather than `undefined`.
+    result
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
         .map(|value| value.unchecked_into())
         .map_err(|e| JsError::new(&e.to_string()).into())
 }
