@@ -82,3 +82,22 @@ fn non_count_aggregate_over_related_records_is_not_coalesced() {
     let sql = compile("#issues $id $#comments.created_at%max").unwrap();
     assert!(!sql.contains("COALESCE"), "got: {sql}");
 }
+
+/// The validation rule for result columns applies to sorting too: SQL can't sort the groups by a
+/// value that is neither grouped nor aggregated.
+///
+/// KNOWN FAILURE: the compiler doesn't validate sorting expressions, and emits an `ORDER BY` which
+/// databases reject ("column must appear in the GROUP BY clause or be used in an aggregate").
+#[test]
+fn ungrouped_unaggregated_sort_is_rejected() {
+    // Sorting by a grouping expression or an aggregate is fine.
+    assert!(compile(r"#issues \\status $status \g $%count").is_ok());
+    assert!(compile(r"#issues \\created_at%max $status \g $%count").is_ok());
+
+    for input in [
+        r"#issues \\title $status \g $%count",
+        r"#issues \\author.username \d $status \g $%count",
+    ] {
+        assert!(compile(input).is_err(), "{input} should be rejected");
+    }
+}

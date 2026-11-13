@@ -302,6 +302,54 @@ fn table_with_one_path_is_an_error_rather_than_a_crash() {
 // Sorting within aggregate functions
 // ------------------------------------------------------------------------------------------------
 
+/// An error within a computed column's definition is located in the definition, wherever the
+/// computed column is used.
+///
+/// KNOWN FAILURE: when the computed column is reached through a scope, the error's span runs from
+/// the scope's path in the query to the end of the path in the definition: two unrelated places,
+/// the first of which comes after the second. (Found by `mutated_corpus_inputs_fail_gracefully`,
+/// which fails for the same reason.)
+#[test]
+fn error_in_a_computed_column_reached_through_a_scope_is_located_in_the_definition() {
+    let definition = "#issues.is_open = status[open reopened]\n";
+
+    let input = format!("{definition}#issues `is_open` $id");
+    assert_eq!(located(&input, &compile_error(&input)), "status");
+
+    let input = format!("{definition}#comments issue{{`is_open`}} $id");
+    let err = compile_error(&input);
+    let span = err.span.unwrap();
+    assert!(
+        span.start.offset <= span.end.offset,
+        "the span starts after it ends: {span:?}"
+    );
+    assert_eq!(located(&input, &err), "status");
+}
+
+/// A table produced by a pipeline stage or a user-defined table has no relationships, so a to-many
+/// path from one can't be resolved. That should be reported as an error.
+///
+/// KNOWN FAILURE: the compiler panics instead (an `unwrap` on `None` while clarifying the path).
+#[test]
+fn to_many_path_from_a_table_without_relationships_is_an_error_rather_than_a_crash() {
+    let inputs = [
+        "#issues $id $author ~~~ ++#comments",
+        "#issues $id $author ~~~ $#comments",
+        "#t = #( #issues $id $author )\n#t ++#comments",
+        "#t = #( #issues $id $author )\n#t $id $#comments.created_at%max",
+    ];
+    let failures: Vec<String> = inputs
+        .iter()
+        .filter_map(|input| match std::panic::catch_unwind(|| compile(input)) {
+            Ok(Err(err)) if err.kind == ErrorKind::Compile => None,
+            Ok(Err(err)) => Some(format!("{input:?} gave the wrong kind of error: {err}")),
+            Ok(Ok(sql)) => Some(format!("{input:?} compiled to:\n{sql}")),
+            Err(_) => Some(format!("{input:?} panicked")),
+        })
+        .collect();
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
 #[test]
 fn list_sorted_by_a_per_record_expression_is_an_error() {
     // `list` removes duplicates, which may disagree on a per-record sort key. This used to fall

@@ -6417,3 +6417,8596 @@ WHERE
 LIMIT 10
 OFFSET 20;
 ```
+
+## Combinations: values and computations
+
+These cases combine literals, arithmetic, functions, and case expressions with one another.
+
+### Fractional and sub-day durations compared against dates
+
+> Issues created within two and a half years, and due more than nine minutes from now
+
+```qd
+#issues created_at:<2.5y due_date:>9min $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(years => 2, secs => 15778800)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) > EXTRACT(epoch FROM make_interval(mins => 9));
+```
+
+### Duration with every unit as a function argument
+
+> Issues created after a moment computed from a duration that uses every unit
+
+```qd
+#issues created_at:>@now|minus(2y6m3d8h9min34.89s) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."created_at" > NOW() - make_interval(years => 2, months => 6, days => 3, hours => 8, mins => 9, secs => 34.89);
+```
+
+### Comments between conditions and result columns
+
+> Both comment styles, around a condition
+
+```qd
+#issues /* multi
+line */ status:open // trailing
+$id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE);
+```
+
+### Arithmetic precedence and parentheses
+
+> Multiplication and division bind tighter than addition and subtraction, unless parenthesized
+
+```qd
+#issues $id + 2 * 3 - id / 4 $(id + 2) * 3 $id * (id + 1) $(id + 1) / 2
+```
+
+```sql
+SELECT
+  "issues"."id" + 2 * 3 - "issues"."id" / 4,
+  ("issues"."id" + 2) * 3,
+  "issues"."id" * ("issues"."id" + 1),
+  ("issues"."id" + 1) / 2
+FROM "issues";
+```
+
+### Arithmetic functions chained after arithmetic operators
+
+> A piped function applies to the parenthesized expression before it, or to just the last operand
+
+```qd
+#issues $(id + 1)|times(2) $id + 1|times(2) $id|minus(1)|times(2) $id|plus(1)|divide(2) $id|times(id + 1)
+```
+
+```sql
+SELECT
+  ("issues"."id" + 1) * 2,
+  "issues"."id" + 1 * 2,
+  ("issues"."id" - 1) * 2,
+  ("issues"."id" + 1) / 2,
+  "issues"."id" * ("issues"."id" + 1)
+FROM "issues";
+```
+
+### Literals of every kind as result columns
+
+> A string, a number, each built-in constant, a duration, and a date
+
+```qd
+#issues $"x" -> k $1 -> one $@null -> n $@now -> t $@true -> yes $1w -> dur $@2020-01-01 -> d
+```
+
+```sql
+SELECT
+  'x' AS "k",
+  1 AS "one",
+  NULL AS "n",
+  NOW() AS "t",
+  TRUE AS "yes",
+  make_interval(weeks => 1) AS "dur",
+  DATE '2020-01-01' AS "d"
+FROM "issues";
+```
+
+### Flagged strings with each remaining quote character
+
+> Custom quotes keep backslashes and both kinds of quote literal
+
+```qd
+#issues title:=^/v\d+/ description:=^|say "can't"| status:=^#x# $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  lower("issues"."title" COLLATE "C") = lower('v\d+' COLLATE "C") AND
+  lower("issues"."description" COLLATE "C") = lower('say "can''t"' COLLATE "C") AND
+  lower("issues"."status" COLLATE "C") = lower('x' COLLATE "C");
+```
+
+### Format string with escaped braces, by doubling and by the `e` flag
+
+> Literal braces alongside an interpolation and an escaped newline
+
+```qd
+#issues title:=^f"a{{b}}" description:=^ef"a\{b\}\n{id}" $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  lower("issues"."title" COLLATE "C") = lower('a{b}' COLLATE "C") AND
+  lower("issues"."description" COLLATE "C") = lower(concat('a{b}
+', "issues"."id") COLLATE "C");
+```
+
+### Format string interpolating a function pipeline and a count of related records
+
+> Each issue's title in uppercase, with its number of comments
+
+```qd
+#issues $^f"{title|uppercase} ({#comments} comments)"
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  concat(upper("issues"."title"), ' (', COALESCE("cte0"."v1", 0), ' comments)')
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Format string nested within a format string
+
+> The inner string uses the other quote character
+
+```qd
+#issues $^f"{^f'{id}!'}?"
+```
+
+```sql
+SELECT
+  concat(concat("issues"."id", '!'), '?')
+FROM "issues";
+```
+
+### Long function pipeline mixing date, math, and rounding functions
+
+> The number of weeks (rounded down) in twice the number of whole days, plus one, between now and the due date
+
+```qd
+#issues $due_date|countdown|days|abs|ceil|plus(1)|times(2)|divide(7)|floor
+```
+
+```sql
+SELECT
+  FLOOR((CEIL(ABS(EXTRACT(epoch FROM "issues"."due_date" - NOW()) / 86400)) + 1) * 2 / 7)
+FROM "issues";
+```
+
+### Text function pipeline with a piped argument
+
+> The length of the trimmed, lowercased title joined to the uppercased status
+
+```qd
+#issues $title|trim|lowercase|concat(" ")|concat(status|uppercase)|length $title|if_null("")|length
+```
+
+```sql
+SELECT
+  char_length(concat(concat(lower(trim("issues"."title")), ' '), upper("issues"."status"))),
+  char_length(COALESCE("issues"."title", ''))
+FROM "issues";
+```
+
+### Clamping functions chained together
+
+> A value kept within bounds, then run through several rounding functions
+
+```qd
+#issues $id|keep_above(0)|keep_below(10) $id|max(1)|min(id|plus(5))|abs|floor|ceil
+```
+
+```sql
+SELECT
+  LEAST(GREATEST("issues"."id", 0), 10),
+  CEIL(FLOOR(ABS(LEAST(GREATEST("issues"."id", 1), "issues"."id" + 5))))
+FROM "issues";
+```
+
+### Boolean functions chained with differing precedence
+
+> `and` and `or` are applied left to right, so the SQL needs parentheses where its own precedence differs
+
+```qd
+#issues $(id:1)|and(id:2)|or(id:3) $(id:1)|or(id:2)|and(id:3) $(id:1)|and((id:2)|or(id:3)) $!((id:1)|or(id:2)) $(id:1)|or(id:2)|not
+```
+
+```sql
+SELECT
+  "issues"."id" = 1 AND
+  "issues"."id" = 2 OR "issues"."id" = 3,
+  ("issues"."id" = 1 OR "issues"."id" = 2) AND
+  "issues"."id" = 3,
+  "issues"."id" = 1 AND
+  ("issues"."id" = 2 OR "issues"."id" = 3),
+  ("issues"."id" = 1 OR "issues"."id" = 2) IS NOT TRUE,
+  ("issues"."id" = 1 OR "issues"."id" = 2) IS NOT TRUE
+FROM "issues";
+```
+
+### Boolean `xor` chained with `and`
+
+> `xor` compiles to `<>`, whose operands need parentheses
+
+```qd
+#issues $(id:1)|xor(id:2)|and(id:3) $(id:1)|and(id:2)|xor(id:3)
+```
+
+```sql
+SELECT
+  ("issues"."id" = 1) <> ("issues"."id" = 2) AND
+  "issues"."id" = 3,
+  ("issues"."id" = 1 AND
+  "issues"."id" = 2) <> ("issues"."id" = 3)
+FROM "issues";
+```
+
+### Case expression within arithmetic
+
+> A parenthesized case expression is an operand; unparenthesized, the fallback absorbs the arithmetic
+
+```qd
+#issues $ (? id:1 ~ 1 ~~ 2) * 3 $ ? id:1 ~ 1 ~~ 2 * 3 $(? id:1 ~ 1 ~~ 2)|plus(1)
+```
+
+```sql
+SELECT
+  CASE
+    WHEN "issues"."id" = 1 THEN 1
+    ELSE 2
+  END * 3,
+  CASE
+    WHEN "issues"."id" = 1 THEN 1
+    ELSE 2 * 3
+  END,
+  CASE
+    WHEN "issues"."id" = 1 THEN 1
+    ELSE 2
+  END + 1
+FROM "issues";
+```
+
+### Case expression nested in a case expression
+
+> A case expression as a variant's value and as the fallback
+
+```qd
+#issues $ ? id:1 ~ ? status:open ~ "a" ~~ "b" ~~ ? id:2 ~ "c" ~~ "d"
+```
+
+```sql
+SELECT
+  CASE
+    WHEN "issues"."id" = 1 THEN CASE
+    WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) THEN 'a'
+    ELSE 'b'
+  END
+    ELSE CASE
+    WHEN "issues"."id" = 2 THEN 'c'
+    ELSE 'd'
+  END
+  END
+FROM "issues";
+```
+
+### Case expression testing counts of related records
+
+> Categorize projects by how many issues they have
+
+```qd
+#projects $name $ ? #issues:0 ~ "empty" #issues{status:open}:>10 ~ "busy" ~~ "normal" -> load
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  CASE
+    WHEN "cte0"."pk" IS NULL THEN 'empty'
+    WHEN COALESCE("cte1"."v1", 0) > 10 THEN 'busy'
+    ELSE 'normal'
+  END AS "load"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk";
+```
+
+### Case expression as a condition and within a comparison
+
+> A parenthesized case expression on the left of a comparison, and one standing alone as a condition
+
+```qd
+#issues (? status:open ~ 1 ~~ 0):1 [? id:1 ~ @true ~~ @false] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  CASE
+    WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) THEN 1
+    ELSE 0
+  END = 1 AND
+  (CASE
+    WHEN "issues"."id" = 1 THEN TRUE
+    ELSE FALSE
+  END);
+```
+
+### Case expression whose values differ in text type inference
+
+> Matching against a case expression, a trimmed column, and a concatenation is still a text search
+
+```qd
+#issues (? id:1 ~ title ~~ description):foo title|trim:foo title|concat(status):foo $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower(CASE
+    WHEN "issues"."id" = 1 THEN "issues"."title"
+    ELSE "issues"."description"
+  END COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower(trim("issues"."title") COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower(concat("issues"."title", "issues"."status") COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE);
+```
+
+### Anonymous function piped into an anonymous function
+
+> Each function binds its own `@x`, including one nested within another's body
+
+```qd
+#issues $id|(@x => @x + 1)|(@x => @x * 2) $id|(@x => @x|(@x => @x + 1) * @x)
+```
+
+```sql
+SELECT
+  ("issues"."id" + 1) * 2,
+  ("issues"."id" + 1) * "issues"."id"
+FROM "issues";
+```
+
+### Anonymous function nested in a two-parameter anonymous function
+
+> The inner function's body uses the outer function's second parameter
+
+```qd
+#issues $id|(@a @b => @a|(@c => @c * @b))(2)
+```
+
+```sql
+SELECT
+  "issues"."id" * 2
+FROM "issues";
+```
+
+### Anonymous function within arithmetic
+
+> Pipe binds tighter than arithmetic, so the function applies to the operand next to it
+
+```qd
+#issues $id|(@x => @x + 1) * 2 $2 * id|(@x => @x + 1)
+```
+
+```sql
+SELECT
+  ("issues"."id" + 1) * 2,
+  2 * ("issues"."id" + 1)
+FROM "issues";
+```
+
+### User-defined function using a constant, piped into an anonymous function
+
+> The constant is inlined within the function body and at the call site
+
+```qd
+@k = 3
+@@scale = @x => @x * @k
+#issues $id|scale|(@v => @v + @k) $@@scale(@k)
+```
+
+```sql
+SELECT
+  "issues"."id" * 3 + 3,
+  3 * 3
+FROM "issues";
+```
+
+### User-defined functions chained together
+
+> Both functions are inlined, with parentheses where precedence requires them
+
+```qd
+@@double = @x => @x * 2
+@@inc = @x => @x + 1
+#issues $id|inc|double $(id - 1)|inc|double $id|double|inc $@@double(id + 1)
+```
+
+```sql
+SELECT
+  ("issues"."id" + 1) * 2,
+  ("issues"."id" - 1 + 1) * 2,
+  "issues"."id" * 2 + 1,
+  ("issues"."id" + 1) * 2
+FROM "issues";
+```
+
+### User-defined function whose body is a range comparison
+
+> The bounds are bound to parameters
+
+```qd
+@@between = @v @lo @hi => @v:@lo..@hi
+#issues id|between(1 5) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."id" >= 1 AND
+  "issues"."id" <= 5;
+```
+
+### User-defined function whose body is an expanded comparison
+
+> The bare words in the function body are string literals, since they're on the right-hand side
+
+```qd
+@@any_of = @v => @v:[open reopened]
+#issues status|any_of $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE));
+```
+
+### User-defined function whose body is an OR set of null and empty checks
+
+> Applied to two columns as bare conditions
+
+```qd
+@@blank = @s => [@s:@null @s:""]
+#issues title|blank description|blank $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ("issues"."title" IS NULL OR "issues"."title" = '') AND
+  ("issues"."description" IS NULL OR "issues"."description" = '');
+```
+
+### User-defined function containing a case expression, used for grouping and sorting
+
+> Count issues by a label derived from their status, in label order
+
+```qd
+@@label = @s => ? @s:open ~ "Open" @s:[closed done] ~ "Closed" ~~ @s|uppercase
+#issues \\status|label $status|label \g $%count
+```
+
+```sql
+SELECT
+  CASE
+    WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) THEN 'Open'
+    WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('closed' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('done' COLLATE "C")) > 0, FALSE) THEN 'Closed'
+    ELSE upper("issues"."status")
+  END,
+  count(*)
+FROM "issues"
+GROUP BY CASE
+  WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) THEN 'Open'
+  WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('closed' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('done' COLLATE "C")) > 0, FALSE) THEN 'Closed'
+  ELSE upper("issues"."status")
+END
+ORDER BY
+  CASE
+    WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) THEN 'Open'
+    WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('closed' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('done' COLLATE "C")) > 0, FALSE) THEN 'Closed'
+    ELSE upper("issues"."status")
+  END ASC NULLS LAST;
+```
+
+### Constants defined in terms of other constants within arithmetic
+
+> Each constant is inlined, in parentheses where precedence requires them
+
+```qd
+@a = 1 + 2
+#issues $id * @a $@a * @a
+```
+
+```sql
+SELECT
+  "issues"."id" * (1 + 2),
+  (1 + 2) * (1 + 2)
+FROM "issues";
+```
+
+### String constant used with several operators and in a format string
+
+> The same constant as a search term, an exact match, a regex, and an interpolated value
+
+```qd
+@s = "open"
+#issues status:@s status:=@s title:~@s $^f"is {@s}" $id
+```
+
+```sql
+SELECT
+  concat('is ', 'open'),
+  "issues"."id"
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) AND
+  lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") AND
+  "issues"."title" ~* '(?p)open';
+```
+
+## Combinations: comparisons
+
+These cases combine comparison operators, expansion, ranges, negation, condition sets, and the default text search with one another.
+
+### Bare words at depth within a function on the right-hand side
+
+> A pipe, a function call, and an anonymous function all receive string literals
+
+```qd
+#issues title:foo|concat(bar) title:@@concat(foo bar) title:foo|(@x => @x|concat(bar)) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower(concat('foo', 'bar') COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower(concat('foo', 'bar') COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower(concat('foo', 'bar') COLLATE "C")) > 0, FALSE);
+```
+
+### Bare word in parentheses and in an expansion entry in parentheses
+
+> Parentheses don't change a bare word's meaning
+
+```qd
+#issues title:(foo) title:=[foo (bar)] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  (lower("issues"."title" COLLATE "C") = lower('foo' COLLATE "C") OR lower("issues"."title" COLLATE "C") = lower('bar' COLLATE "C"));
+```
+
+### Comparison nested on the right-hand side of a comparison
+
+> The inner `name` is a column reference, and the inner `foo` a string literal
+
+```qd
+#projects is_active:(name:foo) $id
+```
+
+```sql
+SELECT
+  "projects"."id"
+FROM "projects"
+WHERE
+  "projects"."is_active" = COALESCE(strpos(lower("projects"."name" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE);
+```
+
+### Multi-part path on the right-hand side
+
+> Issues whose description mentions their author's username
+
+```qd
+#issues description:author.username $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower("users"."username" COLLATE "C")) > 0, FALSE);
+```
+
+### Backtick-quoted column as a bare condition
+
+> Active projects
+
+```qd
+#projects `is_active` $id
+```
+
+```sql
+SELECT
+  "projects"."id"
+FROM "projects"
+WHERE
+  "projects"."is_active";
+```
+
+### Negated right-hand expansion
+
+> Issues whose status is neither open nor reopened
+
+```qd
+#issues !status:[open reopened] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  NOT (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE));
+```
+
+### Negated dual expansion
+
+> Negation applies to the whole expanded comparison
+
+```qd
+#issues !{title description}:~[foo bar] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (("issues"."title" ~* '(?p)foo' OR "issues"."title" ~* '(?p)bar') AND
+  ("issues"."description" ~* '(?p)foo' OR "issues"."description" ~* '(?p)bar')) IS NOT TRUE;
+```
+
+### Dual expansion with OR on the left and AND on the right
+
+> Issues whose title contains both words, or whose description does
+
+```qd
+#issues [title description]:{foo bar} $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE));
+```
+
+### Left expansion of a null check
+
+> Issues missing both a title and a description
+
+```qd
+#issues {title description}:@null $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" IS NULL AND
+  "issues"."description" IS NULL;
+```
+
+### Left expansion against a range
+
+> Issues whose id or project id is between 1 and 5
+
+```qd
+#issues [id project]:1..5 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ("issues"."id" >= 1 AND
+  "issues"."id" <= 5 OR "issues"."project" >= 1 AND
+  "issues"."project" <= 5);
+```
+
+### Negated range
+
+> Issues whose id is outside of a range
+
+```qd
+#issues !id:1..5 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ("issues"."id" >= 1 AND
+  "issues"."id" <= 5) IS NOT TRUE;
+```
+
+### Range with computed bounds and a computed left-hand side
+
+> Arithmetic bounds need parentheses
+
+```qd
+#issues id:(1+1)..(2*3) id|mod(2):0..1 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."id" >= 1 + 1 AND
+  "issues"."id" <= 2 * 3 AND
+  "issues"."id" % 2 >= 0 AND
+  "issues"."id" % 2 <= 1;
+```
+
+### Range of strings
+
+> Issues whose title sorts between two strings
+
+```qd
+#issues title:"a".."m" $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" >= 'a' AND
+  "issues"."title" <= 'm';
+```
+
+### Range against a count of related records
+
+> Issues with between one and five comments
+
+```qd
+#issues #comments:1..5 $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) >= 1 AND
+  COALESCE("cte1"."v1", 0) <= 5;
+```
+
+### Range of durations
+
+> Issues created between six months and one year away from now
+
+```qd
+#issues created_at:6m..1y $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) >= EXTRACT(epoch FROM make_interval(months => 6)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) <= EXTRACT(epoch FROM make_interval(years => 1));
+```
+
+### Range between a computed date and now
+
+> Issues created during the past year
+
+```qd
+#issues created_at:(@now|minus(1y))..@now $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."created_at" >= NOW() - make_interval(years => 1) AND
+  "issues"."created_at" <= NOW();
+```
+
+### Range as a result column and as a case test
+
+> A range comparison yields a boolean wherever an expression is allowed
+
+```qd
+#issues $id:1..5 -> in_range $ ? id:1..5 ~ "low" ~~ "high" -> bucket
+```
+
+```sql
+SELECT
+  "issues"."id" >= 1 AND
+  "issues"."id" <= 5 AS "in_range",
+  CASE
+    WHEN "issues"."id" >= 1 AND
+  "issues"."id" <= 5 THEN 'low'
+    ELSE 'high'
+  END AS "bucket"
+FROM "issues";
+```
+
+### Date compared with a duration through a left expansion
+
+> Issues created or due within a week of now
+
+```qd
+#issues [created_at due_date]:<1w $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) OR ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(weeks => 1)));
+```
+
+### Date compared with a duration through a right expansion
+
+> Each entry of the expansion is a duration
+
+```qd
+#issues created_at:<[1w 1m] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) OR ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(months => 1)));
+```
+
+### Date compared with a duration through a left expansion that includes an aggregate
+
+> Issues created, or last commented on, within a week of now
+
+```qd
+#issues [created_at #comments.created_at%max]:<1w $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  (ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) OR ABS(EXTRACT(epoch FROM NOW() - "cte0"."v1")) < EXTRACT(epoch FROM make_interval(weeks => 1)));
+```
+
+### Negated date compared with a duration
+
+> Issues not created within a week of now, including those with no creation date
+
+```qd
+#issues !created_at:<1w $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1))) IS NOT TRUE;
+```
+
+### Date compared with a duration using each operator
+
+> The equality operators also compare the distance from now
+
+```qd
+#issues created_at:<=1w created_at:>=1d created_at:1w created_at:=1w $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) <= EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) >= EXTRACT(epoch FROM make_interval(days => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) = EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) = EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Date compared with a duration in parentheses
+
+> A parenthesized duration literal is still a duration literal
+
+```qd
+#issues created_at:<(1w) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Date compared with a duration through to-one paths, scopes, and filters
+
+> The date may be reached through a related record
+
+```qd
+#comments issue.created_at:<1w issue{due_date:<1d} $id
+```
+
+```sql
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(days => 1));
+```
+
+### Date compared with a duration as a result column and as a case test
+
+> The comparison yields a boolean wherever an expression is allowed
+
+```qd
+#issues $created_at:<1w -> fresh $ ? due_date:<1d ~ "soon" ~~ "later"
+```
+
+```sql
+SELECT
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AS "fresh",
+  CASE
+    WHEN ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(days => 1)) THEN 'soon'
+    ELSE 'later'
+  END
+FROM "issues";
+```
+
+### Aggregated date compared with a duration in a grouped query
+
+> For each status, whether its most recent issue was created within a week of now
+
+```qd
+#issues $status \g $created_at%max:<1w
+```
+
+```sql
+SELECT
+  "issues"."status",
+  ABS(EXTRACT(epoch FROM NOW() - max("issues"."created_at"))) < EXTRACT(epoch FROM make_interval(weeks => 1))
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Date compared with a duration within function bodies and a computed column
+
+> The date's type is inferred through a function parameter and through a computed column
+
+```qd
+@@recent = @d => @d:<1w
+#issues.opened = created_at
+#issues created_at|recent due_date|(@d => @d:<1w) opened:<1w $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Date compared with a duration through functions of several dates
+
+> The type of `max` over two dates is still a date
+
+```qd
+#issues @@max(created_at due_date):<1w $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - GREATEST("issues"."created_at", "issues"."due_date"))) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Date and zoned timestamp columns compared with durations
+
+> A `date` column and a `timestamptz` column each work on the left
+
+```qd
+#users last_seen:<1h birth_date:>18y $id
+```
+
+```sql
+SELECT
+  "users"."id"
+FROM "users"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "users"."last_seen")) < EXTRACT(epoch FROM make_interval(hours => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "users"."birth_date")) > EXTRACT(epoch FROM make_interval(years => 18));
+```
+
+### Durations compared with durations
+
+> An age is a duration, so it's compared with a duration literal directly
+
+```qd
+#users birth_date|age:>18y $id
+```
+
+```sql
+SELECT
+  "users"."id"
+FROM "users"
+WHERE
+  NOW() - "users"."birth_date" > make_interval(years => 18);
+```
+
+### Date arithmetic compared with a date
+
+> A date plus a duration is a date, compared here with `@now` rather than with a duration
+
+```qd
+#issues created_at + 1w:<@now $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."created_at" + make_interval(weeks => 1) < NOW();
+```
+
+### Regex flags with a right expansion
+
+> The flags apply to each expanded comparison
+
+```qd
+#issues title:\c~[foo bar] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ("issues"."title" ~ '(?p)foo' OR "issues"."title" ~ '(?p)bar');
+```
+
+### Regex flags with a left expansion
+
+> The flags apply to each expanded comparison
+
+```qd
+#issues [title description]:\ms~'^x' $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ("issues"."title" ~* '(?w)^x' OR "issues"."description" ~* '(?w)^x');
+```
+
+### Negated OR set of search terms
+
+> Issues that mention neither term
+
+```qd
+#issues ![foo bar] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE));
+```
+
+### Search terms in nested condition sets
+
+> A comma inside an AND set, and a negated term inside an AND set inside an OR set
+
+```qd
+#issues {foo,bar baz} [foo {bar !baz}] $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)) AND
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE)) AND
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)) AND
+  NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE)));
+```
+
+### Comma mixing a search term, a comparison, and a negated search term
+
+> Any one of the three operands may hold
+
+```qd
+#issues foo,status:open,!bar $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)));
+```
+
+### Comma joining quoted and formatted search terms
+
+> Each operand is a default text search
+
+```qd
+#issues "two words",'x',^f"{id}" $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('two words' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('two words' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('two words' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower(concat("issues"."id") COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower(concat("issues"."id") COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower(concat("issues"."id") COLLATE "C")) > 0, FALSE));
+```
+
+### Comma binding tighter than the implicit AND
+
+> The comma joins only the two comparisons next to it
+
+```qd
+#issues id:1,id:2 status:open $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ("issues"."id" = 1 OR "issues"."id" = 2) AND
+  COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE);
+```
+
+### Negation binding tighter than the comma
+
+> Only the first operand is negated
+
+```qd
+#issues !id:1,id:2 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (("issues"."id" = 1) IS NOT TRUE OR "issues"."id" = 2);
+```
+
+### Has-some and has-none joined by a comma
+
+> Issues that have a comment or lack a label
+
+```qd
+#issues ++#comments,--#labels $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  ("cte0"."pk" IS NOT NULL OR "cte1"."pk" IS NULL);
+```
+
+### Negated has-some and negated has-none
+
+> Negating `++` is the same as `--`, and vice versa
+
+```qd
+#issues !++#comments !--#comments{body:x} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  NOT "cte0"."pk" IS NOT NULL AND
+  NOT "cte1"."pk" IS NULL;
+```
+
+### Has-some within nested condition sets alongside a negated to-one comparison
+
+> Open issues, or commented issues not authored by bob
+
+```qd
+#issues [status:open {++#comments !author.username:=bob}] $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR "cte0"."pk" IS NOT NULL AND
+  (lower("users"."username" COLLATE "C") = lower('bob' COLLATE "C")) IS NOT TRUE);
+```
+
+### Comparisons and has conditions as result columns
+
+> Each yields a boolean column
+
+```qd
+#issues $title:foo -> has_foo $!title:foo -> lacks_foo $++#comments -> commented $--#labels -> unlabeled
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AS "has_foo",
+  NOT COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AS "lacks_foo",
+  "cte0"."pk" IS NOT NULL AS "commented",
+  "cte1"."pk" IS NULL AS "unlabeled"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk";
+```
+
+### Expanded comparisons as result columns
+
+> A right expansion and a left expansion, each yielding a boolean column
+
+```qd
+#issues $status:[open reopened] -> active $[title description]:~bug -> buggy
+```
+
+```sql
+SELECT
+  COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE) AS "active",
+  "issues"."title" ~* '(?p)bug' OR "issues"."description" ~* '(?p)bug' AS "buggy"
+FROM "issues";
+```
+
+### Counts of related records compared with each other
+
+> Projects with as many open issues as closed ones
+
+```qd
+#projects #issues{status:open}:#issues{status:closed} $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('closed' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) = COALESCE("cte1"."v1", 0);
+```
+
+### Aggregates of related records compared with base columns
+
+> Issues with more comments than assignments, whose first comment precedes the due date
+
+```qd
+#issues #comments:>#assignments #comments.created_at%min:<`due_date` $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "assignments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "assignments"
+    GROUP BY "assignments"."issue"
+  ),
+  "cte2" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      min("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "issues"."id" = "cte2"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) > COALESCE("cte1"."v1", 0) AND
+  "cte2"."v1" < "issues"."due_date";
+```
+
+### Arithmetic over counts of related records as a condition and a sorted column
+
+> Issues with more than five comments and assignments combined, most active first
+
+```qd
+#issues #comments + #assignments:>5 $#comments + #assignments -> activity \sd
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "assignments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "assignments"
+    GROUP BY "assignments"."issue"
+  ),
+  "cte2" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte3" AS (
+    SELECT
+      "assignments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "assignments"
+    GROUP BY "assignments"."issue"
+  )
+SELECT
+  COALESCE("cte2"."v1", 0) + COALESCE("cte3"."v1", 0) AS "activity"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "issues"."id" = "cte2"."pk"
+LEFT JOIN "cte3" ON
+  "issues"."id" = "cte3"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) + COALESCE("cte1"."v1", 0) > 5
+ORDER BY
+  "activity" DESC NULLS LAST;
+```
+
+### Window condition with an expansion, a range, a negation, and a comma
+
+> Each form of comparison works against a window function
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:[1 2] %%(project\p id\s)%row_number:1..3 !%%(author\p)%count:1 %%(status\p)%count:1,status:open $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."id" ASC NULLS LAST) AS "qdwin1",
+      count(*) OVER (PARTITION BY "issues"."author") AS "qdwin2",
+      count(*) OVER (PARTITION BY "issues"."status") AS "qdwin3"
+    FROM "issues"
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  ("issues"."qdwin0" = 1 OR "issues"."qdwin0" = 2) AND
+  "issues"."qdwin1" >= 1 AND
+  "issues"."qdwin1" <= 3 AND
+  ("issues"."qdwin2" = 1) IS NOT TRUE AND
+  ("issues"."qdwin3" = 1 OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE));
+```
+
+## Combinations: result columns, sorting, and grouping
+
+These cases combine aliases, control flags, globs, nesting, standalone sorting, and grouping with one another and with computed values.
+
+### Sort ordinals across columns
+
+> The ordinals, not the column positions, decide the sort precedence
+
+```qd
+#issues $title \s2 $created_at \sd1
+```
+
+```sql
+SELECT
+  "issues"."title",
+  "issues"."created_at"
+FROM "issues"
+ORDER BY
+  "issues"."created_at" DESC NULLS LAST,
+  "issues"."title" ASC NULLS LAST;
+```
+
+### Descending sort with nulls first
+
+> The `d` and `n` flags together
+
+```qd
+#issues $title $created_at \sdn
+```
+
+```sql
+SELECT
+  "issues"."title",
+  "issues"."created_at"
+FROM "issues"
+ORDER BY
+  "issues"."created_at" DESC NULLS FIRST;
+```
+
+### Grouping and sorting flags on the same column
+
+> Count issues by status, in status order
+
+```qd
+#issues $status \gs $%count
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(*)
+FROM "issues"
+GROUP BY "issues"."status"
+ORDER BY
+  "issues"."status" ASC NULLS LAST;
+```
+
+### Grouping ordinals and sorting ordinals on the same columns
+
+> Group by status then project, but sort by project then status
+
+```qd
+#issues $status \g1s2 $project \g2s1 $%count
+```
+
+```sql
+SELECT
+  "issues"."status",
+  "issues"."project",
+  count(*)
+FROM "issues"
+GROUP BY "issues"."status", "issues"."project"
+ORDER BY
+  "issues"."project" ASC NULLS LAST,
+  "issues"."status" ASC NULLS LAST;
+```
+
+### Grouped column sorted descending alongside a sorted aggregate
+
+> The grouped column's sort comes first, since it comes first among the columns
+
+```qd
+#issues $status \g2 $project \g1s $%count \sd
+```
+
+```sql
+SELECT
+  "issues"."status",
+  "issues"."project",
+  count(*)
+FROM "issues"
+GROUP BY "issues"."project", "issues"."status"
+ORDER BY
+  "issues"."project" ASC NULLS LAST,
+  count(*) DESC NULLS LAST;
+```
+
+### Alias, sort flag, and annotation on one column
+
+> The alias comes first, then the flags, then the annotation. The sort refers to the alias.
+
+```qd
+#issues $id -> x \s @{w:1}
+```
+
+```sql
+SELECT
+  "issues"."id" AS "x"
+FROM "issues"
+ORDER BY
+  "x" ASC NULLS LAST;
+```
+
+```json
+{
+  "columnAnnotations": [
+    {
+      "w": 1
+    }
+  ]
+}
+```
+
+### Alias that collides with the base table name, sorted
+
+> The `ORDER BY` refers to the alias `issues`, not to the table
+
+```qd
+#issues $#comments -> n \g $%count -> issues \sd
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  COALESCE("cte0"."v1", 0) AS "n",
+  count(*) AS "issues"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+GROUP BY COALESCE("cte0"."v1", 0)
+ORDER BY
+  "issues" DESC NULLS LAST;
+```
+
+### Grouping by a function result, a comparison, and a has condition
+
+> Each computed grouping expression is repeated in the `GROUP BY`
+
+```qd
+#issues $status|uppercase \g $status:open \g $++#comments -> has_comments \g $%count
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  upper("issues"."status"),
+  COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE),
+  "cte0"."pk" IS NOT NULL AS "has_comments",
+  count(*)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+GROUP BY upper("issues"."status"), COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE), "cte0"."pk" IS NOT NULL;
+```
+
+### Grouping by a to-one column while listing a column further along the same path
+
+> For each author's username, count their issues and list their teams
+
+```qd
+#issues $author.username \g $%count $author.team.name%list
+```
+
+```sql
+SELECT
+  "users"."username",
+  count(*),
+  array_agg(DISTINCT "teams"."name")
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id"
+GROUP BY "users"."username";
+```
+
+### Arithmetic and a case expression over aggregates in a grouped query
+
+> Aggregates may be combined within an ungrouped column
+
+```qd
+#issues $status \g $%count * 2 + id%max -> v $ ? %count:>10 ~ "many" ~~ "few" -> size
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(*) * 2 + max("issues"."id") AS "v",
+  CASE
+    WHEN count(*) > 10 THEN 'many'
+    ELSE 'few'
+  END AS "size"
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Format string over aggregates in a grouped query, sorted
+
+> A summary sentence per status
+
+```qd
+#issues $status \g $^f"{%count} issues, latest {created_at%max}" -> summary \s
+```
+
+```sql
+SELECT
+  "issues"."status",
+  concat(count(*), ' issues, latest ', max("issues"."created_at")) AS "summary"
+FROM "issues"
+GROUP BY "issues"."status"
+ORDER BY
+  "summary" ASC NULLS LAST;
+```
+
+### Grouping after has and count conditions on related records
+
+> Count commented issues with more than five assignments, by status
+
+```qd
+#issues ++#comments #assignments:>5 $status \g $%count \sd
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "assignments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "assignments"
+    GROUP BY "assignments"."issue"
+  )
+SELECT
+  "issues"."status",
+  count(*)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL AND
+  COALESCE("cte1"."v1", 0) > 5
+GROUP BY "issues"."status"
+ORDER BY
+  count(*) DESC NULLS LAST;
+```
+
+### Standalone sort by an aggregate in a grouped query
+
+> Statuses, most common first, without showing the count
+
+```qd
+#issues \\%count \d \\created_at%max $status \g
+```
+
+```sql
+SELECT
+  "issues"."status"
+FROM "issues"
+GROUP BY "issues"."status"
+ORDER BY
+  count(*) DESC NULLS LAST,
+  max("issues"."created_at") ASC NULLS LAST;
+```
+
+### Standalone sorts by a count of related records and a to-one column
+
+> Most-commented issues first, then by author
+
+```qd
+#issues \\#comments \d \\author.username $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+ORDER BY
+  COALESCE("cte0"."v1", 0) DESC NULLS LAST,
+  "users"."username" ASC NULLS LAST;
+```
+
+### Standalone sort by an aggregate of related records with nulls first
+
+> Issues by most recent comment, uncommented issues first
+
+```qd
+#issues \\#comments.created_at%max \dn $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+ORDER BY
+  "cte0"."v1" DESC NULLS FIRST;
+```
+
+### Standalone sorts by a case expression and a function pipeline
+
+> Open issues first, then by lowercased title
+
+```qd
+#issues \\ ? status:open ~ 1 ~~ 2 \\title|lowercase $title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "issues"
+ORDER BY
+  CASE
+    WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) THEN 1
+    ELSE 2
+  END ASC NULLS LAST,
+  lower("issues"."title") ASC NULLS LAST;
+```
+
+### Standalone sorts by a comparison and a has condition
+
+> Booleans sort like any other value
+
+```qd
+#issues \\status:open \d \\++#comments $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+ORDER BY
+  COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) DESC NULLS LAST,
+  "cte0"."pk" IS NOT NULL ASC NULLS LAST;
+```
+
+### Standalone sort by a sorted list aggregate
+
+> Issues ordered by their alphabetized list of label names
+
+```qd
+#issues \\#labels.name%list(\s) $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+ORDER BY
+  "cte0"."v1" ASC NULLS LAST;
+```
+
+### Standalone sort alongside a sort within a glob
+
+> The standalone sort takes precedence
+
+```qd
+#issues \\id \d $*(title \s)
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues"
+ORDER BY
+  "issues"."id" DESC NULLS LAST,
+  "issues"."title" ASC NULLS LAST;
+```
+
+### Scoped sorting through a to-one path into a count of related records
+
+> Sort by project name, then by the number of issues in the project
+
+```qd
+#issues \\project.( \\name \d \\#issues ) $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+ORDER BY
+  "projects"."name" DESC NULLS LAST,
+  COALESCE("cte0"."v1", 0) ASC NULLS LAST;
+```
+
+### Scoped sorting with functions, negation, and has conditions
+
+> Each entry begins with a column reference behind a different prefix or suffix
+
+```qd
+#issues \\author.( \\team.name \\#issues \d \\username|lowercase \\!username:x \\++#comments ) $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."user" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "users"."id" = "cte1"."pk"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id"
+ORDER BY
+  "teams"."name" ASC NULLS LAST,
+  COALESCE("cte0"."v1", 0) DESC NULLS LAST,
+  lower("users"."username") ASC NULLS LAST,
+  NOT COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE) ASC NULLS LAST,
+  "cte1"."pk" IS NOT NULL ASC NULLS LAST;
+```
+
+### Scoped sorting through a to-many path with aggregates
+
+> Sort by latest comment, then by the list of commenters
+
+```qd
+#issues \\#comments.( \\created_at%max \d \\user.username%list(\s) ) $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg(DISTINCT "users"."username" ORDER BY "users"."username" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    JOIN "users" ON
+      "comments"."user" = "users"."id"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+ORDER BY
+  "cte0"."v1" DESC NULLS LAST,
+  "cte1"."v1" ASC NULLS LAST;
+```
+
+### Standalone sort by a to-one column that is also the grouping column
+
+> Count issues by project name, in name order
+
+```qd
+#issues \\project.name $project.name \g $%count
+```
+
+```sql
+SELECT
+  "projects"."name",
+  count(*)
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+GROUP BY "projects"."name"
+ORDER BY
+  "projects"."name" ASC NULLS LAST;
+```
+
+### Glob with a hidden column that is then shown again under an alias
+
+> The column moves to the end
+
+```qd
+#issues $*(id \h) $id -> again
+```
+
+```sql
+SELECT
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date",
+  "issues"."id" AS "again"
+FROM "issues";
+```
+
+### Glob entries with an alias, sorting, an annotation, and hiding together
+
+> One glob entry carries an alias, a sort, and an annotation; another is hidden
+
+```qd
+#issues $*(id->identifier \sd @{w:1} title \h)
+```
+
+```sql
+SELECT
+  "issues"."id" AS "identifier",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues"
+ORDER BY
+  "issues"."id" DESC NULLS LAST;
+```
+
+```json
+{
+  "columnAnnotations": [
+    {
+      "w": 1
+    },
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ]
+}
+```
+
+### Glob on a related table with its own entries
+
+> The glob's entries refer to the columns of the related table
+
+```qd
+#issues $author.*(username \sd email \h team.name \s)
+```
+
+```sql
+SELECT
+  "users"."id",
+  "users"."username",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id"
+ORDER BY
+  "users"."username" DESC NULLS LAST,
+  "teams"."name" ASC NULLS LAST;
+```
+
+### Glob sorted by a column of a related table and by a count of related records
+
+> Sorting entries within a glob needn't be columns of the globbed table
+
+```qd
+#issues $*(author.username \s #comments \sd)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+ORDER BY
+  "users"."username" ASC NULLS LAST,
+  COALESCE("cte0"."v1", 0) DESC NULLS LAST;
+```
+
+### Globs on a chain of related tables, starting with a self-reference
+
+> The self-referenced table is joined under an alias
+
+```qd
+#issues $duplicate_of.* $duplicate_of.author.* $duplicate_of.author.team.*
+```
+
+```sql
+SELECT
+  "issues_1"."id",
+  "issues_1"."title",
+  "issues_1"."description",
+  "issues_1"."created_at",
+  "issues_1"."author",
+  "issues_1"."status",
+  "issues_1"."project",
+  "issues_1"."duplicate_of",
+  "issues_1"."due_date",
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen",
+  "teams"."id",
+  "teams"."name"
+FROM "issues"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues"."duplicate_of" = "issues_1"."id"
+LEFT JOIN "users" ON
+  "issues_1"."author" = "users"."id"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id";
+```
+
+### Globs within nested result columns
+
+> The outer path applies to each glob, and each glob's entries to its own table
+
+```qd
+#comments $issue.( $*(description \h title \s) $author.*(email \h) )
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date",
+  "users"."id",
+  "users"."username",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+ORDER BY
+  "issues"."title" ASC NULLS LAST;
+```
+
+### Grouping within nested result columns
+
+> Count comments by the name of their issue's project
+
+```qd
+#comments $issue.project.( $name \g ) $%count \sd
+```
+
+```sql
+SELECT
+  "projects"."name",
+  count(*)
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+GROUP BY "projects"."name"
+ORDER BY
+  count(*) DESC NULLS LAST;
+```
+
+### Has conditions, negation, and a filtered count within nested result columns
+
+> Each nested column is evaluated relative to the comment's issue
+
+```qd
+#comments $issue.( $++#labels -> labeled $!status:open -> not_open $#comments{user:issue.author} )
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      "comments"."user" = "issues"."author"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "cte0"."pk" IS NOT NULL AS "labeled",
+  NOT COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) AS "not_open",
+  COALESCE("cte1"."v1", 0)
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk";
+```
+
+### Nested result columns after a filtered to-many path
+
+> The filter applies to each nested aggregate
+
+```qd
+#issues $#comments{body:foo}.( $created_at%max $created_at%min )
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      min("comments"."created_at") AS "v1"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "cte0"."v1",
+  "cte1"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk";
+```
+
+### Nested result columns within nested result columns, through to-many paths
+
+> The latest comment on any of the project's issues, and the issue titles
+
+```qd
+#projects $#issues.( $#comments.( $created_at%max ) $title%list )
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "issues"
+    JOIN "comments" ON
+      "issues"."id" = "comments"."issue"
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg(DISTINCT "issues"."title") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "cte0"."v1",
+  "cte1"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk";
+```
+
+### Annotations within nested result columns and nested globs
+
+> Each annotation lands in the slot of its own output column
+
+```qd
+#comments $issue.( $id @{a:1} $project.( $name @{b:2} ) $*(title @{c:3}) ) $id
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "projects"."name",
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date",
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id";
+```
+
+```json
+{
+  "columnAnnotations": [
+    {
+      "a": 1
+    },
+    {
+      "b": 2
+    },
+    null,
+    {
+      "c": 3
+    },
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ]
+}
+```
+
+### Annotations on grouped, aliased, and sorted columns
+
+> The annotation follows the flags and the alias
+
+```qd
+#issues $status \g @{a:1} $%count -> n \sd @{b:2} $created_at%max @{c:3}
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(*) AS "n",
+  max("issues"."created_at")
+FROM "issues"
+GROUP BY "issues"."status"
+ORDER BY
+  "n" DESC NULLS LAST;
+```
+
+```json
+{
+  "columnAnnotations": [
+    {
+      "a": 1
+    },
+    {
+      "b": 2
+    },
+    {
+      "c": 3
+    }
+  ]
+}
+```
+
+### Annotations on computed columns of several kinds
+
+> A window function, a case expression, a format string, and a comparison
+
+```qd
+#issues $%%(project\p)%count @{w:1} $ ? id:1 ~ 2 ~~ 3 @{c:1} $^f"{id}" -> x @{f:1} $id:1 @{cmp:1}
+```
+
+```sql
+SELECT
+  count(*) OVER (PARTITION BY "issues"."project"),
+  CASE
+    WHEN "issues"."id" = 1 THEN 2
+    ELSE 3
+  END,
+  concat("issues"."id") AS "x",
+  "issues"."id" = 1
+FROM "issues";
+```
+
+```json
+{
+  "columnAnnotations": [
+    {
+      "w": 1
+    },
+    {
+      "c": 1
+    },
+    {
+      "f": 1
+    },
+    {
+      "cmp": 1
+    }
+  ]
+}
+```
+
+### Annotation values of every kind
+
+> Quoted keys, nested and empty containers, negative and fractional numbers, and the `@` constants
+
+```qd
+#issues $id @{} $title @{"quoted key":1 'k2':2 k_3:{} b:[] c:"" d:-1.5 e:'x y' f:@null g:[@true @false]}
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title"
+FROM "issues";
+```
+
+```json
+{
+  "columnAnnotations": [
+    {},
+    {
+      "quoted key": 1,
+      "k2": 2,
+      "k_3": {},
+      "b": [],
+      "c": "",
+      "d": -1.5,
+      "e": "x y",
+      "f": null,
+      "g": [
+        true,
+        false
+      ]
+    }
+  ]
+}
+```
+
+## Combinations: related records
+
+These cases combine to-one paths, to-many paths, filters, has conditions, scoped comparisons, aggregate functions, and aggregate sorting with one another.
+
+### Filtered path with an expansion and a negated to-one comparison
+
+> Count each project's open or reopened issues that weren't authored by bob
+
+```qd
+#projects $name $#issues{status:[open reopened] !author.username:bob}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    WHERE
+      (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE)) AND
+      NOT COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('bob' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Filtered path whose filter has its own has conditions, with a sorted list
+
+> List the ids of each project's unlabeled issues that have a comment mentioning x
+
+```qd
+#projects $name $#issues{++#comments{body:x} --#labels}.id%list(\sd)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk"
+        FROM "comments"
+        WHERE
+          COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE)
+        GROUP BY "comments"."issue"
+      ),
+      "cte1" AS (
+        SELECT
+          "issue_labels"."issue" AS "pk"
+        FROM "issue_labels"
+        JOIN "labels" ON
+          "issue_labels"."label" = "labels"."id"
+        GROUP BY "issue_labels"."issue"
+      )
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg(DISTINCT "issues"."id" ORDER BY "issues"."id" DESC NULLS LAST) AS "v1"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    LEFT JOIN "cte1" ON
+      "issues"."id" = "cte1"."pk"
+    WHERE
+      "cte0"."pk" IS NOT NULL AND
+      "cte1"."pk" IS NULL
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Two filtered tables along one path, with a sorted list of everything
+
+> List the comments, by members of the core team, on each project's recent issues
+
+```qd
+#projects $name $#issues{created_at:<1w}.#comments{user.team.name:=core}.body%list_all(\\created_at \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg("comments"."body" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "v1"
+    FROM "issues"
+    JOIN "comments" ON
+      "issues"."id" = "comments"."issue"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    LEFT JOIN "teams" ON
+      "users"."team" = "teams"."id"
+    WHERE
+      ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+      lower("teams"."name" COLLATE "C") = lower('core' COLLATE "C")
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Default text search within a filtered path
+
+> The bare terms search the text columns of the filtered table
+
+```qd
+#projects $name $#issues{foo,!bar}.title%list
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg(DISTINCT "issues"."title") AS "v1"
+    FROM "issues"
+    WHERE
+      (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)))
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Scoped comparison within a filtered path
+
+> Count each project's issues whose author is on a team named like x
+
+```qd
+#projects $name $#issues{author{team.name:x}}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    LEFT JOIN "teams" ON
+      "users"."team" = "teams"."id"
+    WHERE
+      COALESCE(strpos(lower("teams"."name" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Range and date function within a filtered path
+
+> Sum the ids of certain issues created in 2020
+
+```qd
+#projects $name $#issues{id:1..5 created_at|year:2020}.id%sum
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      sum("issues"."id") AS "v1"
+    FROM "issues"
+    WHERE
+      "issues"."id" >= 1 AND
+      "issues"."id" <= 5 AND
+      CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) = 2020
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Has condition whose filter compares a count
+
+> Projects having an issue with more than three comments
+
+```qd
+#projects ++#issues{#comments:>3} $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          count(*) AS "v1"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    WHERE
+      COALESCE("cte0"."v1", 0) > 3
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Count and has-none conditions on differently filtered paths to the same table
+
+> Projects with more than five open issues and no closed ones
+
+```qd
+#projects #issues{status:open}:>5 #issues{status:closed}:0 $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('closed' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) > 5 AND
+  "cte1"."pk" IS NULL;
+```
+
+### Arithmetic between two counts of related records
+
+> The percentage of each project's issues that are open
+
+```qd
+#projects $name $#issues{status:open} * 100 / #issues -> pct_open
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0) * 100 / COALESCE("cte1"."v1", 0) AS "pct_open"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk";
+```
+
+### Scalar functions applied to aggregates of related records
+
+> A function piped after a count, and after an aggregate function
+
+```qd
+#projects $name $#issues|max(1)|times(2) $#issues.id%max|plus(1)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      max("issues"."id") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  GREATEST(COALESCE("cte0"."v1", 0), 1) * 2,
+  "cte1"."v1" + 1
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk";
+```
+
+### Arithmetic and date functions over aggregates of related records
+
+> The span between each project's earliest issue and latest due date, and the age of its earliest issue
+
+```qd
+#projects $name $#issues.due_date%max - #issues.created_at%min -> span $#issues.created_at%min|age|days|floor
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      max("issues"."due_date") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      min("issues"."created_at") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "cte2" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      min("issues"."created_at") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1" - "cte1"."v1" AS "span",
+  FLOOR(EXTRACT(epoch FROM NOW() - "cte2"."v1") / 86400)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "projects"."id" = "cte2"."pk";
+```
+
+### Several aggregate functions over differently filtered paths
+
+> `count` of a column is coalesced to zero like a bare count, but other aggregates are not
+
+```qd
+#projects $#issues{status:open}.id%count $#issues{status:open}.id%sum $#issues.id%min $#issues.title%max
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count("issues"."id") AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      sum("issues"."id") AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  ),
+  "cte2" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      min("issues"."id") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "cte3" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      max("issues"."title") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  COALESCE("cte0"."v1", 0),
+  "cte1"."v1",
+  "cte2"."v1",
+  "cte3"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "projects"."id" = "cte2"."pk"
+LEFT JOIN "cte3" ON
+  "projects"."id" = "cte3"."pk";
+```
+
+### Boolean aggregates through an inferred intermediate table
+
+> Whether all, and whether any, of each client's projects are active
+
+```qd
+#clients $name $#projects.is_active%all_true $#projects.is_active%any_true
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "products"."client" AS "pk",
+      bool_and("projects"."is_active") AS "v1"
+    FROM "products"
+    JOIN "projects" ON
+      "products"."id" = "projects"."product"
+    GROUP BY "products"."client"
+  ),
+  "cte1" AS (
+    SELECT
+      "products"."client" AS "pk",
+      bool_or("projects"."is_active") AS "v1"
+    FROM "products"
+    JOIN "projects" ON
+      "products"."id" = "projects"."product"
+    GROUP BY "products"."client"
+  )
+SELECT
+  "clients"."name",
+  "cte0"."v1",
+  "cte1"."v1"
+FROM "clients"
+LEFT JOIN "cte0" ON
+  "clients"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "clients"."id" = "cte1"."pk";
+```
+
+### Transitive path written in shorthand and in full
+
+> Both columns take the same route from clients to issues
+
+```qd
+#clients $name $#issues $#products.#projects.#issues
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "products"."client" AS "pk",
+      count(*) AS "v1"
+    FROM "products"
+    JOIN "projects" ON
+      "products"."id" = "projects"."product"
+    JOIN "issues" ON
+      "projects"."id" = "issues"."project"
+    GROUP BY "products"."client"
+  ),
+  "cte1" AS (
+    SELECT
+      "products"."client" AS "pk",
+      count(*) AS "v1"
+    FROM "products"
+    JOIN "projects" ON
+      "products"."id" = "projects"."product"
+    JOIN "issues" ON
+      "projects"."id" = "issues"."project"
+    GROUP BY "products"."client"
+  )
+SELECT
+  "clients"."name",
+  COALESCE("cte0"."v1", 0),
+  COALESCE("cte1"."v1", 0)
+FROM "clients"
+LEFT JOIN "cte0" ON
+  "clients"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "clients"."id" = "cte1"."pk";
+```
+
+### List through a to-many path and two to-one hops, sorted by its value
+
+> The teams of the authors of each project's issues
+
+```qd
+#projects $name $#issues.author.team.name%list(\s)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg(DISTINCT "teams"."name" ORDER BY "teams"."name" ASC NULLS LAST) AS "v1"
+    FROM "issues"
+    JOIN "users" ON
+      "issues"."author" = "users"."id"
+    JOIN "teams" ON
+      "users"."team" = "teams"."id"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### List through two to-many hops and two to-one hops, sorted by frequency
+
+> The teams commenting on each project's issues, most frequent first
+
+```qd
+#projects $name $#issues.#comments.user.team.name%list(\\%count \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "issues"."project" AS "pk",
+          "teams"."name" AS "value",
+          count(*) AS "sort1"
+        FROM "issues"
+        JOIN "comments" ON
+          "issues"."id" = "comments"."issue"
+        JOIN "users" ON
+          "comments"."user" = "users"."id"
+        JOIN "teams" ON
+          "users"."team" = "teams"."id"
+        GROUP BY "issues"."project", "teams"."name"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."sort1" DESC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### List sorted by an aggregate of the same to-one record it lists from
+
+> The titles of each user's assigned issues, most recently created first
+
+```qd
+#users $username $#assignments.issue.title%list(\\issue.created_at%max \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "assignments"."user" AS "pk",
+          "issues"."title" AS "value",
+          max("issues_1"."created_at") AS "sort1"
+        FROM "assignments"
+        JOIN "issues" ON
+          "assignments"."issue" = "issues"."id"
+        LEFT JOIN "issues" AS "issues_1" ON
+          "assignments"."issue" = "issues_1"."id"
+        GROUP BY "assignments"."user", "issues"."title"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."sort1" DESC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "users"."username",
+  "cte0"."v1"
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk";
+```
+
+### To-one chain followed by a transitive to-many path
+
+> For each project, the number of issues across all of its client's products
+
+```qd
+#projects $name $product.client.#products.#projects.#issues
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "products"."client" AS "pk",
+      count(*) AS "v1"
+    FROM "products"
+    JOIN "projects" ON
+      "products"."id" = "projects"."product"
+    JOIN "issues" ON
+      "projects"."id" = "issues"."project"
+    GROUP BY "products"."client"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0)
+FROM "projects"
+LEFT JOIN "products" ON
+  "projects"."product" = "products"."id"
+LEFT JOIN "clients" ON
+  "products"."client" = "clients"."id"
+LEFT JOIN "cte0" ON
+  "clients"."id" = "cte0"."pk";
+```
+
+### Has condition through a to-one hop with a filter
+
+> Issues in a project that has an open issue
+
+```qd
+#issues ++project.#issues{status:open} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Has conditions and an aggregate through a to-many hop, a to-one hop, and a to-many hop
+
+> Issues with a commenter who has authored an issue, with the greatest such issue's id
+
+```qd
+#issues ++#comments.user.#issues $#comments.user.#issues.id%max $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    JOIN "users" ON
+      "comments"."user" = "users"."id"
+    JOIN "issues" ON
+      "users"."id" = "issues"."author"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("issues"."id") AS "v1"
+    FROM "comments"
+    JOIN "users" ON
+      "comments"."user" = "users"."id"
+    JOIN "issues" ON
+      "users"."id" = "issues"."author"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "cte1"."v1",
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Linking column alongside an inferred path to the same table
+
+> For each user, the issues they authored and the issues assigned to them
+
+```qd
+#users $username $#issues(author) $#assignments.#issues
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  ),
+  "cte1" AS (
+    SELECT
+      "assignments"."user" AS "pk",
+      count(*) AS "v1"
+    FROM "assignments"
+    JOIN "issues" ON
+      "assignments"."issue" = "issues"."id"
+    GROUP BY "assignments"."user"
+  )
+SELECT
+  "users"."username",
+  COALESCE("cte0"."v1", 0),
+  COALESCE("cte1"."v1", 0)
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "users"."id" = "cte1"."pk";
+```
+
+### Both linking columns of a table, each followed by a to-one hop and a sorted list
+
+> The titles of the issues each issue blocks, and of those it's blocked by
+
+```qd
+#issues $#blocks(blocker).blocking.title%list(\s) $#blocks(blocking).blocker.title%list(\s)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "blocks"."blocker" AS "pk",
+      array_agg(DISTINCT "issues"."title" ORDER BY "issues"."title" ASC NULLS LAST) AS "v1"
+    FROM "blocks"
+    JOIN "issues" ON
+      "blocks"."blocking" = "issues"."id"
+    GROUP BY "blocks"."blocker"
+  ),
+  "cte1" AS (
+    SELECT
+      "blocks"."blocking" AS "pk",
+      array_agg(DISTINCT "issues"."title" ORDER BY "issues"."title" ASC NULLS LAST) AS "v1"
+    FROM "blocks"
+    JOIN "issues" ON
+      "blocks"."blocker" = "issues"."id"
+    GROUP BY "blocks"."blocking"
+  )
+SELECT
+  "cte0"."v1",
+  "cte1"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk";
+```
+
+### Linking column with a filter through the other linking column
+
+> Issues blocking an open issue
+
+```qd
+#issues ++#blocks(blocker){blocking.status:open} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "blocks"."blocker" AS "pk"
+    FROM "blocks"
+    LEFT JOIN "issues" AS "blocking" ON
+      "blocks"."blocking" = "blocking"."id"
+    WHERE
+      COALESCE(strpos(lower("blocking"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "blocks"."blocker"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Self-referencing linking column with a filter and a list
+
+> The ids of each issue's open duplicates
+
+```qd
+#issues $id $#issues(duplicate_of){status:open}.id%list
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."duplicate_of" AS "pk",
+      array_agg(DISTINCT "issues"."id") AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."duplicate_of"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Path that revisits its starting table through a join table
+
+> For each label, the labels that share an issue with it
+
+```qd
+#labels $name $#issues.#labels.name%list
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."label" AS "pk",
+      array_agg(DISTINCT "labels"."name") AS "v1"
+    FROM "issue_labels"
+    JOIN "issues" ON
+      "issue_labels"."issue" = "issues"."id"
+    JOIN "issue_labels" AS "issue_labels_1" ON
+      "issues"."id" = "issue_labels_1"."issue"
+    JOIN "labels" ON
+      "issue_labels_1"."label" = "labels"."id"
+    GROUP BY "issue_labels"."label"
+  )
+SELECT
+  "labels"."name",
+  "cte0"."v1"
+FROM "labels"
+LEFT JOIN "cte0" ON
+  "labels"."id" = "cte0"."pk";
+```
+
+### Filter comparing against a function of the parent record's column
+
+> Count each issue's comments made more than a week after the issue was created
+
+```qd
+#issues $id $#comments{created_at:>issue.created_at|plus(1w)}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      "comments"."created_at" > "issues"."created_at" + make_interval(weeks => 1)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Has conditions with an expansion and a negation over the same join table
+
+> Issues labeled bug or defect, but not wontfix, listing their other labels
+
+```qd
+#issues ++#labels{name:[bug defect]} --#labels{name:=wontfix} $#labels{!name:=bug}.name%list(\s)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      (COALESCE(strpos(lower("labels"."name" COLLATE "C"), lower('bug' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("labels"."name" COLLATE "C"), lower('defect' COLLATE "C")) > 0, FALSE))
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      lower("labels"."name" COLLATE "C") = lower('wontfix' COLLATE "C")
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte2" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      (lower("labels"."name" COLLATE "C") = lower('bug' COLLATE "C")) IS NOT TRUE
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "cte2"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "issues"."id" = "cte2"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL AND
+  "cte1"."pk" IS NULL;
+```
+
+### Negated scoped comparison
+
+> Comments whose issue isn't an open issue with foo in its title, including comments with no issue
+
+```qd
+#comments !issue{title:foo status:=open} $id
+```
+
+```sql
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C")) IS NOT TRUE;
+```
+
+### Scoped comparisons with negation, a comma, a nested set, and a range
+
+> Each entry is evaluated against the comment's issue
+
+```qd
+#comments issue{!title:foo,status:=open} issue[!{title:a description:b} id:1..5] $id
+```
+
+```sql
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  (NOT COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C")) AND
+  (NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('a' COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('b' COLLATE "C")) > 0, FALSE)) OR "issues"."id" >= 1 AND
+  "issues"."id" <= 5);
+```
+
+### Scoped comparison with a dual expansion and a function range
+
+> Expansion and ranges work inside a scope as they do at the top level
+
+```qd
+#comments issue{[title description]:~[foo bar] created_at|year:2020..2022} $id
+```
+
+```sql
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  ("issues"."title" ~* '(?p)foo' OR "issues"."title" ~* '(?p)bar' OR "issues"."description" ~* '(?p)foo' OR "issues"."description" ~* '(?p)bar') AND
+  CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) >= 2020 AND
+  CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) <= 2022;
+```
+
+### Scopes nested three deep
+
+> The paths compose, and each level can hold its own conditions
+
+```qd
+#comments issue{author{team{name:=core} username:a} status:=open} $id
+```
+
+```sql
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id"
+WHERE
+  lower("teams"."name" COLLATE "C") = lower('core' COLLATE "C") AND
+  COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('a' COLLATE "C")) > 0, FALSE) AND
+  lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C");
+```
+
+### Scopes joined by commas with an ordinary comparison
+
+> A search of the issue, or its project's name, or the comment's body
+
+```qd
+#comments issue{foo},issue.project{name:bar},body:baz $id
+```
+
+```sql
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+WHERE
+  ((COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)) OR COALESCE(strpos(lower("projects"."name" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE));
+```
+
+### Scope containing has conditions with their own filter
+
+> Issues whose author has an assignment and has no comment mentioning x
+
+```qd
+#issues author{++#assignments --#comments{body:x}} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "assignments"."user" AS "pk"
+    FROM "assignments"
+    GROUP BY "assignments"."user"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."user" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "users"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL AND
+  "cte1"."pk" IS NULL;
+```
+
+### Scope containing a count comparison and an aggregated date compared with a duration
+
+> Issues whose author has more than five issues and commented within the past week
+
+```qd
+#issues author{#issues:>5 #comments.created_at%max:<1w} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."user" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "users"."id" = "cte1"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) > 5 AND
+  ABS(EXTRACT(epoch FROM NOW() - "cte1"."v1")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Scopes through a self-reference, nested and repeated
+
+> Each level of nesting joins the issues table again
+
+```qd
+#issues duplicate_of{duplicate_of{status:=open}} duplicate_of{title:x} $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "issues" AS "issues_2" ON
+  "issues"."duplicate_of" = "issues_2"."id"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues_2"."duplicate_of" = "issues_1"."id"
+WHERE
+  lower("issues_1"."status" COLLATE "C") = lower('open' COLLATE "C") AND
+  COALESCE(strpos(lower("issues_2"."title" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE);
+```
+
+### Scoped comparison within a filter of a has condition
+
+> Projects having an issue whose author is named like y, on a team named like x
+
+```qd
+#projects ++#issues{author{team.name:x username:y}} $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    LEFT JOIN "teams" ON
+      "users"."team" = "teams"."id"
+    WHERE
+      COALESCE(strpos(lower("teams"."name" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE) AND
+      COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('y' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Scoped comparisons within two filters along one path
+
+> Each scope is relative to the table its filter belongs to
+
+```qd
+#projects $#issues{author{username:a}}.#comments{user{username:b}}.body%list
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg(DISTINCT "comments"."body") AS "v1"
+    FROM "issues"
+    JOIN "comments" ON
+      "issues"."id" = "comments"."issue"
+    LEFT JOIN "users" AS "users_1" ON
+      "comments"."user" = "users_1"."id"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    WHERE
+      COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('a' COLLATE "C")) > 0, FALSE) AND
+      COALESCE(strpos(lower("users_1"."username" COLLATE "C"), lower('b' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Has condition through a to-one hop, filtered by a scoped backtick column
+
+> Issues whose author has an issue in an active project
+
+```qd
+#issues ++author.#issues{project{`is_active`}} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk"
+    FROM "issues"
+    LEFT JOIN "projects" ON
+      "issues"."project" = "projects"."id"
+    WHERE
+      "projects"."is_active"
+    GROUP BY "issues"."author"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+## Combinations: definitions
+
+These cases combine constants, computed columns, user-defined functions, custom comparisons, and the special `__querydown_*` comparisons with one another and with the rest of the language.
+
+### Computed column listed across a to-many path, sorted by its value
+
+> The computed expression is repeated in the `ORDER BY`
+
+```qd
+#issues.utitle = title|uppercase
+#projects $name $#issues.utitle%list(\sd)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg(DISTINCT upper("issues"."title") ORDER BY upper("issues"."title") DESC NULLS LAST) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Computed column listed and topped across a to-many path with aggregated sort keys
+
+> The computed expression becomes the distinct value
+
+```qd
+#issues.utitle = title|uppercase
+#projects $name $#issues.utitle%list(\\created_at%min) $#issues.utitle%top(\\%count \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "issues"."project" AS "pk",
+          upper("issues"."title") AS "value",
+          min("issues"."created_at") AS "sort1"
+        FROM "issues"
+        GROUP BY "issues"."project", upper("issues"."title")
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."sort1" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    GROUP BY "distinct_values"."pk"
+  ),
+  "cte1" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "issues"."project" AS "pk",
+          upper("issues"."title") AS "value",
+          rank() OVER (PARTITION BY "issues"."project" ORDER BY count(*) DESC NULLS LAST) AS "rank"
+        FROM "issues"
+        GROUP BY "issues"."project", upper("issues"."title")
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."value" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    WHERE
+      "distinct_values"."rank" = 1
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1",
+  "cte1"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk";
+```
+
+### Computed count of related records, summed across a to-many path
+
+> The total number of comments on each project's issues
+
+```qd
+#issues.n_comments = #comments
+#projects $name $#issues.n_comments%sum
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          count(*) AS "v1"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."project" AS "pk",
+      sum(COALESCE("cte0"."v1", 0)) AS "v1"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Computed count of related records, summed in a grouped query
+
+> The total number of comments on the issues of each status
+
+```qd
+#issues.n_comments = #comments
+#issues $status \g $n_comments%sum
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."status",
+  sum(COALESCE("cte0"."v1", 0))
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+GROUP BY "issues"."status";
+```
+
+### Computed boolean column as a filter of related records, plain and negated
+
+> A name containing an underscore isn't a search term, so it needs no backticks
+
+```qd
+#issues.is_open = status:[open reopened]
+#projects $name $#issues{is_open} $#issues{!is_open}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE))
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      NOT (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE))
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0),
+  COALESCE("cte1"."v1", 0)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk";
+```
+
+### Computed boolean column as a bare condition, negated in a comma, and aggregated
+
+> Backticks are optional here, since the name contains an underscore
+
+```qd
+#issues.is_open = status:[open reopened]
+#projects ++#issues{`is_open`} $#issues.is_open%any_true $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    WHERE
+      (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE))
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      bool_or(COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE)) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "cte1"."v1",
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Computed boolean column within a scope and within nested result columns
+
+> The computed column is resolved against the related table in both places
+
+```qd
+#issues.is_open = status:[open reopened]
+#comments issue{`is_open`} issue.is_open:@true $issue.( $is_open $title )
+```
+
+```sql
+SELECT
+  COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE),
+  "issues"."title"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+WHERE
+  (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE)) AND
+  (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE)) = TRUE;
+```
+
+### Computed column reached through a to-one path, compared with a range
+
+> Issues whose author is of working age
+
+```qd
+#users.age = birth_date|age|years|floor
+#issues author.age:18..65 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 18 AND
+  FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) <= 65;
+```
+
+### Computed column through to-one hops in an aggregate and in a filter
+
+> The average age of each issue's assignees, and the number of comments by people over 30
+
+```qd
+#users.age = birth_date|age|years|floor
+#issues $id $#assignments.user.age%avg $#comments{user.age:>30}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "assignments"."issue" AS "pk",
+      avg(FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600)) AS "v1"
+    FROM "assignments"
+    JOIN "users" ON
+      "assignments"."user" = "users"."id"
+    GROUP BY "assignments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    WHERE
+      FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) > 30
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1",
+  COALESCE("cte1"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk";
+```
+
+### Computed column as a window partition
+
+> Number each issue among those whose authors are the same age
+
+```qd
+#users.age = birth_date|age|years|floor
+#issues $id $%%(author.age\p created_at\s)%row_number
+```
+
+```sql
+SELECT
+  "issues"."id",
+  row_number() OVER (PARTITION BY FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) ORDER BY "issues"."created_at" ASC NULLS LAST)
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id";
+```
+
+### Computed format string through a to-one path and listed across a to-many path
+
+> The author's contact details, and those of the commenters
+
+```qd
+#users.display = ^f"{username} <{email}>"
+#issues $author.display $#comments.user.display%list
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg(DISTINCT concat("users"."username", ' <', "users"."email", '>')) AS "v1"
+    FROM "comments"
+    JOIN "users" ON
+      "comments"."user" = "users"."id"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  concat("users"."username", ' <', "users"."email", '>'),
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id";
+```
+
+### Computed case expression as a grouping column
+
+> The whole case expression is repeated in the `GROUP BY`
+
+```qd
+#issues.label = ? status:open ~ "Open" ~~ "Other"
+#issues $label \g $%count
+```
+
+```sql
+SELECT
+  CASE
+    WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) THEN 'Open'
+    ELSE 'Other'
+  END,
+  count(*)
+FROM "issues"
+GROUP BY CASE
+  WHEN COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) THEN 'Open'
+  ELSE 'Other'
+END;
+```
+
+### Computed columns chained through a self-reference
+
+> Each hop through `duplicate_of` evaluates the computed column against its own alias
+
+```qd
+#issues.next = id + 1
+#issues.after = next * 2
+#issues $after $duplicate_of.next $duplicate_of.duplicate_of.after
+```
+
+```sql
+SELECT
+  ("issues"."id" + 1) * 2,
+  "issues_1"."id" + 1,
+  ("issues_2"."id" + 1) * 2
+FROM "issues"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues"."duplicate_of" = "issues_1"."id"
+LEFT JOIN "issues" AS "issues_2" ON
+  "issues_1"."duplicate_of" = "issues_2"."id";
+```
+
+### Computed column defined before the computed column it uses
+
+> Definitions may appear in any order
+
+```qd
+#issues.dup_next = duplicate_of.next
+#issues.next = id + 1
+#issues $dup_next
+```
+
+```sql
+SELECT
+  "issues_1"."id" + 1
+FROM "issues"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues"."duplicate_of" = "issues_1"."id";
+```
+
+### Computed columns hosted on different tables, chained through to-one and to-many paths
+
+> The number of issues by the author of the issue that each issue duplicates
+
+```qd
+#users.n_authored = #issues
+#issues.author_load = author.n_authored
+#issues.dup_author_load = duplicate_of.author_load
+#issues $dup_author_load
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."author" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  )
+SELECT
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues"."duplicate_of" = "issues_1"."id"
+LEFT JOIN "users" ON
+  "issues_1"."author" = "users"."id"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk";
+```
+
+### Computed column defined with a user-defined function over two counts, sorted
+
+> Projects by their percentage of open issues
+
+```qd
+@@pct = @a @b => @a * 100 / @b
+#projects.open_pct = @@pct(#issues{status:open} #issues)
+#projects $name $open_pct \sd
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0) * 100 / COALESCE("cte1"."v1", 0)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+ORDER BY
+  COALESCE("cte0"."v1", 0) * 100 / COALESCE("cte1"."v1", 0) DESC NULLS LAST;
+```
+
+### Computed column defined with a custom comparison
+
+> A custom comparison may be used within a computed column's definition
+
+```qd
+#issues.tagged:@x = ++#labels{name:=@x}
+#issues.triaged = tagged:triaged
+#issues `triaged` $triaged $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      lower("labels"."name" COLLATE "C") = lower('triaged' COLLATE "C")
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      lower("labels"."name" COLLATE "C") = lower('triaged' COLLATE "C")
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "cte1"."pk" IS NOT NULL,
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Computed column defined with a constant
+
+> The constant is inlined into the computed column
+
+```qd
+@threshold = 5
+#issues.is_busy = #comments:>@threshold
+#issues is_busy $id $is_busy
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  COALESCE("cte1"."v1", 0) > 5
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) > 5;
+```
+
+### Date constant and a constant computed from `@now`
+
+> A constant may hold any expression, which is inlined wherever it's used, including within filters of related records
+
+```qd
+@since = @2020-01-01
+@cutoff = @now|minus(1y)
+#projects ++#issues{created_at:>@cutoff} $name $#issues{created_at:>@since}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    WHERE
+      "issues"."created_at" > NOW() - make_interval(years => 1)
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    WHERE
+      "issues"."created_at" > DATE '2020-01-01'
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte1"."v1", 0)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Subquery constant within arithmetic, as a condition and as a result column
+
+> Projects holding more than a tenth of all issues, with their share
+
+```qd
+@n = #( #issues $%count )
+#projects #issues:>@n / 10 $name $#issues / @n
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte1"."v1", 0) / (SELECT
+    count(*)
+  FROM "issues")
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) > (SELECT
+    count(*)
+  FROM "issues") / 10;
+```
+
+### Subquery constant within a filter of related records
+
+> For each issue, the number of its comments made at the time of the latest comment overall
+
+```qd
+@latest = #( #comments $created_at%max )
+#issues $id $#comments{created_at:@latest}
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    WHERE
+      "comments"."created_at" = (SELECT
+        max("comments"."created_at")
+      FROM "comments")
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Subquery constant whose query has a condition on related records
+
+> Issues older than the oldest commented issue
+
+```qd
+@oldest_commented = #( #issues ++#comments $created_at%min )
+#issues created_at:<@oldest_commented $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."created_at" < (WITH
+    "cte0" AS (
+      SELECT
+        "comments"."issue" AS "pk"
+      FROM "comments"
+      GROUP BY "comments"."issue"
+    )
+  SELECT
+    min("issues"."created_at")
+  FROM "issues"
+  LEFT JOIN "cte0" ON
+    "issues"."id" = "cte0"."pk"
+  WHERE
+    "cte0"."pk" IS NOT NULL);
+```
+
+### Custom comparison negated and with a right expansion
+
+> Each use compiles its own existence check
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues !comment:foo comment:[foo bar] $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte2" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "issues"."id" = "cte2"."pk"
+WHERE
+  NOT "cte0"."pk" IS NOT NULL AND
+  ("cte1"."pk" IS NOT NULL OR "cte2"."pk" IS NOT NULL);
+```
+
+### Custom comparison with a flagged regex expansion, joined by a comma to a negated switched operator
+
+> The switched operator applies within the custom comparison's body
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues comment:\cm~[foo bar],!comment:=baz $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      "comments"."body" ~ '(?n)foo'
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      "comments"."body" ~ '(?n)bar'
+    GROUP BY "comments"."issue"
+  ),
+  "cte2" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      lower("comments"."body" COLLATE "C") = lower('baz' COLLATE "C")
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "issues"."id" = "cte2"."pk"
+WHERE
+  ("cte0"."pk" IS NOT NULL OR "cte1"."pk" IS NOT NULL OR NOT "cte2"."pk" IS NOT NULL);
+```
+
+### Custom comparison within filters of related records
+
+> Projects having an issue with no comment mentioning foo, listing the titles of those that do have one
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#projects ++#issues{!comment:foo} $name $#issues{comment:foo}.title%list(\s)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk"
+        FROM "comments"
+        WHERE
+          COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    WHERE
+      NOT "cte0"."pk" IS NOT NULL
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk"
+        FROM "comments"
+        WHERE
+          COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."project" AS "pk",
+      array_agg(DISTINCT "issues"."title" ORDER BY "issues"."title" ASC NULLS LAST) AS "v1"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    WHERE
+      "cte0"."pk" IS NOT NULL
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte1"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison within a scope and as a nested result column
+
+> The custom comparison is resolved against the related table in both places
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#comments issue{comment:foo} $id $issue.( $comment:foo -> c )
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "comments"."id",
+  "cte1"."pk" IS NOT NULL AS "c"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison as a grouping column, sorted by count
+
+> Count the issues that have a comment mentioning foo, and those that don't
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues \\%count \d $comment:foo -> mentions_foo \g $ ? %count:>1 ~ "many" ~~ "few"
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "cte0"."pk" IS NOT NULL AS "mentions_foo",
+  CASE
+    WHEN count(*) > 1 THEN 'many'
+    ELSE 'few'
+  END
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+GROUP BY "cte0"."pk" IS NOT NULL
+ORDER BY
+  count(*) DESC NULLS LAST;
+```
+
+### Custom comparison as a standalone sort and a case test
+
+> A custom comparison yields a boolean wherever an expression is allowed
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues \\comment:urgent \d $ ? comment:foo ~ "!" ~~ "" -> flag $title
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('urgent' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  CASE
+    WHEN "cte1"."pk" IS NOT NULL THEN '!'
+    ELSE ''
+  END AS "flag",
+  "issues"."title"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+ORDER BY
+  "cte0"."pk" IS NOT NULL DESC NULLS LAST;
+```
+
+### Custom comparison called with a constant
+
+> The constant is inlined into the custom comparison's body
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+@term = "foo"
+#issues comment:@term $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison used within another custom comparison
+
+> The outer comparison's argument is passed along to the inner one
+
+```qd
+#issues.c:@x = ++#comments{body:@x}
+#issues.cc:@x = [c:@x title:@x]
+#issues cc:foo c:bar $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  ("cte0"."pk" IS NOT NULL OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)) AND
+  "cte1"."pk" IS NOT NULL;
+```
+
+### Custom comparison used within another through a self-reference
+
+> The title of the issue that an issue's duplicate target itself duplicates
+
+```qd
+#issues.dup:@x = duplicate_of.title:@x
+#issues.dupdup:@x = duplicate_of.dup:@x
+#issues dupdup:foo $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "issues" AS "issues_2" ON
+  "issues"."duplicate_of" = "issues_2"."id"
+LEFT JOIN "issues" AS "issues_1" ON
+  "issues_2"."duplicate_of" = "issues_1"."id"
+WHERE
+  COALESCE(strpos(lower("issues_1"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE);
+```
+
+### Custom comparison defined with `:=`, in a comma and negated
+
+> The comparison is called exactly as it was defined
+
+```qd
+#issues.is:@x = status:=@x
+#issues is:open,is:closed !is:done $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (lower("issues"."status" COLLATE "C") = lower('open' COLLATE "C") OR lower("issues"."status" COLLATE "C") = lower('closed' COLLATE "C")) AND
+  (lower("issues"."status" COLLATE "C") = lower('done' COLLATE "C")) IS NOT TRUE;
+```
+
+### Custom comparison with a has condition, in AND and OR sets
+
+> Issues with both of two labels, and either of two others
+
+```qd
+#issues.tagged:@x = ++#labels{name:=@x}
+#issues {tagged:bug tagged:urgent} [tagged:a tagged:b] $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      lower("labels"."name" COLLATE "C") = lower('bug' COLLATE "C")
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      lower("labels"."name" COLLATE "C") = lower('urgent' COLLATE "C")
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte2" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      lower("labels"."name" COLLATE "C") = lower('a' COLLATE "C")
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte3" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    WHERE
+      lower("labels"."name" COLLATE "C") = lower('b' COLLATE "C")
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "issues"."id" = "cte2"."pk"
+LEFT JOIN "cte3" ON
+  "issues"."id" = "cte3"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL AND
+  "cte1"."pk" IS NOT NULL AND
+  ("cte2"."pk" IS NOT NULL OR "cte3"."pk" IS NOT NULL);
+```
+
+### Default text search configured with a custom comparison, negated and in a comma
+
+> Each search term expands through both definitions
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues.__querydown_default_text_search:@x = [title:@x comment:@x]
+#issues foo !bar,baz $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte2" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "issues"."id" = "cte2"."pk"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR "cte0"."pk" IS NOT NULL) AND
+  (NOT (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR "cte1"."pk" IS NOT NULL) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE) OR "cte2"."pk" IS NOT NULL);
+```
+
+### Configured default text search within a filter of related records and within scopes
+
+> The configuration belongs to the table, wherever that table is searched
+
+```qd
+#issues.__querydown_default_text_search:@x = [title:@x description:@x]
+#comments issue{foo} issue[bar baz] ++issue.project.#issues{qux} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    WHERE
+      (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('qux' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('qux' COLLATE "C")) > 0, FALSE))
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)) AND
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('baz' COLLATE "C")) > 0, FALSE)) AND
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Configured default text search with quoted, formatted, and negated terms
+
+> Every kind of search term goes through the configuration
+
+```qd
+#issues.__querydown_default_text_search:@x = title:@x
+#issues foo "two words" ^f"{id}" !x $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('two words' COLLATE "C")) > 0, FALSE) AND
+  COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower(concat("issues"."id") COLLATE "C")) > 0, FALSE) AND
+  NOT COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('x' COLLATE "C")) > 0, FALSE);
+```
+
+### Configured default text search using a linked record comparison
+
+> Searching issues also searches the author's username
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues.__querydown_default_text_search:@x = [title:@x author:@x]
+#issues alice $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE));
+```
+
+### Linked record comparison with an expansion, a negation, and a switched operator
+
+> Each form of comparison works against a linked record
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues author:[alice bob] !author:carol author:=dave $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  (COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('bob' COLLATE "C")) > 0, FALSE)) AND
+  NOT COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('carol' COLLATE "C")) > 0, FALSE) AND
+  lower("users"."username" COLLATE "C") = lower('dave' COLLATE "C");
+```
+
+### Linked record comparison within filters of related records
+
+> The link is resolved from the filtered table
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues ++#comments{user:alice} --#assignments{user:=bob} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    WHERE
+      COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "assignments"."issue" AS "pk"
+    FROM "assignments"
+    LEFT JOIN "users" ON
+      "assignments"."user" = "users"."id"
+    WHERE
+      lower("users"."username" COLLATE "C") = lower('bob' COLLATE "C")
+    GROUP BY "assignments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL AND
+  "cte1"."pk" IS NULL;
+```
+
+### Linked record comparison within a scope and through a filtered to-many path
+
+> Comments on alice's issues which also have a comment by carol
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#comments issue{author:alice} ++issue.#comments{user:~'^carol'} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    WHERE
+      "users"."username" ~* '(?p)^carol'
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "comments"."id"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE) AND
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Linked record comparisons on two tables at once
+
+> Each link uses the comparison of the table it leads to
+
+```qd
+#projects.__querydown_linked_record_comparison:@x = name:@x
+#products.__querydown_linked_record_comparison:@x = name:@x
+#issues project:website project.product:=acme $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "products" ON
+  "projects"."product" = "products"."id"
+WHERE
+  COALESCE(strpos(lower("projects"."name" COLLATE "C"), lower('website' COLLATE "C")) > 0, FALSE) AND
+  lower("products"."name" COLLATE "C") = lower('acme' COLLATE "C");
+```
+
+## Combinations: pipelines, unions, and user-defined tables
+
+These cases combine `~~~`, `+++`, and `#name = #( )` with one another and with the rest of the language.
+
+### Later stage with a comma, a range, a negation, a function, and a sort
+
+> The match operator is exact equality after the first stage, since stage columns are untyped
+
+```qd
+#issues $id $title $status ~~~ title:foo status:=open,id:1..5 !title:bar $title|uppercase \s
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title",
+      "issues"."status" AS "status"
+    FROM "issues"
+  )
+SELECT
+  upper("pipe0"."title")
+FROM "pipe0"
+WHERE
+  "pipe0"."title" = 'foo' AND
+  ("pipe0"."status" = 'open' OR "pipe0"."id" >= 1 AND
+  "pipe0"."id" <= 5) AND
+  ("pipe0"."title" = 'bar') IS NOT TRUE
+ORDER BY
+  upper("pipe0"."title") ASC NULLS LAST;
+```
+
+### Later stage with a glob plus a computed, aliased, sorted column
+
+> The glob expands to the previous stage's columns
+
+```qd
+#issues $author \g $%count -> n ~~~ $* $n * 2 -> doubled \sd
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."author" AS "author",
+      count(*) AS "n"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  )
+SELECT
+  "pipe0"."author",
+  "pipe0"."n",
+  "pipe0"."n" * 2 AS "doubled"
+FROM "pipe0"
+ORDER BY
+  "doubled" DESC NULLS LAST;
+```
+
+### Glob sort in a middle stage of three
+
+> A sort in a stage that isn't the last is rendered within that stage's CTE
+
+```qd
+#issues $author \g $%count -> n ~~~ $*(n \sd) ~~~ n:>1
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."author" AS "author",
+      count(*) AS "n"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  ),
+  "pipe1" AS (
+    SELECT
+      "pipe0"."author" AS "author",
+      "pipe0"."n" AS "n"
+    FROM "pipe0"
+    ORDER BY
+      "pipe0"."n" DESC NULLS LAST
+  )
+SELECT
+  "pipe1"."author",
+  "pipe1"."n"
+FROM "pipe1"
+WHERE
+  "pipe1"."n" > 1;
+```
+
+### Aggregates of related records, then aggregated again in the next stage
+
+> The comments of each author's issues, summarized per author, keeping the busiest
+
+```qd
+#issues $author.username -> name $#comments -> c
+~~~
+$name \g $c%sum -> total $c%avg $c%max $%count
+~~~
+total:>10 \\total \d
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          count(*) AS "v1"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "users"."username" AS "name",
+      COALESCE("cte0"."v1", 0) AS "c"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+  ),
+  "pipe1" AS (
+    SELECT
+      "pipe0"."name" AS "name",
+      sum("pipe0"."c") AS "total",
+      avg("pipe0"."c") AS "column_3",
+      max("pipe0"."c") AS "column_4",
+      count(*) AS "column_5"
+    FROM "pipe0"
+    GROUP BY "pipe0"."name"
+  )
+SELECT
+  "pipe1"."name",
+  "pipe1"."total",
+  "pipe1"."column_3",
+  "pipe1"."column_4",
+  "pipe1"."column_5"
+FROM "pipe1"
+WHERE
+  "pipe1"."total" > 10
+ORDER BY
+  "pipe1"."total" DESC NULLS LAST;
+```
+
+### Unaliased computed columns and duplicate column names flowing between stages
+
+> Unnamed columns are named by position, and duplicate names get a numeric suffix
+
+```qd
+#issues $id $project.id $created_at|year $1 ~~~ $*
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "projects"."id" AS "id_2",
+      CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) AS "column_3",
+      1 AS "column_4"
+    FROM "issues"
+    LEFT JOIN "projects" ON
+      "issues"."project" = "projects"."id"
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."id_2",
+  "pipe0"."column_3",
+  "pipe0"."column_4"
+FROM "pipe0";
+```
+
+### Alias containing a space, referenced flexibly in the next stage
+
+> Flexible identifier resolution applies to stage columns too
+
+```qd
+#issues $id -> `Issue ID` $title ~~~ `Issue ID`:5 $issue_id $`Issue ID` -> x
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "Issue ID",
+      "issues"."title" AS "title"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."Issue ID",
+  "pipe0"."Issue ID" AS "x"
+FROM "pipe0"
+WHERE
+  "pipe0"."Issue ID" = 5;
+```
+
+### Hidden glob column is absent from the next stage
+
+> A column hidden from a stage's output can't be referenced by later stages
+
+```qd
+#issues $*(description \h) ~~~ $*
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title",
+      "issues"."created_at" AS "created_at",
+      "issues"."author" AS "author",
+      "issues"."status" AS "status",
+      "issues"."project" AS "project",
+      "issues"."duplicate_of" AS "duplicate_of",
+      "issues"."due_date" AS "due_date"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."title",
+  "pipe0"."created_at",
+  "pipe0"."author",
+  "pipe0"."status",
+  "pipe0"."project",
+  "pipe0"."duplicate_of",
+  "pipe0"."due_date"
+FROM "pipe0";
+```
+
+### List aggregates over a previous stage's rows
+
+> Distinct and non-distinct lists, each with its own sorting
+
+```qd
+#issues $id $status ~~~ $status \g $id%list(\sd) $id%list_all(\\id)
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."status" AS "status"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."status",
+  array_agg(DISTINCT "pipe0"."id" ORDER BY "pipe0"."id" DESC NULLS LAST),
+  array_agg("pipe0"."id" ORDER BY "pipe0"."id" ASC NULLS LAST)
+FROM "pipe0"
+GROUP BY "pipe0"."status";
+```
+
+### Window function over a previous stage, filtered in a third stage
+
+> The three newest issues of each project
+
+```qd
+#issues $id $status $project ~~~ $%%(project\p id\sd)%row_number -> rn $id ~~~ rn:<=3
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."status" AS "status",
+      "issues"."project" AS "project"
+    FROM "issues"
+  ),
+  "pipe1" AS (
+    SELECT
+      row_number() OVER (PARTITION BY "pipe0"."project" ORDER BY "pipe0"."id" DESC NULLS LAST) AS "rn",
+      "pipe0"."id" AS "id"
+    FROM "pipe0"
+  )
+SELECT
+  "pipe1"."rn",
+  "pipe1"."id"
+FROM "pipe1"
+WHERE
+  "pipe1"."rn" <= 3;
+```
+
+### Case expression and format string over a previous stage's columns
+
+> Text comparisons against stage columns are exact
+
+```qd
+#issues $id $status ~~~ $ ? status:=open ~ 1 ~~ 0 -> is_open $^f"#{id}" -> tag
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."status" AS "status"
+    FROM "issues"
+  )
+SELECT
+  CASE
+    WHEN "pipe0"."status" = 'open' THEN 1
+    ELSE 0
+  END AS "is_open",
+  concat('#', "pipe0"."id") AS "tag"
+FROM "pipe0";
+```
+
+### Constant and user-defined function used in a later stage
+
+> Definitions are available to every stage
+
+```qd
+@min = 5
+@@double = @x => @x * 2
+#issues $author \g $%count -> n ~~~ n:>@min $n|double
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."author" AS "author",
+      count(*) AS "n"
+    FROM "issues"
+    GROUP BY "issues"."author"
+  )
+SELECT
+  "pipe0"."n" * 2
+FROM "pipe0"
+WHERE
+  "pipe0"."n" > 5;
+```
+
+### Computed boolean column carried into the next stage as a plain column
+
+> The next stage sees the computed column's value, referenced with backticks as a bare condition
+
+```qd
+#issues.big = id:>100
+#issues $id $big ~~~ `big` $id
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."id" > 100 AS "big"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id"
+FROM "pipe0"
+WHERE
+  "pipe0"."big";
+```
+
+### Window condition in a middle stage
+
+> The window function is computed over the previous stage's rows
+
+```qd
+#issues status:open ~~~ %%(project\p created_at\sd)%row_number:1 $id ~~~ $%count
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title",
+      "issues"."description" AS "description",
+      "issues"."created_at" AS "created_at",
+      "issues"."author" AS "author",
+      "issues"."status" AS "status",
+      "issues"."project" AS "project",
+      "issues"."duplicate_of" AS "duplicate_of",
+      "issues"."due_date" AS "due_date"
+    FROM "issues"
+    WHERE
+      COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE)
+  ),
+  "pipe1" AS (
+    WITH
+      "qdwin_src" AS (
+        SELECT
+          "pipe0"."id",
+          "pipe0"."title",
+          "pipe0"."description",
+          "pipe0"."created_at",
+          "pipe0"."author",
+          "pipe0"."status",
+          "pipe0"."project",
+          "pipe0"."duplicate_of",
+          "pipe0"."due_date",
+          row_number() OVER (PARTITION BY "pipe0"."project" ORDER BY "pipe0"."created_at" DESC NULLS LAST) AS "qdwin0"
+        FROM "pipe0"
+      )
+    SELECT
+      "pipe0"."id" AS "id"
+    FROM "qdwin_src" AS "pipe0"
+    WHERE
+      "pipe0"."qdwin0" = 1
+  )
+SELECT
+  count(*)
+FROM "pipe1";
+```
+
+### Annotations from the last stage only
+
+> Column annotations written in an earlier stage don't carry over to the output
+
+```qd
+#issues $id @{a:1} ~~~ $id @{b:2} $id + 1 @{c:[1 2 {d:e}]}
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."id" + 1
+FROM "pipe0";
+```
+
+```json
+{
+  "columnAnnotations": [
+    {
+      "b": 2
+    },
+    {
+      "c": [
+        1,
+        2,
+        {
+          "d": "e"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Annotation on a glob entry in a later stage
+
+> The annotation lands in the slot of the globbed column
+
+```qd
+#issues $id $title @{width:1} ~~~ $*(title @{width:2})
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."title"
+FROM "pipe0";
+```
+
+```json
+{
+  "columnAnnotations": [
+    null,
+    {
+      "width": 2
+    }
+  ]
+}
+```
+
+### Union members using shared constants and a shared function with a format string
+
+> Definitions written before the first query are available to every member
+
+```qd
+@since = @2024-01-01
+@@tag = @kind @id => ^f"{@kind}-{@id}"
+#issues created_at:>@since $@@tag("issue" id) -> ref $title
++++
+#comments created_at:>@since $@@tag("comment" id) $body
+```
+
+```sql
+SELECT
+  concat('issue', '-', "issues"."id") AS "ref",
+  "issues"."title" AS "body"
+FROM "issues"
+WHERE
+  "issues"."created_at" > DATE '2024-01-01'
+UNION ALL
+SELECT
+  concat('comment', '-', "comments"."id"),
+  "comments"."body"
+FROM "comments"
+WHERE
+  "comments"."created_at" > DATE '2024-01-01';
+```
+
+### Union members using a shared computed column and linked record comparison
+
+> Each member resolves the definitions against its own base table
+
+```qd
+#issues.is_open = status:[open reopened]
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues `is_open` author:alice $id $title
++++
+#comments issue{`is_open` author:alice} $issue.id $body
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title" AS "body"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE)) AND
+  COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE)
+UNION ALL
+SELECT
+  "issues"."id",
+  "comments"."body"
+FROM "comments"
+LEFT JOIN "issues" ON
+  "comments"."issue" = "issues"."id"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  (COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('reopened' COLLATE "C")) > 0, FALSE)) AND
+  COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE);
+```
+
+### Union with column annotations from several members and a query annotation
+
+> The last annotation of each column wins, and the query annotation follows the last member
+
+```qd
+#issues $id $title @{width:1}
++++
+#projects $id @{hide:yes} $name @{width:2}
+\\\{view:list}
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title" AS "name"
+FROM "issues"
+UNION ALL
+SELECT
+  "projects"."id",
+  "projects"."name"
+FROM "projects";
+```
+
+```json
+{
+  "columnAnnotations": [
+    {
+      "hide": "yes"
+    },
+    {
+      "width": 2
+    }
+  ],
+  "queryAnnotation": {
+    "view": "list"
+  }
+}
+```
+
+### Union of window columns, filtered in a pipeline stage
+
+> The first row of each partition, from either member
+
+```qd
+#issues $id $%%(project\p created_at\s)%row_number -> rn
++++
+#comments $id $%%(issue\p created_at\s)%row_number
+~~~
+rn:1 $id
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" ASC NULLS LAST) AS "rn"
+    FROM "issues"
+    UNION ALL
+    SELECT
+      "comments"."id",
+      row_number() OVER (PARTITION BY "comments"."issue" ORDER BY "comments"."created_at" ASC NULLS LAST)
+    FROM "comments"
+  )
+SELECT
+  "pipe0"."id"
+FROM "pipe0"
+WHERE
+  "pipe0"."rn" = 1;
+```
+
+### Window condition in the first member of a union
+
+> The first member's CTE precedes the whole union
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 $id $title
++++
+#projects $id $name
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "issues"."id",
+  "issues"."title" AS "name"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" = 1
+UNION ALL
+SELECT
+  "projects"."id",
+  "projects"."name"
+FROM "projects";
+```
+
+### Window condition in a later member of a union
+
+> A later member's CTE is scoped to it with parentheses
+
+```qd
+#issues $id $title
++++
+#projects %%(product\p id\s)%row_number:1 $id $name
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title" AS "name"
+FROM "issues"
+UNION ALL
+(
+  WITH
+    "qdwin_src" AS (
+      SELECT
+        "projects"."id",
+        "projects"."name",
+        "projects"."product",
+        "projects"."is_active",
+        "projects"."is_pro_bono",
+        row_number() OVER (PARTITION BY "projects"."product" ORDER BY "projects"."id" ASC NULLS LAST) AS "qdwin0"
+      FROM "projects"
+    )
+  SELECT
+    "projects"."id",
+    "projects"."name"
+  FROM "qdwin_src" AS "projects"
+  WHERE
+    "projects"."qdwin0" = 1
+);
+```
+
+### Union of globs with hidden columns
+
+> Each member hides the same column, so the column counts agree
+
+```qd
+#issues $*(description \h)
++++
+#issues $*(description \h)
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues"
+UNION ALL
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date"
+FROM "issues";
+```
+
+### Union of counts of related records, then two pipeline stages
+
+> Each member's CTE is nested within the first stage
+
+```qd
+#issues $id $#comments -> n
++++
+#projects $id $#issues
+~~~
+n:>0 \\n \d
+~~~
+$%count
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          count(*) AS "v1"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."id" AS "id",
+      COALESCE("cte0"."v1", 0) AS "n"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    UNION ALL
+    (
+      WITH
+        "cte0" AS (
+          SELECT
+            "issues"."project" AS "pk",
+            count(*) AS "v1"
+          FROM "issues"
+          GROUP BY "issues"."project"
+        )
+      SELECT
+        "projects"."id",
+        COALESCE("cte0"."v1", 0)
+      FROM "projects"
+      LEFT JOIN "cte0" ON
+        "projects"."id" = "cte0"."pk"
+    )
+  ),
+  "pipe1" AS (
+    SELECT
+      "pipe0"."id" AS "id",
+      "pipe0"."n" AS "n"
+    FROM "pipe0"
+    WHERE
+      "pipe0"."n" > 0
+    ORDER BY
+      "pipe0"."n" DESC NULLS LAST
+  )
+SELECT
+  count(*)
+FROM "pipe1";
+```
+
+### Union of user-defined tables, one of them twice
+
+> A user-defined table may be the base table of several members
+
+```qd
+#a = #( #issues $id $title )
+#b = #( #projects $id $name -> title )
+#a $*
++++
+#b $*
++++
+#a title:foo $id $title
+```
+
+```sql
+WITH
+  "a" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title"
+    FROM "issues"
+  ),
+  "b" AS (
+    SELECT
+      "projects"."id" AS "id",
+      "projects"."name" AS "title"
+    FROM "projects"
+  )
+SELECT
+  "a"."id",
+  "a"."title"
+FROM "a"
+UNION ALL
+SELECT
+  "b"."id",
+  "b"."title"
+FROM "b"
+UNION ALL
+SELECT
+  "a"."id",
+  "a"."title"
+FROM "a"
+WHERE
+  "a"."title" = 'foo';
+```
+
+### Union of a grouped query and its grand total, over a user-defined table
+
+> A subtotal per author, plus a total row
+
+```qd
+#recent = #( #issues created_at:<1w $id $title $author )
+#recent $author \g $%count
++++
+#recent $@null $%count
+```
+
+```sql
+WITH
+  "recent" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title",
+      "issues"."author" AS "author"
+    FROM "issues"
+    WHERE
+      ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1))
+  )
+SELECT
+  "recent"."author",
+  count(*)
+FROM "recent"
+GROUP BY "recent"."author"
+UNION ALL
+SELECT
+  NULL,
+  count(*)
+FROM "recent";
+```
+
+### Union and pipeline within a subquery constant
+
+> The constant is the number of rows in the union
+
+```qd
+@n = #( #issues $id +++ #projects $id ~~~ $%count )
+#issues id:<@n $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."id" < (WITH
+    "pipe0" AS (
+      SELECT
+        "issues"."id" AS "id"
+      FROM "issues"
+      UNION ALL
+      SELECT
+        "projects"."id"
+      FROM "projects"
+    )
+  SELECT
+    count(*)
+  FROM "pipe0");
+```
+
+### Union and pipeline within a user-defined table
+
+> Ids shared between issues and projects
+
+```qd
+#u = #( #issues $id $title +++ #projects $id $name ~~~ $id \g $%count -> n )
+#u n:>1
+```
+
+```sql
+WITH
+  "u" AS (
+    WITH
+      "pipe0" AS (
+        SELECT
+          "issues"."id" AS "id",
+          "issues"."title" AS "name"
+        FROM "issues"
+        UNION ALL
+        SELECT
+          "projects"."id",
+          "projects"."name"
+        FROM "projects"
+      )
+    SELECT
+      "pipe0"."id" AS "id",
+      count(*) AS "n"
+    FROM "pipe0"
+    GROUP BY "pipe0"."id"
+  )
+SELECT
+  "u"."id",
+  "u"."n"
+FROM "u"
+WHERE
+  "u"."n" > 1;
+```
+
+### Union deduplicated by grouping in a pipeline stage
+
+> Grouping by every column removes the duplicates that `UNION ALL` keeps
+
+```qd
+#issues $id $title
++++
+#issues $id $title
+~~~
+$id \g $title \g
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "title"
+    FROM "issues"
+    UNION ALL
+    SELECT
+      "issues"."id",
+      "issues"."title"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."title"
+FROM "pipe0"
+GROUP BY "pipe0"."id", "pipe0"."title";
+```
+
+### Union of a grouped member and an ungrouped member
+
+> Each member groups independently
+
+```qd
+#issues $id \g $%count
++++
+#issues $id $1
+```
+
+```sql
+SELECT
+  "issues"."id",
+  count(*)
+FROM "issues"
+GROUP BY "issues"."id"
+UNION ALL
+SELECT
+  "issues"."id",
+  1
+FROM "issues";
+```
+
+### Union members reaching the same columns through different to-one paths
+
+> Each member has its own joins
+
+```qd
+#issues $id $title
++++
+#issues $author.id $author.username
++++
+#issues $project.id $project.name
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."title" AS "name"
+FROM "issues"
+UNION ALL
+SELECT
+  "users"."id",
+  "users"."username"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+UNION ALL
+SELECT
+  "projects"."id",
+  "projects"."name"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id";
+```
+
+### Union with a has condition, sorted in a pipeline stage, with a limit and offset
+
+```toml options
+limit = 5
+offset = 2
+```
+
+> The limit and offset apply to the last stage only
+
+```qd
+#issues $id $title
++++
+#projects ++#issues $id $name
+~~~
+\\id
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."title" AS "name"
+    FROM "issues"
+    UNION ALL
+    (
+      WITH
+        "cte0" AS (
+          SELECT
+            "issues"."project" AS "pk"
+          FROM "issues"
+          GROUP BY "issues"."project"
+        )
+      SELECT
+        "projects"."id",
+        "projects"."name"
+      FROM "projects"
+      LEFT JOIN "cte0" ON
+        "projects"."id" = "cte0"."pk"
+      WHERE
+        "cte0"."pk" IS NOT NULL
+    )
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."name"
+FROM "pipe0"
+ORDER BY
+  "pipe0"."id" ASC NULLS LAST
+LIMIT 5
+OFFSET 2;
+```
+
+### User-defined table with a date condition, used with a window condition
+
+> The window subquery reads from the user-defined table's CTE
+
+```qd
+#t = #( #issues created_at:<1w $id $project $created_at )
+#t %%(project\p created_at\sd)%row_number:1 $id
+```
+
+```sql
+WITH
+  "t" AS (
+    SELECT
+      "issues"."id" AS "id",
+      "issues"."project" AS "project",
+      "issues"."created_at" AS "created_at"
+    FROM "issues"
+    WHERE
+      ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1))
+  ),
+  "qdwin_src" AS (
+    SELECT
+      "t"."id",
+      "t"."project",
+      "t"."created_at",
+      row_number() OVER (PARTITION BY "t"."project" ORDER BY "t"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "t"
+  )
+SELECT
+  "t"."id"
+FROM "qdwin_src" AS "t"
+WHERE
+  "t"."qdwin0" = 1;
+```
+
+### User-defined table with a sort, alongside a subquery constant, with a limit
+
+```toml options
+limit = 3
+```
+
+> Only the outermost query is limited
+
+```qd
+@n = #( #issues $%count )
+#t = #( #issues \\id $id )
+#t id:<@n
+```
+
+```sql
+WITH
+  "t" AS (
+    SELECT
+      "issues"."id" AS "id"
+    FROM "issues"
+    ORDER BY
+      "issues"."id" ASC NULLS LAST
+  )
+SELECT
+  "t"."id"
+FROM "t"
+WHERE
+  "t"."id" < (SELECT
+    count(*)
+  FROM "issues")
+LIMIT 3;
+```
+
+## Combinations: window functions
+
+These cases combine window definitions, window function arguments, and window conditions with the rest of the language.
+
+### Window partitioned by a to-one column and a function result
+
+> Rank issues within each team and year
+
+```qd
+#issues $id $%%(author.team.name\p created_at|year\p id\sd)%rank
+```
+
+```sql
+SELECT
+  "issues"."id",
+  rank() OVER (PARTITION BY "teams"."name", CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) ORDER BY "issues"."id" DESC NULLS LAST)
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id";
+```
+
+### Window ordered by a count of related records
+
+> Rank each project's issues by their number of comments
+
+```qd
+#issues $id $%%(project\p #comments\sd)%row_number -> rank_by_comments
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  row_number() OVER (PARTITION BY "issues"."project" ORDER BY COALESCE("cte0"."v1", 0) DESC NULLS LAST) AS "rank_by_comments"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Window function arguments that are aggregates of related records
+
+> Each project's total number of comments, and its latest comment
+
+```qd
+#issues $id $%%(project\p)%sum(#comments) $%%(project\p)%max(#comments.created_at%max)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  sum(COALESCE("cte0"."v1", 0)) OVER (PARTITION BY "issues"."project"),
+  max("cte1"."v1") OVER (PARTITION BY "issues"."project")
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk";
+```
+
+### Window function arguments with a function pipeline, an offset, and a default
+
+> The uppercased title from two issues earlier
+
+```qd
+#issues $id $%%(status\p created_at\s)%lag(title|uppercase 2 "n/a") $%%(status\p created_at\s)%lead(due_date)
+```
+
+```sql
+SELECT
+  "issues"."id",
+  lag(upper("issues"."title"), 2, 'n/a') OVER (PARTITION BY "issues"."status" ORDER BY "issues"."created_at" ASC NULLS LAST),
+  lead("issues"."due_date") OVER (PARTITION BY "issues"."status" ORDER BY "issues"."created_at" ASC NULLS LAST)
+FROM "issues";
+```
+
+### Window partitioned by a comparison and ordered by a case expression
+
+> Any expression may define a window
+
+```qd
+#issues $id $%%(status:open\p ? id:<10 ~ 1 ~~ 2 \s)%dense_rank
+```
+
+```sql
+SELECT
+  "issues"."id",
+  dense_rank() OVER (PARTITION BY COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('open' COLLATE "C")) > 0, FALSE) ORDER BY CASE
+    WHEN "issues"."id" < 10 THEN 1
+    ELSE 2
+  END ASC NULLS LAST)
+FROM "issues";
+```
+
+### Windows without partitions, with sort flags and ordinals
+
+> An empty window, and windows with only ordering
+
+```qd
+#issues $id $%%()%count $%%(id\s)%row_number $%%(created_at\sdn)%percent_rank $%%(id\s1 status\s2)%cume_dist
+```
+
+```sql
+SELECT
+  "issues"."id",
+  count(*) OVER (),
+  row_number() OVER (ORDER BY "issues"."id" ASC NULLS LAST),
+  percent_rank() OVER (ORDER BY "issues"."created_at" DESC NULLS FIRST),
+  cume_dist() OVER (ORDER BY "issues"."id" ASC NULLS LAST, "issues"."status" ASC NULLS LAST)
+FROM "issues";
+```
+
+### Value window functions over the same window
+
+> The first, last, and second titles in each project
+
+```qd
+#issues $id $%%(project\p id\s)%first_value(title) $%%(project\p id\s)%last_value(title) $%%(project\p id\s)%nth_value(title 2)
+```
+
+```sql
+SELECT
+  "issues"."id",
+  first_value("issues"."title") OVER (PARTITION BY "issues"."project" ORDER BY "issues"."id" ASC NULLS LAST),
+  last_value("issues"."title") OVER (PARTITION BY "issues"."project" ORDER BY "issues"."id" ASC NULLS LAST),
+  nth_value("issues"."title", 2) OVER (PARTITION BY "issues"."project" ORDER BY "issues"."id" ASC NULLS LAST)
+FROM "issues";
+```
+
+### Arithmetic between window functions, and a function piped after one
+
+> Each project's share of all issues
+
+```qd
+#issues $id $%%(project\p)%count * 100 / %%()%count -> pct $%%(project\p created_at\s)%row_number|plus(1)
+```
+
+```sql
+SELECT
+  "issues"."id",
+  count(*) OVER (PARTITION BY "issues"."project") * 100 / count(*) OVER () AS "pct",
+  row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" ASC NULLS LAST) + 1
+FROM "issues";
+```
+
+### Window function compared within result columns, a case expression, and a negation
+
+> In a result column, a window comparison needs no subquery
+
+```qd
+#issues $id $ ? %%(project\p created_at\s)%row_number:1 ~ "first" ~~ "later" -> pos $!%%(project\p)%count:1 -> has_siblings
+```
+
+```sql
+SELECT
+  "issues"."id",
+  CASE
+    WHEN row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" ASC NULLS LAST) = 1 THEN 'first'
+    ELSE 'later'
+  END AS "pos",
+  (count(*) OVER (PARTITION BY "issues"."project") = 1) IS NOT TRUE AS "has_siblings"
+FROM "issues";
+```
+
+### Window functions within a format string
+
+> Each issue's position out of the total
+
+```qd
+#issues $id $^f"#{%%(id\s)%row_number} of {%%()%count}"
+```
+
+```sql
+SELECT
+  "issues"."id",
+  concat('#', row_number() OVER (ORDER BY "issues"."id" ASC NULLS LAST), ' of ', count(*) OVER ())
+FROM "issues";
+```
+
+### Window functions as a standalone sort and as a sorted, aliased column
+
+> Issues from the biggest projects first
+
+```qd
+#issues \\%%(project\p)%count \d $id $%%(author\p)%count -> n \sd
+```
+
+```sql
+SELECT
+  "issues"."id",
+  count(*) OVER (PARTITION BY "issues"."author") AS "n"
+FROM "issues"
+ORDER BY
+  count(*) OVER (PARTITION BY "issues"."project") DESC NULLS LAST,
+  "n" DESC NULLS LAST;
+```
+
+### Difference between a column and its lagged value
+
+> The time elapsed since the previous issue in the project
+
+```qd
+#issues $id $created_at - %%(project\p created_at\s)%lag(created_at) -> gap
+```
+
+```sql
+SELECT
+  "issues"."id",
+  "issues"."created_at" - lag("issues"."created_at") OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" ASC NULLS LAST) AS "gap"
+FROM "issues";
+```
+
+### Two window conditions
+
+> Both window functions are computed in the same subquery
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:<=3 %%(author\p)%count:>1 $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0",
+      count(*) OVER (PARTITION BY "issues"."author") AS "qdwin1"
+    FROM "issues"
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" <= 3 AND
+  "issues"."qdwin1" > 1;
+```
+
+### Window condition in an OR set with a has condition
+
+> The has condition's CTE follows the window subquery
+
+```qd
+#issues [%%(project\p created_at\sd)%row_number:1 ++#comments] $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  ),
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  ("issues"."qdwin0" = 1 OR "cte0"."pk" IS NOT NULL);
+```
+
+### Window condition after a has condition and a to-one condition, with related result columns
+
+> The ordinary conditions apply within the window subquery, and the result columns join onto it
+
+```qd
+#issues ++#comments author.username:alice %%(project\p created_at\sd)%row_number:1 $id $#comments $author.username
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+    WHERE
+      "cte0"."pk" IS NOT NULL AND
+      COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE)
+  ),
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  COALESCE("cte0"."v1", 0),
+  "users"."username"
+FROM "qdwin_src" AS "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Window condition ordered by a count of related records
+
+> The issue with the most comments in each project
+
+```qd
+#issues %%(project\p #comments\sd)%row_number:1 $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          count(*) AS "v1"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY COALESCE("cte0"."v1", 0) DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Window condition partitioned through a to-one path that the result columns also use
+
+> The newest issue per author's team, with the team's name
+
+```qd
+#issues %%(author.team\p created_at\sd)%row_number:1 $id $author.team.name
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "users"."team" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    LEFT JOIN "users" ON
+      "issues"."author" = "users"."id"
+  )
+SELECT
+  "issues"."id",
+  "teams"."name"
+FROM "qdwin_src" AS "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+LEFT JOIN "teams" ON
+  "users"."team" = "teams"."id"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Window condition with a standalone sort and a window result column
+
+> The result column's window is computed over the rows that pass the window condition
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 \\project.name $id $%%(status\p)%count
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "issues"."id",
+  count(*) OVER (PARTITION BY "issues"."status")
+FROM "qdwin_src" AS "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+WHERE
+  "issues"."qdwin0" = 1
+ORDER BY
+  "projects"."name" ASC NULLS LAST;
+```
+
+### Window condition with globs on the base table and a related table
+
+> The base table's glob reads from the window subquery
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 $*(title \s) $author.*
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "issues"."id",
+  "issues"."title",
+  "issues"."description",
+  "issues"."created_at",
+  "issues"."author",
+  "issues"."status",
+  "issues"."project",
+  "issues"."duplicate_of",
+  "issues"."due_date",
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen"
+FROM "qdwin_src" AS "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  "issues"."qdwin0" = 1
+ORDER BY
+  "issues"."title" ASC NULLS LAST;
+```
+
+### Window condition compared with a constant
+
+> The three newest issues in each project
+
+```qd
+@limit = 3
+#issues %%(project\p created_at\sd)%row_number:<=@limit $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" <= 3;
+```
+
+### Window condition before a search term
+
+> The search applies within the window subquery
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 foo $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    WHERE
+      (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE))
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Window condition with flagged regex conditions
+
+> The ordinary conditions apply within the window subquery
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 title:\cm~'^Fix' !description:\s~'a.b' $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    WHERE
+      "issues"."title" ~ '(?n)^Fix' AND
+      ("issues"."description" ~* 'a.b') IS NOT TRUE
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Window condition with a limit and offset
+
+```toml options
+limit = 3
+offset = 6
+```
+
+> The limit applies to the outer query
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 \\id $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" = 1
+ORDER BY
+  "issues"."id" ASC NULLS LAST
+LIMIT 3
+OFFSET 6;
+```
+
+### Computed column holding a window function, as a sort and a compared result column
+
+> A computed window column may be used anywhere but in a condition
+
+```qd
+#issues.rn = %%(project\p created_at\sd)%row_number
+#issues \\rn $id $rn:1 -> newest
+```
+
+```sql
+SELECT
+  "issues"."id",
+  row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) = 1 AS "newest"
+FROM "issues"
+ORDER BY
+  row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) ASC NULLS LAST;
+```
+
+### Computed column holding a window function, filtered in the next stage
+
+> The window value becomes a plain column of the next stage
+
+```qd
+#issues.rn = %%(project\p created_at\sd)%row_number
+#issues $id $rn ~~~ rn:1
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "rn"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."id",
+  "pipe0"."rn"
+FROM "pipe0"
+WHERE
+  "pipe0"."rn" = 1;
+```
+
+### User-defined function whose body compares a window function
+
+> Whether each issue is the newest in its project
+
+```qd
+@@nth = @n => %%(project\p created_at\sd)%row_number:@n
+#issues $id $@@nth(1)
+```
+
+```sql
+SELECT
+  "issues"."id",
+  row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) = 1
+FROM "issues";
+```
+
+## Combinations: dialects, schemas, and options
+
+These cases run combinations of features under the DuckDB dialect, against the library schema (whose identifiers need quoting), and with the `limit` and `offset` options.
+
+### Search terms, expansion, equality operators, and durations (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Text matching is accent-insensitive in DuckDB
+
+```qd
+#issues foo,!bar status:[open reopened] !title:=x description:==y created_at:<1w due_date:1d..1w $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (COALESCE(contains(lower(strip_accents("issues"."title")), lower(strip_accents('foo'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."description")), lower(strip_accents('foo'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."status")), lower(strip_accents('foo'))), FALSE) OR NOT (COALESCE(contains(lower(strip_accents("issues"."title")), lower(strip_accents('bar'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."description")), lower(strip_accents('bar'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."status")), lower(strip_accents('bar'))), FALSE))) AND
+  (COALESCE(contains(lower(strip_accents("issues"."status")), lower(strip_accents('open'))), FALSE) OR COALESCE(contains(lower(strip_accents("issues"."status")), lower(strip_accents('reopened'))), FALSE)) AND
+  (lower(strip_accents("issues"."title")) = lower(strip_accents('x'))) IS NOT TRUE AND
+  "issues"."description" = 'y' AND
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at")) < EXTRACT(epoch FROM to_weeks(1)) AND
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."due_date")) >= EXTRACT(epoch FROM to_days(1)) AND
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."due_date")) <= EXTRACT(epoch FROM to_weeks(1));
+```
+
+### Zoned, naive, and date columns compared with durations, dates, and now (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The zoned column is cast so that it can be compared with naive values
+
+```qd
+#users last_seen:<1h last_seen:>@2024-01-01 last_seen:<@now|minus(1d) birth_date:>18y $id $last_seen|age|days $birth_date|age|years|floor
+```
+
+```sql
+SELECT
+  "users"."id",
+  EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - CAST("users"."last_seen" AS TIMESTAMP)) / 86400,
+  FLOOR(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "users"."birth_date") / 31557600)
+FROM "users"
+WHERE
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - CAST("users"."last_seen" AS TIMESTAMP))) < EXTRACT(epoch FROM to_hours(1)) AND
+  CAST("users"."last_seen" AS TIMESTAMP) > DATE '2024-01-01' AND
+  CAST("users"."last_seen" AS TIMESTAMP) < CAST(NOW() AS TIMESTAMP) - to_days(1) AND
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "users"."birth_date")) > EXTRACT(epoch FROM to_years(18));
+```
+
+### Aggregate of related records compared with a zoned column (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Users whose latest comment precedes their last visit
+
+```qd
+#users #comments.created_at%max:<`last_seen` $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."user" AS "pk",
+      max("comments"."created_at") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."user"
+  )
+SELECT
+  "users"."id"
+FROM "users"
+LEFT JOIN "cte0" ON
+  "users"."id" = "cte0"."pk"
+WHERE
+  "cte0"."v1" < CAST("users"."last_seen" AS TIMESTAMP);
+```
+
+### Format string with date functions, and hashes (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Several date functions interpolated into one string
+
+```qd
+#users $^f"{username} seen {last_seen|age|days|floor} days ago; born {birth_date|year}-{birth_date|month}-{birth_date|day}" $email|md5 $email|unit_hash
+```
+
+```sql
+SELECT
+  concat("users"."username", ' seen ', FLOOR(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - CAST("users"."last_seen" AS TIMESTAMP)) / 86400), ' days ago; born ', CAST(EXTRACT(year FROM "users"."birth_date") AS INTEGER), '-', CAST(EXTRACT(month FROM "users"."birth_date") AS INTEGER), '-', CAST(EXTRACT(day FROM "users"."birth_date") AS INTEGER)),
+  md5("users"."email"),
+  CAST(hash("users"."email") AS DOUBLE) / 18446744073709551615.0
+FROM "users";
+```
+
+### Sorted list, top, and list-all aggregates (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each aggregate has its own kind of sorting
+
+```qd
+#issues $id $#labels.name%list(\sd) $#comments.user.username%top(\\%count \d) $#comments.body%list_all(\\created_at)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" DESC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  ),
+  "cte1" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          "users"."username" AS "value",
+          rank() OVER (PARTITION BY "comments"."issue" ORDER BY count(*) DESC NULLS LAST) AS "rank"
+        FROM "comments"
+        JOIN "users" ON
+          "comments"."user" = "users"."id"
+        GROUP BY "comments"."issue", "users"."username"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."value" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    WHERE
+      "distinct_values"."rank" = 1
+    GROUP BY "distinct_values"."pk"
+  ),
+  "cte2" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg("comments"."body" ORDER BY "comments"."created_at" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1",
+  "cte1"."v1",
+  "cte2"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "issues"."id" = "cte2"."pk";
+```
+
+### Window condition with flagged regex conditions (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Regex flags are rendered as RE2 options
+
+```qd
+#issues %%(project\p created_at\sd)%row_number:1 title:\cm~'^Fix' !description:\s~'a.b' $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    WHERE
+      regexp_matches("issues"."title", '(?m)^Fix') AND
+      regexp_matches("issues"."description", '(?s)a.b', 'i') IS NOT TRUE
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Grouping by a date function with list aggregates (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The grouping expression is repeated in the `GROUP BY`
+
+```qd
+#issues $status \g $created_at|year_month \g $%count $id%list(\sd) $id%list_all(\\created_at \d)
+```
+
+```sql
+SELECT
+  "issues"."status",
+  strftime("issues"."created_at", '%Y-%m'),
+  count(*),
+  array_agg(DISTINCT "issues"."id" ORDER BY "issues"."id" DESC NULLS LAST),
+  array_agg("issues"."id" ORDER BY "issues"."created_at" DESC NULLS LAST)
+FROM "issues"
+GROUP BY "issues"."status", strftime("issues"."created_at", '%Y-%m');
+```
+
+### Union with a filtered has condition, sorted in a pipeline stage (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The later member's CTE is scoped to it with parentheses
+
+```qd
+#issues $id +++ #projects ++#issues{created_at:<1w} $id ~~~ \\id \d
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."id" AS "id"
+    FROM "issues"
+    UNION ALL
+    (
+      WITH
+        "cte0" AS (
+          SELECT
+            "issues"."project" AS "pk"
+          FROM "issues"
+          WHERE
+            ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at")) < EXTRACT(epoch FROM to_weeks(1))
+          GROUP BY "issues"."project"
+        )
+      SELECT
+        "projects"."id"
+      FROM "projects"
+      LEFT JOIN "cte0" ON
+        "projects"."id" = "cte0"."pk"
+      WHERE
+        "cte0"."pk" IS NOT NULL
+    )
+  )
+SELECT
+  "pipe0"."id"
+FROM "pipe0"
+ORDER BY
+  "pipe0"."id" DESC NULLS LAST;
+```
+
+### Computed columns with a duration comparison and a format string (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The computed duration comparison is used as a condition and as a case test
+
+```qd
+#issues.stale = created_at:>6m
+#users.display = ^f"{username} <{email}>"
+#issues `stale` $author.display $ ? `stale` ~ "stale" ~~ "fresh"
+```
+
+```sql
+SELECT
+  concat("users"."username", ' <', "users"."email", '>'),
+  CASE
+    WHEN ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at")) > EXTRACT(epoch FROM to_months(6)) THEN 'stale'
+    ELSE 'fresh'
+  END
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  ABS(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at")) > EXTRACT(epoch FROM to_months(6));
+```
+
+### Flagged strings in comparisons (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Escapes and interpolation within text comparisons
+
+```qd
+#issues title:=^e'it\'s\n' description:^f"{title}{{}}" $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  lower(strip_accents("issues"."title")) = lower(strip_accents('it''s
+')) AND
+  COALESCE(contains(lower(strip_accents("issues"."description")), lower(strip_accents(concat("issues"."title", '{}')))), FALSE);
+```
+
+### Boolean expansion, negation, `xor`, and numeric aggregates (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Boolean logic mixed with aggregates of related records
+
+```qd
+#projects {is_pro_bono is_active}:@false !`is_active` is_active|xor(#issues:0) $name $#issues.id%product $#issues.id%avg
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "cte1" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      product("issues"."id") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  ),
+  "cte2" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      avg("issues"."id") AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte1"."v1",
+  "cte2"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "projects"."id" = "cte1"."pk"
+LEFT JOIN "cte2" ON
+  "projects"."id" = "cte2"."pk"
+WHERE
+  "projects"."is_pro_bono" = FALSE AND
+  "projects"."is_active" = FALSE AND
+  "projects"."is_active" IS NOT TRUE AND
+  "projects"."is_active" <> ("cte0"."pk" IS NULL);
+```
+
+### Date functions in ranges and comparisons (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> A year range, a month range with an exclusive end, and a day
+
+```qd
+#issues created_at|year:2010..2019 created_at|month:1..<4 created_at|day:15 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) >= 2010 AND
+  CAST(EXTRACT(year FROM "issues"."created_at") AS INTEGER) <= 2019 AND
+  CAST(EXTRACT(month FROM "issues"."created_at") AS INTEGER) >= 1 AND
+  CAST(EXTRACT(month FROM "issues"."created_at") AS INTEGER) < 4 AND
+  CAST(EXTRACT(day FROM "issues"."created_at") AS INTEGER) = 15;
+```
+
+### Durations in each unit of measure (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The time until the due date and since creation
+
+```qd
+#issues $due_date|countdown|hours|ceil $created_at|age|minutes $created_at|age|seconds $due_date|countdown|years
+```
+
+```sql
+SELECT
+  CEIL(EXTRACT(epoch FROM "issues"."due_date" - CAST(NOW() AS TIMESTAMP)) / 3600),
+  EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at") / 60,
+  EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at"),
+  EXTRACT(epoch FROM "issues"."due_date" - CAST(NOW() AS TIMESTAMP)) / 31557600
+FROM "issues";
+```
+
+### Window functions with a lagged difference (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The time elapsed since the previous issue in the project
+
+```qd
+#issues $%%(project\p created_at\s)%lag(created_at) $created_at - %%(project\p created_at\s)%lag(created_at) -> gap
+```
+
+```sql
+SELECT
+  lag("issues"."created_at") OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" ASC NULLS LAST),
+  "issues"."created_at" - lag("issues"."created_at") OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" ASC NULLS LAST) AS "gap"
+FROM "issues";
+```
+
+### Quoted identifiers in a condition, a sorted alias, and a count (library)
+
+```toml options
+schema = "library"
+```
+
+> Backtick-quoted names with spaces
+
+```qd
+#Patrons `First Name`:foo $`Last Name` -> surname \s $#Checkouts
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "Checkouts"."Patron" AS "pk",
+      count(*) AS "v1"
+    FROM "Checkouts"
+    GROUP BY "Checkouts"."Patron"
+  )
+SELECT
+  "Patrons"."Last Name" AS "surname",
+  COALESCE("cte0"."v1", 0)
+FROM "Patrons"
+LEFT JOIN "cte0" ON
+  "Patrons"."id" = "cte0"."pk"
+WHERE
+  COALESCE(strpos(lower("Patrons"."First Name" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+ORDER BY
+  "surname" ASC NULLS LAST;
+```
+
+### Flexible identifiers with an expansion, a negation, and a function pipeline (library)
+
+```toml options
+schema = "library"
+```
+
+> Snake-case names resolve to the names with spaces
+
+```qd
+#patrons first_name:[foo bar] !last_name:=baz $first_name|concat(" ")|concat(last_name) -> full_name \s
+```
+
+```sql
+SELECT
+  concat(concat("Patrons"."First Name", ' '), "Patrons"."Last Name") AS "full_name"
+FROM "Patrons"
+WHERE
+  (COALESCE(strpos(lower("Patrons"."First Name" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("Patrons"."First Name" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)) AND
+  (lower("Patrons"."Last Name" COLLATE "C") = lower('baz' COLLATE "C")) IS NOT TRUE
+ORDER BY
+  "full_name" ASC NULLS LAST;
+```
+
+### Flexible and quoted identifiers within a format string, and a filtered list through two to-one hops (library)
+
+```toml options
+schema = "library"
+```
+
+> The titles of the books each patron has checked out and not returned
+
+```qd
+#patrons $^f"{first_name} {`Last Name`}" -> name $#checkouts{check_in_time:@null}.item.book.title%list(\s)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "Checkouts"."Patron" AS "pk",
+      array_agg(DISTINCT "Books"."Title" ORDER BY "Books"."Title" ASC NULLS LAST) AS "v1"
+    FROM "Checkouts"
+    JOIN "Items" ON
+      "Checkouts"."Item" = "Items"."id"
+    JOIN "Books" ON
+      "Items"."Book" = "Books"."id"
+    WHERE
+      "Checkouts"."Check In Time" IS NULL
+    GROUP BY "Checkouts"."Patron"
+  )
+SELECT
+  concat("Patrons"."First Name", ' ', "Patrons"."Last Name") AS "name",
+  "cte0"."v1"
+FROM "Patrons"
+LEFT JOIN "cte0" ON
+  "Patrons"."id" = "cte0"."pk";
+```
+
+### Scoped comparisons with flexible identifiers (library)
+
+```toml options
+schema = "library"
+```
+
+> A scope nested within a scope
+
+```qd
+#checkouts item{barcode:foo book{page_count:>200 title:bar}} $id
+```
+
+```sql
+SELECT
+  "Checkouts"."id"
+FROM "Checkouts"
+LEFT JOIN "Items" ON
+  "Checkouts"."Item" = "Items"."id"
+LEFT JOIN "Books" ON
+  "Items"."Book" = "Books"."id"
+WHERE
+  COALESCE(strpos(lower("Items"."Barcode" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) AND
+  "Books"."Page Count" > 200 AND
+  COALESCE(strpos(lower("Books"."Title" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE);
+```
+
+### Date column compared with a duration, grouped by a to-one column (library)
+
+```toml options
+schema = "library"
+```
+
+> A `date` column on the left of a duration comparison
+
+```qd
+#checkouts due_date:<1w `Checkout Time`:>@now|minus(1m) $patron.email \g $%count \sd
+```
+
+```sql
+SELECT
+  "Patrons"."Email",
+  count(*)
+FROM "Checkouts"
+LEFT JOIN "Patrons" ON
+  "Checkouts"."Patron" = "Patrons"."id"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "Checkouts"."Due Date")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  "Checkouts"."Checkout Time" > NOW() - make_interval(months => 1)
+GROUP BY "Patrons"."Email"
+ORDER BY
+  count(*) DESC NULLS LAST;
+```
+
+### Computed column and configured default text search through a scope (library)
+
+```toml options
+schema = "library"
+```
+
+> Searching a checkout's patron searches the patron's full name and email
+
+```qd
+#patrons.full_name = ^f"{first_name} {last_name}"
+#patrons.__querydown_default_text_search:@x = [full_name:@x email:@x]
+#checkouts patron{smith} $patron.full_name
+```
+
+```sql
+SELECT
+  concat("Patrons"."First Name", ' ', "Patrons"."Last Name")
+FROM "Checkouts"
+LEFT JOIN "Patrons" ON
+  "Checkouts"."Patron" = "Patrons"."id"
+WHERE
+  (COALESCE(strpos(lower(concat("Patrons"."First Name", ' ', "Patrons"."Last Name") COLLATE "C"), lower('smith' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("Patrons"."Email" COLLATE "C"), lower('smith' COLLATE "C")) > 0, FALSE));
+```
+
+### Standalone sorts with a hidden glob column and a related glob (library)
+
+```toml options
+schema = "library"
+```
+
+> Every quoted column of the related table is listed
+
+```qd
+#items \\book.title \\#checkouts \d $*(book \h) $book.*
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "Checkouts"."Item" AS "pk",
+      count(*) AS "v1"
+    FROM "Checkouts"
+    GROUP BY "Checkouts"."Item"
+  )
+SELECT
+  "Items"."id",
+  "Items"."Barcode",
+  "Items"."Acquisition Date",
+  "Items"."Acquisition Price",
+  "Books"."id",
+  "Books"."Title",
+  "Books"."Publication Year",
+  "Books"."Media",
+  "Books"."Page Count",
+  "Books"."LC Classification",
+  "Books"."ISBN",
+  "Books"."Dewey Decimal",
+  "Books"."Dewey Wording",
+  "Books"."Author",
+  "Books"."Publisher"
+FROM "Items"
+LEFT JOIN "cte0" ON
+  "Items"."id" = "cte0"."pk"
+LEFT JOIN "Books" ON
+  "Items"."Book" = "Books"."id"
+ORDER BY
+  "Books"."Title" ASC NULLS LAST,
+  COALESCE("cte0"."v1", 0) DESC NULLS LAST;
+```
+
+### Aliases with spaces flowing through a pipeline (library)
+
+```toml options
+schema = "library"
+```
+
+> The next stage refers to the aliases flexibly
+
+```qd
+#books title:foo $title -> `Book Title` $page_count -> `Page Count` ~~~ page_count:>100 $book_title
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "Books"."Title" AS "Book Title",
+      "Books"."Page Count" AS "Page Count"
+    FROM "Books"
+    WHERE
+      COALESCE(strpos(lower("Books"."Title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+  )
+SELECT
+  "pipe0"."Book Title"
+FROM "pipe0"
+WHERE
+  "pipe0"."Page Count" > 100;
+```
+
+### Window condition with a null check and a to-one result column (library)
+
+```toml options
+schema = "library"
+```
+
+> The latest unreturned checkout of each item
+
+```qd
+#checkouts %%(item\p checkout_time\sd)%row_number:1 check_in_time:@null $item.book.title
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "Checkouts"."id",
+      "Checkouts"."Item",
+      "Checkouts"."Patron",
+      "Checkouts"."Checkout Time",
+      "Checkouts"."Due Date",
+      "Checkouts"."Check In Time",
+      row_number() OVER (PARTITION BY "Checkouts"."Item" ORDER BY "Checkouts"."Checkout Time" DESC NULLS LAST) AS "qdwin0"
+    FROM "Checkouts"
+    WHERE
+      "Checkouts"."Check In Time" IS NULL
+  )
+SELECT
+  "Books"."Title"
+FROM "qdwin_src" AS "Checkouts"
+LEFT JOIN "Items" ON
+  "Checkouts"."Item" = "Items"."id"
+LEFT JOIN "Books" ON
+  "Items"."Book" = "Books"."id"
+WHERE
+  "Checkouts"."qdwin0" = 1;
+```
+
+### Limit with a sorted, annotated column and a query annotation
+
+```toml options
+limit = 3
+```
+
+> Annotations are unaffected by the limit
+
+```qd
+#issues $id \s @{a:1} \\\{page:1}
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+ORDER BY
+  "issues"."id" ASC NULLS LAST
+LIMIT 3;
+```
+
+```json
+{
+  "columnAnnotations": [
+    {
+      "a": 1
+    }
+  ],
+  "queryAnnotation": {
+    "page": 1
+  }
+}
+```
+
+### Limit on the last stage of a grouped pipeline
+
+```toml options
+limit = 3
+```
+
+> The grouped stage isn't limited
+
+```qd
+#issues $status \g $%count ~~~ \\status
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."status" AS "status",
+      count(*) AS "column_2"
+    FROM "issues"
+    GROUP BY "issues"."status"
+  )
+SELECT
+  "pipe0"."status",
+  "pipe0"."column_2"
+FROM "pipe0"
+ORDER BY
+  "pipe0"."status" ASC NULLS LAST
+LIMIT 3;
+```
+
+### Limit with list aggregates of related records
+
+```toml options
+limit = 3
+```
+
+> The limit counts issues, not the related records within the CTEs
+
+```qd
+#issues $id $#comments.body%list_all(\\created_at) $#labels.name%top(\\%count \d)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg("comments"."body" ORDER BY "comments"."created_at" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  ),
+  "cte1" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "issue_labels"."issue" AS "pk",
+          "labels"."name" AS "value",
+          rank() OVER (PARTITION BY "issue_labels"."issue" ORDER BY count(*) DESC NULLS LAST) AS "rank"
+        FROM "issue_labels"
+        JOIN "labels" ON
+          "issue_labels"."label" = "labels"."id"
+        GROUP BY "issue_labels"."issue", "labels"."name"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."value" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    WHERE
+      "distinct_values"."rank" = 1
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1",
+  "cte1"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "cte1" ON
+  "issues"."id" = "cte1"."pk"
+LIMIT 3;
+```
+
+### Offset on a union without a pipeline
+
+```toml options
+offset = 5
+```
+
+> The offset follows the last member and applies to the whole union
+
+```qd
+#issues $id +++ #projects $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+UNION ALL
+SELECT
+  "projects"."id"
+FROM "projects"
+OFFSET 5;
+```
+
+## Known failures
+
+Each case in this section **fails**, because it demonstrates a bug. The SQL given is what the compiler ought to produce (as far as that can be known before the bug is fixed — a fix may reasonably differ in details like redundant parentheses). When a bug is fixed, move its cases to the section they belong in.
+
+The cases are grouped by root cause, which the first case of each group describes.
+
+### Subtraction and division with a parenthesized right operand
+
+> **Bug (lost parentheses):** the SQL renderer parenthesizes an operand only when its precedence is _lower_ than the operator's, so a right operand of _equal_ precedence loses its parentheses and the result is silently wrong: `id - (id + 1)` compiles to `id - id + 1`.
+
+```qd
+#issues $id - (id + 1) $id / (id * 2) $id - (id - 1) $id / (id / 2)
+```
+
+```sql
+SELECT
+  "issues"."id" - ("issues"."id" + 1),
+  "issues"."id" / ("issues"."id" * 2),
+  "issues"."id" - ("issues"."id" - 1),
+  "issues"."id" / ("issues"."id" / 2)
+FROM "issues";
+```
+
+### Subtraction, division, and modulo functions with a computed argument
+
+> Lost parentheses: the same bug, reached through the `minus`, `divide`, and `mod` functions.
+
+```qd
+#issues $id|minus(id - 1) $id|divide(id|times(2)) $id|mod(id|times(2))
+```
+
+```sql
+SELECT
+  "issues"."id" - ("issues"."id" - 1),
+  "issues"."id" / ("issues"."id" * 2),
+  "issues"."id" % ("issues"."id" * 2)
+FROM "issues";
+```
+
+### Constant and computed column holding arithmetic, as a right operand
+
+> Lost parentheses: the same bug, reached by inlining a constant and a computed column.
+
+```qd
+@a = 1 + 2
+#issues.next = id + 1
+#issues $id - @a $id - next
+```
+
+```sql
+SELECT
+  "issues"."id" - (1 + 2),
+  "issues"."id" - ("issues"."id" + 1)
+FROM "issues";
+```
+
+### Function bodies holding arithmetic, as a right operand
+
+> Lost parentheses: the same bug, reached by inlining a user-defined function and an anonymous function.
+
+```qd
+@@inc = @x => @x + 1
+#issues $1 - @@inc(id) $10 - id|(@x => @x - 1)
+```
+
+```sql
+SELECT
+  1 - ("issues"."id" + 1),
+  10 - ("issues"."id" - 1)
+FROM "issues";
+```
+
+### Date arithmetic compared with a duration
+
+> Lost parentheses: the same bug, in the subtraction that the date/duration comparison generates. Here it measures the distance from now to one week _before_ the creation date, rather than one week after it.
+
+```qd
+#issues created_at|plus(1w):<1d $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - ("issues"."created_at" + make_interval(weeks => 1)))) < EXTRACT(epoch FROM make_interval(days => 1));
+```
+
+### Comparisons as the operands of a comparison
+
+> Lost parentheses: the same bug, between comparison operators, which SQL doesn't let you chain. Postgres rejects `a = TRUE = b = TRUE` as a syntax error.
+
+```qd
+#projects (is_active:@true):(is_pro_bono:@true) $id
+```
+
+```sql
+SELECT
+  "projects"."id"
+FROM "projects"
+WHERE
+  ("projects"."is_active" = TRUE) = ("projects"."is_pro_bono" = TRUE);
+```
+
+### Duration constant compared with a date
+
+> **Bug (special literals behind variables):** comparisons treat a few literals specially — a duration, `@null`, and an empty string — but recognize them only when written directly in the comparison, not when they arrive through a constant or a parameter. Here the date/duration comparison compiles to `created_at < make_interval(…)`, which no database accepts.
+
+```qd
+@recent = 1w
+#issues created_at:<@recent $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) < EXTRACT(epoch FROM make_interval(weeks => 1));
+```
+
+### Duration passed to a user-defined function and to a custom comparison
+
+> Special literals behind variables: a duration bound to a function parameter and to a custom comparison's parameter.
+
+```qd
+@@within = @d @span => @d:<@span
+#issues.older_than:@x = created_at:>@x
+#issues due_date|within(1w) older_than:6m $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."due_date")) < EXTRACT(epoch FROM make_interval(weeks => 1)) AND
+  ABS(EXTRACT(epoch FROM NOW() - "issues"."created_at")) > EXTRACT(epoch FROM make_interval(months => 6));
+```
+
+### Null constant in a match comparison
+
+> Special literals behind variables: `title:@none` compiles to a text search for NULL, which never matches, rather than to `IS NULL`.
+
+```qd
+@none = @null
+#issues title:@none !status:@none $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" IS NULL AND
+  NOT "issues"."status" IS NULL;
+```
+
+### Null passed to a linked record comparison and to a custom comparison
+
+> Special literals behind variables: with a linked record comparison defined, `author:@null` no longer finds the issues without an author; it searches the username for NULL, which never matches.
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues.comment:@x = ++#comments{body:@x}
+#issues author:@null comment:@null $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      "comments"."body" IS NULL
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  "users"."username" IS NULL AND
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Empty string constant in a match comparison
+
+> Special literals behind variables: matching against an empty string should be strict equality, but through a constant it's a "contains" search, which matches every non-null description.
+
+```qd
+@empty = ""
+#issues description:@empty $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."description" = '';
+```
+
+### Difference of two dates compared with a duration
+
+> **Bug (type of a date difference):** type inference gives `date - date` the type of its left operand (a date) rather than a duration, so the date/duration comparison wrongly applies and produces `NOW() - due_date - created_at`, which no database accepts.
+
+```qd
+#issues due_date - created_at:>1w $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."due_date" - "issues"."created_at" > make_interval(weeks => 1);
+```
+
+### Left expansion over a custom comparison
+
+> **Bug (left expansion skips custom comparisons):** an entry of a left-hand expansion is only ever resolved as a column, so naming a custom comparison there fails with "Column `comment` not found".
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues [comment title]:foo $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  ("cte0"."pk" IS NOT NULL OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE));
+```
+
+### Left expansion over linked records
+
+> Left expansion skips custom comparisons: the linked record comparison isn't applied either, so the link's foreign key is compared with the text directly.
+
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+#issues [author title]:alice $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "users" ON
+  "issues"."author" = "users"."id"
+WHERE
+  (COALESCE(strpos(lower("users"."username" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('alice' COLLATE "C")) > 0, FALSE));
+```
+
+### User-defined function applied to its own result
+
+> **Bug (false recursion error):** applying a user-defined function to a value that itself contains a call to the same function fails with "The function `inc` calls itself", although nothing is recursive.
+
+```qd
+@@inc = @x => @x + 1
+#issues $id|inc|inc $@@inc(@@inc(id))
+```
+
+```sql
+SELECT
+  "issues"."id" + 1 + 1,
+  "issues"."id" + 1 + 1
+FROM "issues";
+```
+
+### Constant used by another constant, shadowed by a function parameter
+
+> **Bug (arguments and constants are resolved where they're inlined):** a variable's definition is compiled in the scope of each place it's used, rather than the scope it was written in. Here `@b` is defined as `@a * 2` with `@a = 1`, but within the function it picks up the parameter `@a` instead, giving `id + id * 2`.
+
+```qd
+@a = 1
+@b = @a * 2
+#issues $id|(@a => @a + @b)
+```
+
+```sql
+SELECT
+  "issues"."id" + 1 * 2
+FROM "issues";
+```
+
+### Function argument that references a column, used within a filter of related records
+
+> Resolved where inlined: the argument `author` is a column of `issues`, but it's resolved within the `#comments{ }` filter, where it fails with "Column `author` not found within table `comments`". (Were `comments` to have a column of that name, it would silently be used instead.)
+
+```qd
+@@has_comment_by = @u => ++#comments{user:@u}
+#issues author|has_comment_by $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      "comments"."user" = "issues"."author"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Custom comparison argument that references a column
+
+> Resolved where inlined: the same, with a custom comparison. Issues having a comment that mentions the issue's own title.
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+#issues comment:`title` $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk"
+    FROM "comments"
+    LEFT JOIN "issues" ON
+      "comments"."issue" = "issues"."id"
+    WHERE
+      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower("issues"."title" COLLATE "C")) > 0, FALSE)
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Search term before a window condition
+
+> **Bug (search term swallowed by a following `%`):** a bare search term followed by a condition that begins with `%%` isn't parsed as a search term, and fails with "Column `foo` not found". Written in the other order, it works.
+
+```qd
+#issues foo %%(project\p created_at\sd)%row_number:1 $id
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "issues"."id",
+      "issues"."title",
+      "issues"."description",
+      "issues"."created_at",
+      "issues"."author",
+      "issues"."status",
+      "issues"."project",
+      "issues"."duplicate_of",
+      "issues"."due_date",
+      row_number() OVER (PARTITION BY "issues"."project" ORDER BY "issues"."created_at" DESC NULLS LAST) AS "qdwin0"
+    FROM "issues"
+    WHERE
+      (COALESCE(strpos(lower("issues"."title" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."description" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE) OR COALESCE(strpos(lower("issues"."status" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE))
+  )
+SELECT
+  "issues"."id"
+FROM "qdwin_src" AS "issues"
+WHERE
+  "issues"."qdwin0" = 1;
+```
+
+### Bare words as the bounds of a range
+
+> **Bug (bare words in a range):** the documentation says that a bare word anywhere on the right-hand side is a string literal, ranges included, but the bounds of a range are parsed as column references and fail with "Column `a` not found".
+
+```qd
+#issues title:a..m $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."title" >= 'a' AND
+  "issues"."title" <= 'm';
+```
+
+### Aggregate of a foreign key column in a grouped query
+
+> **Bug (foreign key columns can't be aggregated):** a path ending in a foreign key column is taken to be a path to the linked table with no column, and fails with "A column must be specified when using an aggregate function".
+
+```qd
+#issues $status \g $author%distinct
+```
+
+```sql
+SELECT
+  "issues"."status",
+  count(DISTINCT "issues"."author")
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Aggregate of a foreign key column of related records
+
+> Foreign key columns can't be aggregated: the same, at the end of a to-many path. This is the example given for `distinct` in `docs/functions.md`.
+
+```qd
+#issues $id $#comments.user%distinct
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(DISTINCT "comments"."user") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
