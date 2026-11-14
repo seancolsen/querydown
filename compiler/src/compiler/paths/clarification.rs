@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use querydown_parser::ast::{ConditionSet, PathPart, PathPartKind, TableWithMany};
 
@@ -220,8 +220,18 @@ fn build_linked_path(
             }
             PathPartKind::TableWithMany(mut table_with_many) => {
                 let condition_set = std::mem::take(&mut table_with_many.condition_set);
+                // `#table` means the *many* related records of a table. So unless the path already
+                // leads to many records, the route to the table has to.
+                let already_many = chain_opt
+                    .as_ref()
+                    .is_some_and(|chain| chain.get_links().iter().any(|l| is_to_many(&l.link)));
+                let reach = if already_many {
+                    Reach::Any
+                } else {
+                    Reach::Many
+                };
                 let mut new_chain =
-                    get_chain_to_table_with_many(current_table, &table_with_many, scope)
+                    get_chain_to_table_with_many(current_table, &table_with_many, reach, scope)
                         .map_err(|err| err.at(loc))?;
                 new_chain.set_final_condition_set(condition_set);
                 new_chain.allow_intersecting();
@@ -247,9 +257,23 @@ fn build_linked_path(
     })
 }
 
+/// What the route of a `#table` path part has to lead to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// Many records of the table. The route needs at least one to-many link.
+    Many,
+    /// Any records of the table. This is for a path that already leads to many records before the
+    /// `#table` part, as `#assignments` does in `#assignments.#users`.
+    Any,
+}
+
+fn is_to_many(link: &MultiLink) -> bool {
+    matches!(link, MultiLink::ReverseLinkToMany(_))
+}
+
 /// Finds the route that a `#table` path part takes from `start`: the shortest series of links that
-/// ends at the named table. When the path part names a linking column (as in `#blocks(blocker)`),
-/// the route's final link must follow that foreign key column.
+/// ends at the named table and satisfies `reach`. When the path part names a linking column (as in
+/// `#blocks(blocker)`), the route's final link must follow that foreign key column.
 ///
 /// A route never visits a table twice, with one exception: its final link may be a self-referencing
 /// link from the named table back to itself (e.g. `issues.duplicate_of`). That is how a path part
@@ -259,6 +283,7 @@ fn build_linked_path(
 fn get_chain_to_table_with_many(
     start: &Table,
     target: &TableWithMany,
+    reach: Reach,
     scope: &Scope,
 ) -> Result<Chain<FilteredLink>, Error> {
     let schema = scope.schema;
@@ -292,16 +317,24 @@ fn get_chain_to_table_with_many(
         }
     };
 
+    /// A route under construction (empty at first), the table it ends at, and whether it has a
+    /// to-many link yet.
+    type Prefix = (Option<Chain<MultiLink>>, TableId, bool);
+
     // Search outward from `start` one link at a time, so that the first routes found are the
-    // shortest. Each prefix is a route (empty at first) along with the table it ends at.
-    let mut prefixes: Vec<(Option<Chain<MultiLink>>, TableId)> = vec![(None, start.id)];
-    // Tables reached at an earlier step. A route that reaches one of these later can't be shortest.
-    let mut visited = HashSet::from([start.id]);
+    // shortest.
+    let mut prefixes: Vec<Prefix> = vec![(None, start.id, false)];
+    // The tables reached at an earlier step, and whether one of the routes reaching them had a
+    // to-many link. A route that reaches such a table later can't be shortest, unless it's the
+    // first to get there with the to-many link that `reach` asks for.
+    let mut visited = HashMap::from([(start.id, true)]);
+    // The shortest route to the target without a to-many link, if `reach` ruled one out. It's only
+    // used to explain the failure when no other route is found.
+    let mut route_to_one: Option<Chain<MultiLink>> = None;
     while !prefixes.is_empty() {
         let mut routes: Vec<Chain<MultiLink>> = vec![];
-        let mut next_prefixes = vec![];
-        let mut reached = HashSet::new();
-        for (prefix, end_table_id) in &prefixes {
+        let mut next_prefixes: Vec<Prefix> = vec![];
+        for (prefix, end_table_id, prefix_is_to_many) in &prefixes {
             let table = schema.tables.get(end_table_id).unwrap();
             for link in table.get_links() {
                 let link_end_table_id = link.get_end().table_id;
@@ -309,26 +342,35 @@ fn get_chain_to_table_with_many(
                     // A self-referencing link can only end a route, and only when followed from the
                     // referenced record to the many records that reference it.
                     let is_route = link_end_table_id == target_table.id
-                        && matches!(link, MultiLink::ReverseLinkToMany(_))
+                        && is_to_many(&link)
                         && uses_linking_column(&link);
                     if is_route {
                         routes.extend(extend(prefix, link, ChainIntersecting::Allowed));
                     }
                     continue;
                 }
-                if visited.contains(&link_end_table_id) {
+                let is_to_many = *prefix_is_to_many || is_to_many(&link);
+                let is_superseded = match visited.get(&link_end_table_id) {
+                    None => false,
+                    Some(true) => true,
+                    Some(false) => reach == Reach::Any || !is_to_many,
+                };
+                if is_superseded {
                     continue;
                 }
                 let Some(chain) = extend(prefix, link, ChainIntersecting::Disallowed) else {
                     continue;
                 };
                 if link_end_table_id == target_table.id && uses_linking_column(&link) {
-                    routes.push(chain.clone());
+                    if is_to_many || reach == Reach::Any {
+                        routes.push(chain.clone());
+                    } else if route_to_one.is_none() {
+                        route_to_one = Some(chain.clone());
+                    }
                 }
                 // A route that reached the target via some other column may still continue along a
                 // self-referencing link that uses the right one.
-                reached.insert(link_end_table_id);
-                next_prefixes.push((Some(chain), link_end_table_id));
+                next_prefixes.push((Some(chain), link_end_table_id, is_to_many));
             }
         }
         match routes.len() {
@@ -336,13 +378,39 @@ fn get_chain_to_table_with_many(
             1 => return Ok(Chain::from(routes.pop().unwrap())),
             _ => return Err(ambiguous_route_error(&routes, start, target, scope)),
         }
-        visited.extend(reached);
+        for (_, table_id, is_to_many) in &next_prefixes {
+            *visited.entry(*table_id).or_insert(false) |= *is_to_many;
+        }
         prefixes = next_prefixes;
     }
-    Err(match &target.linking_column {
-        Some(column) => msg::no_path_to_table_via_column(&start.name, &target_table.name, column),
-        None if start.id == target_table.id => msg::no_path_from_table_to_itself(&start.name),
-        None => msg::no_path_to_table(&start.name, &target.table),
+    Err(match (&target.linking_column, route_to_one) {
+        (_, Some(route)) => {
+            // When the route follows foreign key columns only, the same record can be reached by
+            // naming those columns, which is worth suggesting.
+            let columns: Option<Vec<String>> = route
+                .get_links()
+                .iter()
+                .map(|link| match link {
+                    MultiLink::ForwardLinkToOne(link) => {
+                        Some(schema.get_referenced_column_name(&link.base))
+                    }
+                    _ => None,
+                })
+                .collect();
+            msg::path_to_table_reaches_one_record(
+                &start.name,
+                &target_table.name,
+                target.linking_column.as_deref(),
+                columns.as_deref(),
+            )
+        }
+        (Some(column), None) => {
+            msg::no_path_to_table_via_column(&start.name, &target_table.name, column)
+        }
+        (None, None) if start.id == target_table.id => {
+            msg::no_path_from_table_to_itself(&start.name)
+        }
+        (None, None) => msg::no_path_to_table(&start.name, &target.table),
     })
 }
 

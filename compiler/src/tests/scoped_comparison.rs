@@ -194,8 +194,12 @@ fn existence_check_is_scoped_through_multiple_hops() {
     );
     // Here the shortest path from the base happens to pass through the scope anyway.
     assert_equivalent(
-        "#comments issue.project{++#products{id:7}} $id",
-        "#comments ++issue.project.#products{id:7} $id",
+        "#comments issue{++#labels{id:7}} $id",
+        "#comments ++issue.#labels{id:7} $id",
+    );
+    assert_equivalent(
+        "#comments issue{++#labels{id:7}} $id",
+        "#comments ++#labels{id:7} $id",
     );
 }
 

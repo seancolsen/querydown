@@ -285,6 +285,69 @@ fn ambiguous_linking_column_suggests_naming_it() {
 }
 
 #[test]
+fn path_to_table_that_holds_one_related_record() {
+    // Each issue has one project, so `#projects` (many related records) is a mistake. This used to
+    // compile, silently yielding the `project` column.
+    let err = compile_error("#issues $title $#projects");
+    assert_eq!(err.kind, ErrorKind::Compile);
+    assert_eq!(located("#issues $title $#projects", &err), "#projects");
+    assert_eq!(
+        err.message,
+        "Each record of the table `issues` is related to only one record of the table `projects`, \
+         but `#projects` refers to many related records, so it can't be used here."
+    );
+    assert_eq!(
+        err.hint.as_deref(),
+        Some(
+            "To refer to the one related record, follow the linking column instead, as in \
+             `project`."
+        )
+    );
+
+    // The suggestion follows every link of the route.
+    let err = compile_error("#issues ++#clients");
+    assert_eq!(
+        err.hint.as_deref(),
+        Some(
+            "To refer to the one related record, follow the linking column instead, as in \
+             `project.product.client`."
+        )
+    );
+
+    // Naming the linking column doesn't make one record into many.
+    let err = compile_error("#issues $#users(author)");
+    assert_eq!(
+        err.message,
+        "Each record of the table `issues` is related to only one record of the table `users`, \
+         but `#users(author)` refers to many related records, so it can't be used here."
+    );
+}
+
+#[test]
+fn path_to_table_skips_routes_to_one_record() {
+    // An issue has one author, but that's not what `#users` means. The routes to *many* users go
+    // through `assignments` and through `comments`, and neither is shorter than the other.
+    let err = compile_error("#issues $#users");
+    assert_eq!(located("#issues $#users", &err), "#users");
+    assert_eq!(
+        err.message,
+        "The table `users` is related to the table `issues` in more than one equally direct way, \
+         so `#users` is ambiguous here."
+    );
+
+    // When only one such route is shortest, it's the one taken, however short the route to the one
+    // related record is.
+    assert_eq!(
+        compile("#comments $#users").unwrap(),
+        compile("#comments $issue.#assignments.#users").unwrap(),
+    );
+
+    // Once a path leads to many records, a later `#table` part may follow a link to one record.
+    assert!(compile("#issues $#assignments.#users").is_ok());
+    assert!(compile("#issues $#comments.#users.id%distinct").is_ok());
+}
+
+#[test]
 fn path_via_unknown_linking_column() {
     let err = compile_error("#issues $#blocks(nope)");
     assert_eq!(located("#issues $#blocks(nope)", &err), "#blocks(nope)");

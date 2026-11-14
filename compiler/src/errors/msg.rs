@@ -79,6 +79,50 @@ pub fn no_path_to_table_via_column(from_table: &str, to_table: &str, column: &st
     ))
 }
 
+/// A table or column name as it would be written in Querydown: quoted with backticks unless it's a
+/// plain identifier.
+fn written_identifier(name: &str) -> String {
+    let mut chars = name.chars();
+    let is_plain = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if is_plain {
+        name.to_owned()
+    } else {
+        format!("`{name}`")
+    }
+}
+
+/// `columns` holds the foreign key columns that lead to the one related record, when following
+/// columns is enough to reach it.
+pub fn path_to_table_reaches_one_record(
+    from_table: &str,
+    to_table: &str,
+    linking_column: Option<&str>,
+    columns: Option<&[String]>,
+) -> Error {
+    let part = match linking_column {
+        Some(column) => format!("#{to_table}({column})"),
+        None => format!("#{to_table}"),
+    };
+    let error = Error::compile(format!(
+        "Each record of the table `{from_table}` is related to only one record of the table \
+         `{to_table}`, but `{part}` refers to many related records, so it can't be used here."
+    ));
+    match columns {
+        Some(columns) => error.with_hint(format!(
+            "To refer to the one related record, follow the linking column instead, as in `{}`.",
+            columns
+                .iter()
+                .map(|column| written_identifier(column))
+                .collect::<Vec<_>>()
+                .join(".")
+        )),
+        None => error,
+    }
+}
+
 /// `linking_columns` lists the foreign key columns that would each pick one of the tied routes,
 /// when naming a column is enough to resolve the ambiguity. Otherwise it's empty.
 pub fn ambiguous_path_to_table(
