@@ -11,14 +11,20 @@ Run the following cargo commands in this order, fixing any errors you notice:
 
 ## Documentation
 
-Whenever you change headings in a doc that carries a doctoc-generated table of contents (currently
-`docs/language.md` and `docs/cheat-sheet.md`), regenerate its TOC so it stays in sync:
+The documentation is Markdown in `docs/` (plus the home page and release notes in `site/content/`),
+published as a website by the SvelteKit app in `site/`. **Before writing or changing documentation,
+read [docs/README.md](docs/README.md)**, which holds its style guidelines, its conventions for
+examples and links, and how it's tested.
 
-- `doctoc --notitle docs/language.md`
-- `doctoc docs/cheat-sheet.md`
+In short:
 
-See DEVELOPMENT.md ("Regenerating documentation tables of contents") for details. `doctoc` is installed
-in the dev container by the Dockerfile.
+- Every ```` ```qd ```` code block in the docs is an example, and `cargo test` compiles each one
+  (see `compiler/src/tests/docs_examples.rs`). An example that should fail to compile is marked
+  ```` ```qd error ````.
+- When you change the language, update the docs to match: `docs/language.md`, and where relevant
+  `docs/cheat-sheet.md`, `docs/functions.md`, and the list of features in `site/content/home.md`.
+- After changing documentation (or the site), build the site, which renders every page and checks
+  every link: `cd site && npm install && npm run build`. This needs Node.js 22.17 or later.
 
 ## Git commits
 

@@ -51,14 +51,11 @@ To jump straight into Claude Code without a separate shell step:
 docker compose run --rm dev claude --dangerously-skip-permissions
 ```
 
-### Working on the wasm bindings / site
+### Working on the wasm bindings
 
 ```sh
 # Build the JS bindings (outputs to bindings/js/pkg)
 wasm-pack build bindings/js
-
-# Run the site
-cd site && npm install && npm run dev
 ```
 
 For how a downstream app builds and consumes the binding (target choice, initialization, and the
@@ -74,7 +71,41 @@ These are `wasm-bindgen-test`s, so `wasm-bindgen` and `wasm-bindgen-test` in
 [bindings/js/Cargo.toml](bindings/js/Cargo.toml) must stay a matched pair — a version mismatch
 compiles fine but the runner silently reports "no tests to run".
 
-The dev server binds inside the container; add a port mapping to `docker-compose.yml` (e.g. `ports: ["5173:5173"]`) and run Vite with `--host` if you want to reach it from the host browser.
+### Working on the documentation and the site
+
+The documentation is Markdown in [docs/](docs), and [site/](site) is the SvelteKit app that publishes
+it (along with the home page, the release notes, and the playground) as a static website.
+
+```sh
+cd site
+npm install
+npm run dev     # serve the site, reloading as you edit code or Markdown
+npm run build   # build it into site/build, and check it for broken links
+npm run wasm    # rebuild the compiler for the site after changing Rust code
+```
+
+- [docs/README.md](docs/README.md) has the guidelines for writing documentation: its style, and its
+  conventions for examples and links.
+- [site/README.md](site/README.md) explains how the site works.
+- The site needs Node.js 22.17 or later, which the container provides.
+
+The dev server binds inside the container; add a port mapping to `docker-compose.yml` (e.g. `ports: ["5173:5173"]`) and run `npm run dev -- --host` if you want to reach it from the host browser.
+
+### Documentation examples and their tests
+
+Every fenced code block in the documentation whose language is `qd` is an example, and is tested.
+The [docs_examples](compiler/src/tests/docs_examples.rs) test finds them all (in `README.md`,
+`docs/`, and `site/content/`) and compiles each one against the sample issue-tracker schema, for
+every dialect. With the `db-tests` feature, each example's SQL is also planned by real Postgres and
+DuckDB databases, alongside the corpus (see below).
+
+Words after `qd` in a block's info string say what's expected of it: `qd error` for an example that
+must fail to compile, `qd fragment` for code that isn't a whole query, and `qd limit=50` to compile
+with an option. A following block marked `sql output` or `json output` states the example's output,
+which is checked too. [docs/README.md](docs/README.md#examples) documents these for authors.
+
+So when a change to the compiler breaks an example, `cargo test` fails and names the file and line.
+Fix the compiler or the docs, whichever is wrong.
 
 ### Syntax highlighting, autocompletion, and their tests
 
@@ -122,7 +153,7 @@ uses it to [the samples](bindings/codemirror/test/harness/samples.ts).
 
 ## Database tests (`db-tests` feature)
 
-The corpus tests in [compiler/src/tests/corpus.md](../compiler/src/tests/corpus.md) normally just assert
+The corpus tests in [compiler/src/tests/corpus.md](compiler/src/tests/corpus.md) normally just assert
 that compiled SQL matches an expected string. The optional **`db-tests`** feature goes further: it runs
 each case's compiled SQL against **real Postgres and DuckDB** databases to catch syntax and
 query-planning bugs a string comparison can't.
@@ -143,10 +174,10 @@ How it works:
   exercise the same library a downstream application would embed — notably *without* the ICU
   extension that the official CLI bundles.
 - Table structure comes from hand-authored DDL in
-  [compiler/resources/test/](../compiler/resources/test/): `issue_schema.sql` and `library_schema.sql`.
+  [compiler/resources/test/](compiler/resources/test/): `issue_schema.sql` and `library_schema.sql`.
   **When you add or rename a column in a `*_schema.json`, make the matching change in its `*_schema.sql`**
   (an unknown column surfaces as an `EXPLAIN` failure).
-- The `postgres` binaries are installed by the [Dockerfile](../Dockerfile); DuckDB is built from
+- The `postgres` binaries are installed by the [Dockerfile](Dockerfile); DuckDB is built from
   source by the bundled `duckdb` crate (the first build takes a while). The feature is off by
   default so a plain `cargo test` doesn't need Postgres.
 
@@ -157,32 +188,9 @@ add a `db_skip` to its ```` ```toml options ```` block: `db_skip = true` (all en
 This setup is also the foundation for future data-driven E2E tests: seed rows into the tables and assert
 on result sets instead of just running `EXPLAIN`.
 
-## Regenerating documentation tables of contents
-
-Several docs (currently [docs/language.md](docs/language.md) and
-[docs/cheat-sheet.md](docs/cheat-sheet.md)) carry an auto-generated table of contents marked off by
-`<!-- START doctoc ... -->` / `<!-- END doctoc ... -->` comments. These are produced by
-[doctoc](https://github.com/thlorenz/doctoc), which is installed in the container by the
-[Dockerfile](Dockerfile). **Whenever you change the headings in one of those docs, re-run doctoc so its
-TOC stays in sync**, then commit the regenerated file.
-
-Run it from `/workspace` inside the container:
-
-```sh
-# language.md was generated without a "Table of Contents" title, so keep --notitle for it:
-doctoc --notitle docs/language.md
-
-# cheat-sheet.md keeps the default title:
-doctoc docs/cheat-sheet.md
-```
-
-doctoc edits the file in place and rewrites only the region between the marker comments; the rest of the
-document is untouched. If you add a new doc with its own doctoc markers, follow whichever title
-convention you want and add the matching command above.
-
 ## Optional: VS Code / Codespaces dev container
 
-If you use VS Code, [.devcontainer/devcontainer.json](../.devcontainer/devcontainer.json) lets you run your **whole editor** inside this same container instead of opening a shell with `docker compose run`. It's a supplement — it reuses the exact same `docker-compose.yml` (Dockerfile, cache volumes, UID matching, entrypoint), so nothing about the CLI workflow above changes.
+If you use VS Code, [.devcontainer/devcontainer.json](.devcontainer/devcontainer.json) lets you run your **whole editor** inside this same container instead of opening a shell with `docker compose run`. It's a supplement — it reuses the exact same `docker-compose.yml` (Dockerfile, cache volumes, UID matching, entrypoint), so nothing about the CLI workflow above changes.
 
 With the **Dev Containers** extension installed, open the Command Palette and choose **"Dev Containers: Reopen in Container."** VS Code builds/starts the compose service, installs `rust-analyzer` and the Claude Code extension inside it, and reopens the workspace at `/workspace`. Your terminal, language server, and Claude Code now all run in the container — so the agent's command execution is confined there too, which is the same isolation goal as running `claude --dangerously-skip-permissions` in the shell.
 

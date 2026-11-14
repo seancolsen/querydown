@@ -1,5 +1,102 @@
 <script lang="ts">
-  import './global.css';
+  import '../app.css';
+
+  import { onMount } from 'svelte';
+
+  import { afterNavigate, refreshAll } from '$app/navigation';
+
+  import Header from '#lib/components/Header.svelte';
+  import NavTree from '#lib/components/NavTree.svelte';
+  import Search from '#lib/components/Search.svelte';
+
+  import type { LayoutProps } from './$types';
+
+  let { data, children }: LayoutProps = $props();
+
+  let drawer: HTMLDialogElement;
+  let search: Search;
+
+  afterNavigate(() => drawer.close());
+
+  /** Copies the code of the block that a "Copy" button belongs to. */
+  function copyCode(event: MouseEvent) {
+    const button = (event.target as Element).closest<HTMLElement>('[data-copy]');
+    const code = button?.closest('.code-block')?.querySelector('pre')?.textContent;
+    if (!button || code == null) return;
+    void navigator.clipboard.writeText(code).then(() => {
+      button.dataset.copied = '';
+      setTimeout(() => delete button.dataset.copied, 1500);
+    });
+  }
+
+  onMount(() => {
+    // While developing, re-render the page when a Markdown file changes (see vite.config.ts).
+    import.meta.hot?.on('content:update', () => void refreshAll());
+  });
 </script>
 
-<slot />
+<svelte:head>
+  <link rel="stylesheet" href="/querydown-theme.css" />
+</svelte:head>
+
+<svelte:document onclick={copyCode} />
+
+<Header nav={data.nav} onMenu={() => drawer.showModal()} onSearch={() => search.open()} />
+
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+<dialog
+  class="drawer"
+  bind:this={drawer}
+  aria-label="Navigation"
+  onclick={(event) => event.target === drawer && drawer.close()}
+>
+  <div class="drawer-header">
+    <span>Navigation</span>
+    <button type="button" class="icon-button" onclick={() => drawer.close()} aria-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+    </button>
+  </div>
+  <NavTree nodes={data.nav} />
+</dialog>
+
+<Search bind:this={search} />
+
+{@render children()}
+
+<style>
+  .drawer {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(20rem, 85vw);
+    height: 100dvh;
+    max-height: none;
+    margin: 0;
+    padding: 0.5rem 0.75rem 2rem;
+    border: 0;
+    border-right: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    overflow-y: auto;
+  }
+
+  .drawer::backdrop {
+    background: rgb(0 0 0 / 0.4);
+  }
+
+  .drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    padding-left: 0.6rem;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+  }
+
+  .drawer-header svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+  }
+</style>

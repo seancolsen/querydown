@@ -1,120 +1,12 @@
-# Querydown Language Guide
+# Language
 
-_Also see the **[Cheat Sheet](./cheat-sheet.md)** for a quicker reference._
+This page describes the Querydown language, one feature at a time. For a quicker reminder of the syntax, see the [cheat sheet](./cheat-sheet.md). The built-in functions have [a page of their own](./functions.md).
 
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-
-- [Example schema](#example-schema)
-- [Query anatomy](#query-anatomy)
-- [Values](#values)
-  - [Identifiers (table names and column names)](#identifiers-table-names-and-column-names)
-  - [Flexible identifiers](#flexible-identifiers)
-  - [Built-in constants](#built-in-constants)
-  - [String literals](#string-literals)
-  - [Flagged strings](#flagged-strings)
-    - [The `f` flag](#the-f-flag)
-    - [The `e` flag](#the-e-flag)
-  - [Date literals](#date-literals)
-  - [Duration literals](#duration-literals)
-- [Computations](#computations)
-  - [Arithmetic](#arithmetic)
-  - [Function piping](#function-piping)
-  - [Case expressions](#case-expressions)
-  - [Anonymous functions](#anonymous-functions)
-  - [Function calling](#function-calling)
-- [Comparisons and conditions](#comparisons-and-conditions)
-  - [Match comparisons](#match-comparisons)
-  - [Equality comparisons](#equality-comparisons)
-  - [Numeric comparisons](#numeric-comparisons)
-  - [Comparing dates with durations](#comparing-dates-with-durations)
-  - [Regular expression matching](#regular-expression-matching)
-    - [Regex flags](#regex-flags)
-  - [All comparison operators](#all-comparison-operators)
-  - [Bare text on the right-hand-side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison)
-    - [The rule applies at any depth](#the-rule-applies-at-any-depth)
-    - [Everything _outside_ the right-hand-side is a column reference](#everything-outside-the-right-hand-side-is-a-column-reference)
-    - [Referencing a column on the right-hand-side](#referencing-a-column-on-the-right-hand-side)
-  - [Default text search](#default-text-search)
-    - [Configuring the default text search](#configuring-the-default-text-search)
-  - [AND condition sets](#and-condition-sets)
-  - [OR condition sets](#or-condition-sets)
-  - [Nested condition sets](#nested-condition-sets)
-  - [Negation](#negation)
-  - [Comparison expansion](#comparison-expansion)
-    - [Without comparison expansion](#without-comparison-expansion)
-  - [Dual expansion](#dual-expansion)
-  - [Ranges](#ranges)
-- [Result columns](#result-columns)
-  - [Aliasing result columns](#aliasing-result-columns)
-  - [Basic sorting](#basic-sorting)
-  - [Descending sorting](#descending-sorting)
-  - [Multiple sorting](#multiple-sorting)
-  - [Sorting NULL values](#sorting-null-values)
-  - [Grouping and aggregation](#grouping-and-aggregation)
-    - [Grouping with related records](#grouping-with-related-records)
-    - [Filtering on an aggregate](#filtering-on-an-aggregate)
-  - [Column globs](#column-globs)
-  - [Column glob on related table](#column-glob-on-related-table)
-  - [Hiding columns within a glob](#hiding-columns-within-a-glob)
-  - [Sorting columns within a glob](#sorting-columns-within-a-glob)
-  - [Nesting result columns](#nesting-result-columns)
-- [Sorting outside of result columns](#sorting-outside-of-result-columns)
-  - [Scoped sorting expressions](#scoped-sorting-expressions)
-- [Referencing _single_ related records](#referencing-single-related-records)
-  - [Single related records via column name chains](#single-related-records-via-column-name-chains)
-  - [Scoped comparisons](#scoped-comparisons)
-- [Referencing _multiple_ related records](#referencing-multiple-related-records)
-  - [Mandatory aggregation](#mandatory-aggregation)
-  - [Aggregate counts](#aggregate-counts)
-  - [Specifying an aggregate function](#specifying-an-aggregate-function)
-    - [Aggregating a computed value](#aggregating-a-computed-value)
-  - [Sorting within an aggregate function](#sorting-within-an-aggregate-function)
-    - [Sorting by the aggregated value](#sorting-by-the-aggregated-value)
-    - [The context of a sorting expression](#the-context-of-a-sorting-expression)
-    - [Sorting distinct values](#sorting-distinct-values)
-    - [Keeping only the top values](#keeping-only-the-top-values)
-  - ["Has some" and "has none" conditions](#has-some-and-has-none-conditions)
-  - [Conditions to filter aggregate data](#conditions-to-filter-aggregate-data)
-  - [Transitive relationships](#transitive-relationships)
-  - [Related tables with single vs multiple records](#related-tables-with-single-vs-multiple-records)
-  - [Ambiguous paths](#ambiguous-paths)
-  - [Intersecting paths](#intersecting-paths)
-  - [Specifying the linking column](#specifying-the-linking-column)
-- [Pipeline of multiple queries](#pipeline-of-multiple-queries)
-- [Union of multiple queries](#union-of-multiple-queries)
-- [Window functions](#window-functions)
-  - [Filtering on a window function](#filtering-on-a-window-function)
-  - [Limitations](#limitations)
-- [Variables](#variables)
-  - [User-defined constants](#user-defined-constants)
-  - [Defining a constant using the result of a query](#defining-a-constant-using-the-result-of-a-query)
-  - [Computed columns](#computed-columns)
-  - [User-defined functions](#user-defined-functions)
-  - [Function with multiple parameters](#function-with-multiple-parameters)
-  - [Function containing an assignment](#function-containing-an-assignment)
-  - [Custom Comparisons](#custom-comparisons)
-  - [Linked record comparisons](#linked-record-comparisons)
-  - [User-defined tables](#user-defined-tables)
-- [Annotations](#annotations)
-  - [Column-level annotations](#column-level-annotations)
-    - [The annotation output](#the-annotation-output)
-    - [Querydown's JSON variant](#querydowns-json-variant)
-  - [Query-level annotations](#query-level-annotations)
-- [Limit and offset](#limit-and-offset)
-- [Things you can't do (yet?)](#things-you-cant-do-yet)
-
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
-
-## Example schema
-
-These examples use an fictitious **[issue-tracker schema](../compiler/resources/test/issue_schema.json)** (unless otherwise noted).
-
-<img src="../compiler/resources/test/issue_schema.diagram.svg" width="700"/>
-
-_(ER diagram generated via https://dbdiagram.io/d/64a1d25202bd1c4a5e5fefba)_
+Every example is written against the [sample issue-tracker schema](./sample-schema.md), and you can open any of them in the [playground](/playground) to see the SQL it compiles to.
 
 ## Query anatomy
+
+A query names one table, then filters its rows with conditions, then chooses what to show with result columns.
 
 ```qd
  #issues   status:"open" due_date:<@now   $id $title $author.*   /*
@@ -122,37 +14,44 @@ _(ER diagram generated via https://dbdiagram.io/d/64a1d25202bd1c4a5e5fefba)_
 Base table          Conditions               Result columns       */
 ```
 
-- The **base table** always comes first. Every query has one and only one base table.
-- **[Conditions](#conditions)** can follow the base table, separated by spaces. If omitted, then all rows in the table are returned.
-- **[Result columns](#result-columns)** are specified via expressions following a dollar sign `$`. If omitted, then all columns in the table are returned.
-- A query with conditions _and_ result columns must specify them in that order.
+- The **base table** always comes first. Every query has exactly one base table.
+- **[Conditions](#comparisons-and-conditions)** can follow the base table, separated by spaces. If you omit them, the query returns all the rows of the table.
+- **[Result columns](#result-columns)** are expressions that each follow a dollar sign `$`. If you omit them, the query returns all the columns of the table.
+- A query with conditions _and_ result columns must have them in that order. [Sorting expressions](#sorting-outside-of-result-columns), if any, go between the two.
 - Most white space doesn't matter.
-- Comments are possible with `//` for single line or `/* */` for multi-line
+- Comments are written with `//` for a single line, or `/* */` for several lines.
+- [Definitions](#variables), such as constants and functions, go before the base table.
+
+The results never have more rows than the base table does. Data from related tables is [always aggregated](#mandatory-aggregation), so you never write a join.
 
 
 ## Values
 
-### Identifiers (table names and column names)
+### Identifiers
 
-- Table names are always prefixed with a `#` sigil, e.g. `#issues`
-- Column names are written as-is, e.g. `due_date`.
-- Identifiers can include special characters when quoted with backticks e.g. `` `Due Date` ``. Like [strings](#string-literals), quoted identifiers are raw, so a backslash is literal and an identifier can't contain a backtick.
-- Unquoted identifiers must:
-    - begin with a lowercase letter or uppercase letter or underscore
-    - include only letters, numbers, and underscores.
-- Unlike SQL, column names like `group` and `year` don't need quotes because there are no keywords and functions names are always clear to the parser from other syntax.
+Identifiers are the names of tables and columns. A table name follows a `#` sigil, and a column name is written as it is.
+
+```qd
+#issues $title $due_date
+```
+
+- An unquoted identifier must begin with a letter or an underscore, and contain only letters, numbers, and underscores.
+- To use any other name, quote it with backticks, e.g. `` `Due Date` ``. Like [strings](#string-literals), quoted identifiers are raw, so a backslash is literal and an identifier can't contain a backtick.
+- Unlike in SQL, column names like `group` and `year` don't need quotes. Querydown has no keywords, and the syntax around a name always says whether it's a function.
 - Note that a bare (unquoted) word on the [right-hand-side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison) is parsed as a string literal, not a column reference. Use backticks there if you need to reference a column.
 - Likewise, an unquoted word made up of only letters and digits that stands alone as a condition is a [default text search](#default-text-search) term, not a column reference.
 
 ### Flexible identifiers
 
-Table and column names are resolved "flexibly" to reduce (but not entirely eliminate) the need for quoting identifiers in backticks.
+Table and column names are resolved "flexibly", which saves you from quoting most names that have spaces or capital letters.
 
-If a table or column isn't found exactly as specified, then the compiler attempts to find a _unique_ match with a flexible strategy comparing only lowercased ASCII letters and numbers. This means that `foo_bar` will resolve to `Foo Bar`, but only if it doesn't also resolve to any other identifiers like `foobar`.
+If a table or column isn't found exactly as you wrote it, the compiler looks for a _unique_ match, comparing only the lowercased ASCII letters and numbers of each name. So `foo_bar` resolves to a column named `Foo Bar`, but only if it doesn't also match another column, like `foobar`.
 
-_(This behavior will likely be configurable in a future version.)_
+The sample schema's names are all plain, so this matters most with a schema of your own. An application can turn it off by [compiling](./setup/rust.md#options) with strict identifier resolution.
 
 ### Built-in constants
+
+Constants are written with a `@` sigil. These ones are built in:
 
 | Querydown | SQL |
 | -- | -- |
@@ -162,23 +61,31 @@ _(This behavior will likely be configurable in a future version.)_
 | `@false`    | `FALSE`    |
 | `@null`     | `NULL`     |
 
-Additional constants can be [defined](#user-defined-constants).
+> Issues that are past their due date and have no description
+
+```qd
+#issues due_date:<@now description:@null
+```
+
+You can [define constants](#user-defined-constants) of your own too.
 
 ### String literals
+
+Text is written within quotes.
 
 | Example | Explanation |
 | -- | -- |
 | `"foo"` | With double quotes |
 | `'foo'` | With single quotes |
 
-- Strings can be quoted with single quotes or double quotes
+- You can quote a string with single quotes or with double quotes.
 - Strings are raw: there are no escape sequences. A backslash is a literal character, so `'\n'` is a backslash followed by `n` rather than a newline, and a regular expression like `title:~'v\d+'` needs no doubled backslashes.
 - A string can't contain its own quote character, so quote it with the other one instead, e.g. `"can't"` or `'say "hi"'`. For a string containing both kinds of quote, use a [flagged string](#flagged-strings).
 - Strings may span multiple lines.
 
 ### Flagged strings
 
-Strings can be prefixed with `^` and some flags to alter their behavior.
+A string prefixed with `^` is a flagged string. Flags after the `^` change how the string is read, and you get a wider choice of quote characters.
 
 | Example | Explanation |
 | -- | -- |
@@ -196,7 +103,9 @@ Strings can be prefixed with `^` and some flags to alter their behavior.
 - A flagged string may be quoted with any of the following characters: `" ' ^ # / |`. Choose one the string doesn't contain, e.g. `^/v\d+/` or `^|say "can't"|`.
 - Like other strings, flagged strings may span multiple lines.
 
-#### The `f` flag
+### Formatted strings
+
+The `f` flag makes a string a template: each expression within `{ }` is replaced by its value.
 
 > Show each user's name and email address, formatted together as one value.
 
@@ -212,9 +121,9 @@ Strings can be prefixed with `^` and some flags to alter their behavior.
 - There are no format specifiers like Python's `{x:.2f}`. Within the braces, `:` is a [comparison](#comparisons-and-conditions) as usual, so `{a:b}` interpolates a boolean. To format a value, pipe it to a [function](./functions.md) instead.
 - Like any string, a formatted string standing alone as a condition is a [default text search](#default-text-search).
 
-#### The `e` flag
+### Escape sequences
 
-The `e` flag interprets these escape sequences:
+Strings are raw unless you give them the `e` flag, which interprets these escape sequences:
 
 | Escape | Meaning |
 | -- | -- |
@@ -226,17 +135,37 @@ The `e` flag interprets these escape sequences:
 | `\"` | the string's quote character, whichever it is, e.g. `\'` in `^e'it\'s'` |
 | `\{` and `\}` | a literal brace, with the `f` flag |
 
+> Find comments that contain a tab character
+
+```qd
+#comments body:^e"\t"
+```
+
 Any other character after a backslash is an error.
 
 ### Date literals
 
-Literal dates can be written in [ISO-8601](https://en.wikipedia.org/wiki/ISO_8601) format with a `@` prefix, e.g. `@2000-01-01`.
+A date is written in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format after a `@` sigil.
+
+> Issues created on or after the first day of 2024
+
+```qd
+#issues created_at:>=@2024-01-01
+```
 
 There is no literal syntax for a time of day yet, so a timestamp like `@2000-01-01T08:30:00` is a syntax error. A date literal compared against a timestamp column means midnight at the start of that date.
 
 ### Duration literals
 
-A literal duration is a non-empty sequence of parts, where each part is a number immediately followed by a case-insensitive unit. The units are:
+A duration is a length of time, written as a number directly followed by a unit. Several of these can be strung together.
+
+> Comments made within the past day and a half
+
+```qd
+#comments created_at:<1d12h
+```
+
+The units are case-insensitive:
 
 | Unit  | Meaning |
 | --    | --      |
@@ -248,7 +177,7 @@ A literal duration is a non-empty sequence of parts, where each part is a number
 | `min` | minutes |
 | `s`   | seconds |
 
-Note that `m` always means months and `min` always means minutes, so the two are never ambiguous.
+Note that `m` always means months and `min` always means minutes, so the two are never ambiguous. A duration compared against a date [measures from now](#comparing-dates-with-durations), as in the example above.
 
 | Example         | Meaning |
 | --              | -- |
@@ -266,7 +195,13 @@ Note that `m` always means months and `min` always means minutes, so the two are
 
 ### Arithmetic
 
-Basic arithmetic operators are supported in expressions, along with their standard precedence.
+The four basic arithmetic operators work on numbers, dates, and durations, with their usual precedence.
+
+> For each issue, show how many days it was given from its creation until its due date
+
+```qd
+#issues $title $(due_date - created_at)|days
+```
 
 | Operator | Meaning |
 | -- | -- |
@@ -275,11 +210,11 @@ Basic arithmetic operators are supported in expressions, along with their standa
 |  `*` | Multiplication |
 |  `/` | Division |
 
-No other math operators exist. All other functions must be applied by name.
+There are no other math operators. Everything else is a [function](./functions.md#math-functions), applied by name.
 
 ### Function piping
 
-Scalar functions can be applied to values via `|` (pipe) syntax.
+The pipe `|` applies a function to the value on its left. Pipes chain, so each function receives the result of the one before it.
 
 > Show issues, along with the number of days until the due date.
 
@@ -287,13 +222,14 @@ Scalar functions can be applied to values via `|` (pipe) syntax.
 #issues $* $due_date|countdown|days
 ```
 
-- See a list of [all named functions](./functions.md).
-- Pipe has the highest [operator precedence](./cheat-sheet.md#operator-precedence), meaning that it gets evaluated before multiplication or division.
-- Note that [_aggregate_ functions](#specifying-an-aggregate-function) are applied via `%` instead of `|`.
+- The piped value is the function's first argument. Any more arguments go in parentheses after the function's name, separated by spaces, as in `status|if_null("unknown")`.
+- See the list of [all functions](./functions.md).
+- The pipe has the highest [operator precedence](./cheat-sheet.md#operator-precedence), so it's evaluated before multiplication and division.
+- [_Aggregate_ functions](#specifying-an-aggregate-function) are applied with `%` instead of `|`.
 
 ### Case expressions
 
-Use `?`, `~` and `~~` for case expressions, which are similar to if/else (ternary) expressions.
+A case expression chooses between values, like an if/else chain. It's written with `?`, `~`, and `~~`.
 
 > Categorize each issue into being either "overdue", "due soon", or "due later".
 
@@ -314,6 +250,8 @@ A case expression requires at least one variant and a fallback. It compiles to a
 
 ### Anonymous functions
 
+An anonymous function names a value so that you can use it several times within one expression. Write it in parentheses as `(@parameter => body)`, and pipe a value into it.
+
 > Categorize each issue into being either "overdue", "due soon", or "due later".
 
 ```qd
@@ -322,16 +260,18 @@ $title
 $due_date|countdown|days|(@d => ? @d:<0~"overdue" @d:<30~"due soon" ~~"due later")
 ```
 
-In the code above:
+In the query above:
 
-1. `due_date|countdown|days` computes the number of days until the issues's due date
-1. That value is fed into the `@d` argument of the anonymous function:
+1. `due_date|countdown|days` computes the number of days until the issue's due date.
+1. That value becomes the `@d` parameter of the anonymous function:
 
-    ```
+    ```qd fragment
     (@d => ? @d:<0~"overdue" @d:<30~"due soon" ~~"due later")
     ```
 
-1. The body of the anonymous function can reference `@d` as the number of days until the issues due date, using the same value in multiple places with minimal repetition.
+1. The body of the function refers to `@d` twice, without repeating the computation.
+
+To reuse a function across a query, give it a name with a [user-defined function](#user-defined-functions).
 
 An anonymous function can take more than one parameter. The piped-in value binds to the first parameter, and the remaining arguments are supplied in parentheses (separated by spaces) directly after the function:
 
@@ -345,30 +285,29 @@ Here `@due` is the number of days until the due date (piped in), and `@age` is t
 
 ### Function calling
 
-Use `@@` to call a function without using a pipe.
+The `@@` sigil calls a function by name, with all of its arguments in parentheses, instead of piping the first one in.
 
-> For each issue, show the number of days it is overdue. Display zero instead of negative numbers
+> For each issue, show the number of days it is overdue, with zero in place of negative numbers
 
 ```qd
 #issues $title $@@max(due_date|age|days 0)
 ```
 
-Notice:
-
-- The `max` function is prefixed with the `@@` sigil.
-- It takes two arguments which are separated by _space_. No commas!
-
-The above query is equivalent to:
+The arguments are separated by spaces, not commas. The query above is the same as this one, which pipes the first argument in:
 
 ```qd
 #issues $title $due_date|age|days|max(0)
 ```
 
-Sometimes the pipe syntax is more readable. Other times the direct call is more readable.
+Use whichever reads better.
 
 ## Comparisons and conditions
 
+A condition is anything that's true or false for each row, and most conditions are comparisons. Every comparison operator begins with a colon. The conditions of a query sit between its base table and its result columns, and a row must satisfy all of them.
+
 ### Match comparisons
+
+The match operator `:` is the everyday comparison. It finds text that _contains_ a value, and compares anything else for equality.
 
 > Find issues where the title contains "performance"
 
@@ -376,13 +315,15 @@ Sometimes the pipe syntax is more readable. Other times the direct call is more 
 #issues title:"performance"
 ```
 
-This does a case-insensitive search for "performance" anywhere in the issue title.
+This searches for "performance" anywhere in the title, ignoring case.
 
-The match comparison operator (`:`) behaves differently according to the type of expression on the left-hand-side. Text values will match via contains logic, while other values (e.g. numbers, dates, etc) are compared using strict equality.
-
-As a special case, matching a text value against an **empty string** uses strict equality rather than contains logic (which would otherwise match every row). This means `#issues description:""` finds issues with an empty description, the same as `#issues description:==""`.
+- What `:` does depends on the type of the value on its left. Text matches when it contains the value on the right. Anything else (a number, a date, a boolean, and so on) must equal it.
+- As a special case, matching text against an **empty string** tests for equality, because every text contains the empty string. So `#issues description:""` finds issues with an empty description, the same as `#issues description:==""`.
+- Matching against `@null` finds missing values: `#issues description:@null`.
 
 ### Equality comparisons
+
+Use `:=` to compare text for equality while ignoring case, and `:==` to compare it exactly.
 
 > Find issues where the status equals "do", ignoring case
 
@@ -390,9 +331,7 @@ As a special case, matching a text value against an **empty string** uses strict
 #issues status:="do"
 ```
 
-The `:=` operator performs a **case-insensitive** equality comparison on text. It will find issues whose status is "do" or "Do", but _not_ "done".
-
-To compare text **case-sensitively**, use `:==` instead:
+This finds issues whose status is "do" or "Do", but _not_ "done".
 
 > Find issues where the status is exactly "do"
 
@@ -400,23 +339,29 @@ To compare text **case-sensitively**, use `:==` instead:
 #issues status:=="do"
 ```
 
-For non-text values (numbers, dates, etc.), case sensitivity is meaningless, so both `:=` and `:==` behave identically, falling back to strict equality.
+Case doesn't apply to values that aren't text (numbers, dates, and so on), so for them `:=` and `:==` both test for plain equality.
 
 ### Numeric comparisons
 
-> Find issue with id 123
+Numbers, dates, and durations are compared with `:` for equality, and with `:<` `:<=` `:>` `:>=` for order.
+
+> Find the issue with id 123
 
 ```qd
 #issues id:123
 ```
 
-Note that the match operator falls back to an equality comparison here because the id column is not text. Here `id:123` is the same is `id:=123`.
+> Find issues with more than 5 comments
 
-The comparison operators `:<` `:<=` `:>` `:>=` also allow you to perform inequality comparisons on numeric, datetime, and duration types.
+```qd
+#issues #comments:>5
+```
+
+Because `id` isn't text, the match operator tests for equality here: `id:123` is the same as `id:=123`.
 
 ### Comparing dates with durations
 
-When you compare a date or datetime against a [duration](#duration-literals), Querydown interprets the comparison as a question about how far the date lies from _now_, in either direction. The comparison `date:<duration` matches when the date falls within `duration` of the present moment &mdash; whether the date is in the past or the future.
+When you compare a date or datetime against a [duration](#duration-literals), the comparison is about how far the date lies from _now_, in either direction. So `date:<duration` matches when the date falls within `duration` of the present moment, whether it's in the past or the future.
 
 > Find issues created within the past 6 months:
 
@@ -433,6 +378,8 @@ When you compare a date or datetime against a [duration](#duration-literals), Qu
 Both queries use `:<`, even though one date lies in the past and the other in the future. Under the hood the comparison compiles to `ABS(NOW() - date) < duration`, so the sign of the difference doesn't matter.
 
 The date must be on the **left** and the duration on the **right**. The reversed order is an error, just as comparing a datetime against a duration directly would be.
+
+#### Computed dates and durations
 
 Neither side needs to be written literally. Querydown infers the type of each expression, propagating it through functions, arithmetic, and [variables](#variables), so any expression that works out to a date or datetime can be compared against any expression that works out to a duration. For example, a datetime run through an aggregate function is still a datetime:
 
@@ -460,13 +407,19 @@ The _difference_ between two dates is a duration too, not a date. So comparing i
 
 The types that this relies on come from the schema, so the comparison works on any column of a table. It also works on the columns of an earlier [pipeline](#pipeline-of-multiple-queries) stage or a [user-defined table](#user-defined-tables), which keep their date, datetime, and duration types.
 
-If you actually want to account for the direction of the difference, compare against a datetime instead of a duration. For example, to find issues that are more than 1 week overdue:
+#### Comparing in one direction only
+
+To take the direction of the difference into account, compare against a datetime instead of a duration.
+
+> Find issues that are more than 1 week overdue
 
 ```qd
 #issues due_date:<@now|minus(1w)
 ```
 
 ### Regular expression matching
+
+Use `:~` to match text against a regular expression.
 
 > Find issues with a description matching the regex `front[ -]?end`
 
@@ -509,11 +462,21 @@ A few behaviors differ between databases, because Querydown hands the pattern to
 
 ### All comparison operators
 
-the Cheat Sheet lists all [comparison operators](./cheat-sheet.md#comparison-operators).
+| Operator | Meaning |
+| -- | -- |
+| `:` | [Matches](#match-comparisons): text contains the value, and anything else equals it |
+| `:=` | [Equals](#equality-comparisons), ignoring the case of text |
+| `:==` | [Equals](#equality-comparisons) exactly |
+| `:<` `:<=` | [Less than](#numeric-comparisons), less than or equal to |
+| `:>` `:>=` | [Greater than](#numeric-comparisons), greater than or equal to |
+| `:~` | [Matches a regular expression](#regular-expression-matching) |
+| `:\c~` | Matches a regular expression with [flags](#regex-flags) (any of `c`, `m`, `s`) |
+
+Prefix any comparison with `!` to [negate](#negation) it.
 
 ### Bare text on the right-hand-side of a comparison
 
-A bare (unquoted) word on the **right-hand-side** of a comparison is interpreted as a **string literal** rather than a column reference. This matches the behavior you may expect from tools like GitHub.
+A bare (unquoted) word on the **right-hand-side** of a comparison is a **string literal**, not a column reference. That's how search works in tools like GitHub, and it saves you the quotes.
 
 > Find issues where the title contains the word "performance"
 
@@ -554,7 +517,7 @@ Here `status` and `title` are **column references**, because this is a [result c
 
 This boundary even resets within a nested comparison. In `#projects is_active:(name:foo)`, the inner `name` is on the _left_ of its own comparison, so it is a column reference, while `foo` (on the inner right-hand-side) remains a string literal.
 
-It also resets within the `{ }` of a [formatted string](#the-f-flag). In `#issues description:^f"see {title}"`, `title` is a column reference.
+It also resets within the `{ }` of a [formatted string](#formatted-strings). In `#issues description:^f"see {title}"`, `title` is a column reference.
 
 #### Referencing a column on the right-hand-side
 
@@ -565,15 +528,19 @@ If you need to reference a column on the right-hand-side, you can either:
 
 ### Default text search
 
-> Find issues where the title or description or status contain the word "accessibility" — and the title or description or status contain the word "feature"
+A bare word that stands alone as a condition searches all the text columns of the table at once.
+
+> Find issues where the title, description, or status contains "accessibility", and where one of them also contains "feature"
 
 ```qd
 #issues accessibility feature
 ```
 
-The default text search is a simple way to give users a low-friction search across many columns at once. The reason the above example searches in `title`, `description` and `status` is because those are the only text-like columns in the `issues` base table — but you can see the next section to learn how to customize this behavior.
+This gives you a low-friction search across many columns. The example searches `title`, `description`, and `status` because those are the text columns of the `issues` table, though you can [configure which columns are searched](#configuring-the-default-text-search).
 
-In the above example, "feature" is parsed as a default text search term because it comes before any display columns and it does not have a comparison operator.
+A word is a search term when it stands among the conditions without a comparison operator.
+
+#### What counts as a search term
 
 Only a **bare word** is a search term: an unquoted word that begins with a letter and contains only letters and digits. A bare word is _always_ a search term, even when it happens to match a column name — so `#issues title` searches for the literal text "title" rather than referencing the `title` column.
 
@@ -587,17 +554,22 @@ Anything else that looks like a name is a column reference, as it is elsewhere i
 
 So `#issues in_progress` doesn't search for "in_progress": it refers to a column named `in_progress`, and fails because there isn't one. To search for such text, quote it (`#issues "in_progress"`).
 
-Going the other way, to use a column whose name _is_ a bare word as a condition, quote it with backticks, just as you would on the [right-hand side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison). If `projects` had a boolean column named `archived`, then `#projects archived` would search for the text "archived", while this would find the archived projects:
+Going the other way, to use a column whose name _is_ a bare word as a condition, quote it with backticks, just as you would on the [right-hand side of a comparison](#bare-text-on-the-right-hand-side-of-a-comparison). If `projects` had a boolean column named `archived`, then `#projects archived` would search for the text "archived", while ``#projects `archived` `` would find the archived projects.
 
-```qd
-#projects `archived`
-```
-
-You can search for any string using the default text search if you explicitly quote it:
+To search for text that isn't a bare word, quote it:
 
 ```qd
 #issues "localhost:3000"
 ```
+
+A [constant](#user-defined-constants) that holds a string is a search term too, since a constant stands for its value:
+
+```qd
+@term = "localhost:3000"
+#issues @term
+```
+
+#### Combining and negating search terms
 
 Because the comma is shorthand for an [OR condition set](#or-condition-sets), bare terms can be combined with it to search for either term:
 
@@ -621,18 +593,11 @@ Negation works on individual comma operands too, so you can mix positive and neg
 
 Just as a bare word is always a search term (never a column reference), a `!`-prefixed bare word is always a _negated_ search term. A name that isn't a bare word is a column, negated or not, so `#projects !is_active` finds the projects that aren't active. To negate a column whose name is a bare word, quote it with backticks, e.g. ``#projects !`archived` ``.
 
-A [constant](#user-defined-constants) that holds a string is a search term too, since a constant stands for its value:
-
-```qd
-@term = "localhost:3000"
-#issues @term
-```
-
 #### Configuring the default text search
 
-You can use [custom comparisons](#custom-comparisons) to customize the default text search columns to your liking.
+To choose what the default text search looks at, define a [custom comparison](#custom-comparisons) named `__querydown_default_text_search` on the table.
 
-Here we customize the default text search for the issues table, removing the `status` column (that would have otherwise been chosen automatically), and adding logic to search within all comments.
+> Search issues by title, by description, and by the text of their comments, but not by status
 
 ```qd
 #issues.__querydown_default_text_search:@x = [
@@ -644,9 +609,11 @@ Here we customize the default text search for the issues table, removing the `st
 #issues accessibility feature
 ```
 
+An application that embeds Querydown would typically put a definition like this before each query, so that its users get a search suited to each table.
+
 ### AND condition sets
 
-Curly brackets `{ }` enclose multiple `AND` conditions.
+Curly brackets `{ }` enclose a set of conditions that must _all_ be true.
 
 > Issues that are open **and** created after 2023-03-04
 
@@ -654,7 +621,7 @@ Curly brackets `{ }` enclose multiple `AND` conditions.
 #issues {status:"open" created_at:>@2023-03-04}
 ```
 
-At the top level, a set of AND conditions is inferred if no brackets are present, so the above query is identical to:
+The conditions of a query are an AND set already, so at the top level you can leave the brackets out. The query above is the same as:
 
 ```qd
 #issues status:"open" created_at:>@2023-03-04
@@ -662,7 +629,7 @@ At the top level, a set of AND conditions is inferred if no brackets are present
 
 ### OR condition sets
 
-Square brackets `[ ]` enclose `OR` conditions.
+Square brackets `[ ]` enclose a set of conditions of which _at least one_ must be true.
 
 > Issues that are open **or** created after 2023-03-04
 
@@ -670,7 +637,7 @@ Square brackets `[ ]` enclose `OR` conditions.
 #issues [status:"open" created_at:>@2023-03-04]
 ```
 
-A shorthand syntax is also available using the comma `,` operator:
+The comma `,` is a shorthand for the same thing:
 
 ```qd
 #issues status:"open",created_at:>@2023-03-04
@@ -685,7 +652,7 @@ To compare one column with several values, use [comparison expansion](#compariso
 
 ### Nested condition sets
 
-Conditions can be nested
+Condition sets can hold other condition sets, which is how you mix AND with OR.
 
 > Issues that are open and created after 2023-03-04 _or_ reopened and created after 2022-11-22:
 
@@ -742,7 +709,7 @@ Because an expansion on the right-hand-side is part of the right-hand-side, its 
 #issues [title description]:~foo
 ```
 
-> Find projects that are not active and not pro-bono.
+> Projects that are neither active nor pro bono
 
 ```qd
 #projects {is_pro_bono is_active}:@false
@@ -766,17 +733,17 @@ A condition set expands a comparison only when it's written directly in the comp
 
 #### Without comparison expansion
 
-Because a condition set on either side of a comparison is _always_ expanded, you cannot use a condition set to form a boolean value to be compared. If for some reason you need to perform boolean logic on expressions _before_ they are compared, then you can use functions:
+Because a condition set on either side of a comparison is _always_ expanded, you can't use one to form a boolean value and then compare that. To do boolean logic on values _before_ they're compared, use [functions](./functions.md#boolean-functions) instead:
 
 ```qd
 #projects is_pro_bono|and(is_active):@false
 ```
 
-But beware that this query will produce different results from the one with comparison expansion! For example, if `is_pro_bono` is `TRUE` and `is_active` is `FALSE`, then `is_pro_bono|and(is_active)` will evaluate to `FALSE`, matching the condition and including the row.
+Beware that this query gives different results from the one with comparison expansion. If `is_pro_bono` is true and `is_active` is false, then `is_pro_bono|and(is_active)` is false, which matches the condition and includes the row.
 
 ### Dual expansion
 
-If both sides of the comparison are expanded, then the brackets on the left side are used for the outer precedence. Note how the same expansion syntax yields column references on the left (`title`, `description`) but string literals on the right (`foo`, `bar`):
+A comparison can be expanded on both sides at once. The set on the left is the outer one. Notice that the same syntax holds column references on the left (`title`, `description`) but string literals on the right (`foo`, `bar`):
 
 > Issues where the title and description both contain "foo" or contain "bar":
 
@@ -786,7 +753,9 @@ If both sides of the comparison are expanded, then the brackets on the left side
 
 ### Ranges
 
-> Issues created in the 2010's decade
+A range compares a value against a lower and an upper bound at once. Write the two bounds with `..` between them.
+
+> Issues created in the 2010s
 
 ```qd
 #issues created_at|year:2010..2019
@@ -809,73 +778,95 @@ A few details:
 
 ## Result columns
 
+Result columns choose what a query outputs. Each one is an expression that follows a `$`, and they come last in the query, after any conditions.
+
+> Show the id and title of each issue, along with its author's username
+
+```qd
+#issues $id $title $author.username
+```
+
+A result column can be any expression: a column, a [computation](#computations), a [count of related records](#aggregate-counts), and so on. A query without result columns outputs every column of its base table.
+
 ### Aliasing result columns
 
-Use `->` after a column to give it an alias.
+Use `->` after a result column to name it.
 
 ```qd
 #issues $id->Identifier $title->Subject
 ```
 
+The alias becomes the name of the column in the results. It's also the name by which a later [pipeline](#pipeline-of-multiple-queries) stage refers to the column.
+
 ### Basic sorting
 
-Ascending sorting by one column. The `s` stands for "sort".
+To sort the results by a result column, add the `\s` flag after it. The `s` stands for "sort", and the sorting is ascending.
 
 > Issues sorted by their creation date
 
-```
+```qd
 #issues $title $created_at \s
 ```
 
+To sort by a value without showing it, use a [sorting expression](#sorting-outside-of-result-columns) instead.
+
 ### Descending sorting
 
-Descending sorting is indicated via a `d` after the `s`.
+Add a `d` after the `s` to sort in descending order.
 
-```
+> Issues sorted by their creation date, most recent first
+
+```qd
 #issues $title $created_at \sd
 ```
 
 ### Multiple sorting
 
-Sorting by multiple columns is done via numbers to indicate ordinality.
+To sort by several columns, number the flags to say which column is sorted by first.
 
-```
+> Issues sorted by their creation date, most recent first, and then by title
+
+```qd
 #issues $title \s2 $created_at \sd1
 ```
 
-Sorted columns without any ordinality specified are sorted in the order the appear, after all columns with indicated ordinality.
+Columns sorted without a number come after all the numbered ones, in the order they appear.
 
 ### Sorting NULL values
 
-By default, `NULL` values are sorted last, but this behavior can be modified using the `n` flag, which stands for "nulls first".
+`NULL` values are sorted last, unless you add the `n` flag, which stands for "nulls first".
 
-```
+> Issues sorted by their creation date, most recent first, starting with the issues that have no creation date
+
+```qd
 #issues $title $created_at \sdn
 ```
 
 ### Grouping and aggregation
 
-Grouping is indicated by the `g` flag, similar to sorting.
+To group the results by a result column, add the `\g` flag after it. The other result columns then summarize each group with an aggregate function, applied with `%`.
 
 > For each issue status, show the number of issues and the date of the most recently created issue
 
-```
+```qd
 #issues $status \g $%count $created_at%max
 ```
 
-- All ungrouped columns must contain an aggregate function. Otherwise the compiler reports an error.
-- `%count` can occur on its own (outside of a function pipeline), which is equivalent to `count(*)`.
+- Every ungrouped column must contain an aggregate function. Otherwise the compiler reports an error.
+- `%count` can stand on its own, which counts the rows of each group (SQL's `count(*)`).
 - Aggregate functions like `%max`, `%sum`, and `%avg` may be applied to columns on the base table (e.g. `created_at%max`) or on a related table reachable via a single record (e.g. `author.created_at%max`), and to [values computed from such a column](#aggregating-a-computed-value) (e.g. `title|length%max`). A foreign key column is aggregated like any other column, e.g. `author%distinct` for the number of distinct authors.
-- Grouping by multiple columns is done via `\g1` and `\g2`, similar to sorting. Columns without an explicit ordinal are grouped in the order they appear, after all columns that do specify an ordinal.
+- To group by several columns, give each the `\g` flag. As with [sorting](#multiple-sorting), you can number them: `\g1` and `\g2`. Columns without an explicit ordinal are grouped in the order they appear, after all columns that do specify an ordinal.
 - Grouping and sorting can be combined, e.g. `#issues $status \g $%count \sd` to sort the groups by their counts.
 - A [standalone sorting expression](#sorting-outside-of-result-columns) in a grouped query follows the same rule as a result column: it must either match a grouping column (`\\status` above) or contain an aggregate function (`\\created_at%max`). Otherwise the compiler reports an error.
+
+- See the list of [all aggregate functions](./functions.md#aggregate-functions).
 
 #### Grouping with related records
 
 A count or other aggregate of [related records](#referencing-multiple-related-records), such as `#comments` or `#comments.created_at%max`, is computed separately for each record of the base table. So within a grouped query it behaves like a plain column, not like an aggregate: it has a value for each issue, not one for each group of issues. Using one as an ungrouped result column is an error:
 
-```qd
-#issues $status \g $#comments // ERROR!
+```qd error
+#issues $status \g $#comments
 ```
 
 There are two things you can do with it instead. You can group by it:
@@ -911,31 +902,31 @@ This restriction only concerns aggregates of the records being queried. An aggre
 
 ### Column globs
 
-Use `$*` to specify all columns. This gives you control to add a column after all columns.
+`$*` stands for all the columns of the base table, which lets you add a column of your own alongside them.
 
-> Show all issues columns, and also show the number of days until each issue's due date
+> Show all the columns of each issue, and also the number of days until its due date
 
-```
+```qd
 #issues $* $due_date|countdown|days
 ```
 
 ### Column glob on related table
 
-> Show all issues columns, and also all users columns for the issue's author
+A glob at the end of a path stands for all the columns of a related record.
 
-```
+> Show all the columns of each issue, and also all the columns of the issue's author
+
+```qd
 #issues $* $author.*
 ```
 
 ### Hiding columns within a glob
 
-You can add parentheses after `*` and use expressions plus flags to alter the behavior of columns.
-
-Use `\h` to hide a column.
+Parentheses after the `*` adjust particular columns of the glob. Within them, name a column and give it flags. The `\h` flag hides the column.
 
 > Issues with all columns except description:
 
-```
+```qd
 #issues $*(description \h)
 ```
 
@@ -943,9 +934,11 @@ The `\h` flag only has an effect within the parentheses of a glob. On an ordinar
 
 ### Sorting columns within a glob
 
-Use `\s` (and similar flags) to sort by columns, leaving their position in the table unchanged.
+Within a glob's parentheses, the `\s` flag (with `d`, `n`, or a number, as [usual](#basic-sorting)) sorts by a column while leaving it in its place.
 
-```
+> Issues with all columns, most recently created first
+
+```qd
 #issues $*(created_at \sd)
 ```
 
@@ -990,28 +983,31 @@ Everything else about the nested columns — aliases, control flags like `\s` an
 
 ## Sorting outside of result columns
 
-The sorting shown above attaches sort flags to a result column. To sort by a value without showing it as a result column, use a standalone **sorting expression**, written with the `\\` prefix.
+The [sorting flags](#basic-sorting) sort by a result column. To sort by a value without showing it, use a standalone **sorting expression**, written with the `\\` prefix.
 
 > Issues sorted by their creation date, most recent first, without showing the creation date
 
-```
+```qd
 #issues
 \\created_at \d
 $title
 ```
 
-Sorting expressions are written between the filtering expressions and the result columns. A query may contain multiple sorting expressions; the order in which they are listed defines their sort precedence. Whitespace is allowed between `\\` and the expression.
+- Sorting expressions go between the conditions and the result columns.
+- A query can have several. The first one listed is sorted by first.
+- The `\\` prefix already means "sort", so there's no `s` flag here. After the expression you can add the `\d` (descending) and `\n` (nulls first) flags, or both as `\dn`. Without flags, sorting is ascending with NULL values last.
+- Whitespace is allowed between the `\\` and the expression.
 
-Because the `\\` prefix already means "sort", there is no `s` flag here. After the expression you may add the `\d` (descending) and `\n` (nulls first) flags, which may be combined as `\dn`. Without flags, sorting is ascending with NULL values last.
+> Issues sorted by status, and then by creation date, most recent first, with issues lacking a creation date first of all
 
-```
+```qd
 #issues
 \\status
 \\created_at \dn
 $title
 ```
 
-A standalone sorting expression produces the same `ORDER BY` as the column-flag form, but without emitting a column. When a query mixes standalone `\\` sorts with column `\s` sorts, the standalone sorts take precedence and come first in the `ORDER BY`.
+A sorting expression produces the same `ORDER BY` as a sorting flag does, without outputting a column. When a query has both, the sorting expressions are sorted by first.
 
 ### Scoped sorting expressions
 
@@ -1047,13 +1043,15 @@ Everything else about the nested expressions — the `\d` and `\n` flags — wor
 
 ## Referencing _single_ related records
 
+When a record refers to one record of another table through a foreign key, you can use that record's columns as if they were its own. Querydown writes the join for you.
+
 ### Single related records via column name chains
 
-When a column links to another table, the `.` character can be used after the column to refer to columns in the related table.
+When a column links to another table, write a `.` after it to reach the columns of the related record. These chain, so you can follow one link after another.
 
 > Issues created by members of the backend team, displaying the issue title and author's username
 
-```
+```qd
 #issues author.team.name:"Backend" $id $title $author.username
 ```
 
@@ -1106,36 +1104,43 @@ A few details:
 
 ## Referencing _multiple_ related records
 
+When many records of another table refer to a record, you reach them by the name of their table, with its `#` sigil. Because there are many of them, you always get a summary of them: a count, or the result of some other aggregate function.
+
 ### Mandatory aggregation
 
-In querydown (unlike SQL) all joined data is aggregated with respect to the base table, meaning the result set will never have more more rows than the base table. This fundamental design has the benefit of making queries simpler and more obvious. However it also limits the capabilities of Querydown compared to SQL. That's okay because Querydown is not trying to make it possible to write _all_ the queries you could write with SQL &mdash; it's just trying to make it _easier_ to write _most_ of the queries you could write with SQL.
+In Querydown, unlike in SQL, all data from related records is aggregated with respect to the base table. So the results never have more rows than the base table does.
+
+This makes queries simpler to write and to read, but it's also a limit: some SQL queries can't be written in Querydown. That's a deliberate trade. Querydown doesn't try to make _every_ query possible, only to make _most_ queries easier.
 
 ### Aggregate counts
 
+A `#table` on its own counts the related records of that table.
+
 > Show the number of issues associated with each project
 
-```
+```qd
 #projects $name $#issues
 ```
 
-In our [example schema](#example-schema), each project has multiple issues. When the base table is `#projects`, the expression `#issues` means: _count the number of issues related to each project_.
+In the [sample schema](./sample-schema.md), each project has many issues. When the base table is `#projects`, the expression `#issues` means: _the number of issues related to each project_.
 
-A project with no related issues shows `0` rather than NULL. Counts are always coalesced to zero so that the absence of related records reads as a count of zero.
+A project with no issues shows `0`, not NULL.
 
 ### Specifying an aggregate function
 
-Specific aggregate functions can be applied via `%` (similar to pipe syntax).
+To summarize related records some other way, name one of their columns and apply an aggregate function to it with `%`. This works like a [pipe](#function-piping).
 
 > For each project, show the date of the most recently created issue
 
-```
+```qd
 #projects $name $#issues.created_at%max
 ```
 
-_(See a list of [all aggregate functions](./functions.md#aggregate-functions).)_
+See the list of [all aggregate functions](./functions.md#aggregate-functions).
 
-An aggregate function is applied to a column (reached by a path), or to a value computed from one —
-see below. It can't be applied to any other kind of expression, such as `(#issues.estimate * 2)%sum`.
+An aggregate function is applied to a column (reached by a path), or to a
+[value computed from one](#aggregating-a-computed-value). It can't be applied to any other kind of
+expression, such as `(#issues.id * 2)%sum`.
 
 #### Aggregating a computed value
 
@@ -1144,7 +1149,7 @@ record's column, and those values are what get aggregated.
 
 > For each user, the average length of their comments
 
-```
+```qd
 #users $username $#comments.body|length%avg
 ```
 
@@ -1159,7 +1164,7 @@ named in an argument is a column of that same record.
 
 > For each project, the most days any of its issues was given before it's due
 
-```
+```qd
 #projects $name $#issues.due_date|minus(created_at)|days%max
 ```
 
@@ -1183,8 +1188,8 @@ things to know:
   `title|concat(title%max)%list`. An aggregate of records related to each one, like
   `#issues.title|concat(#comments)%list`, is fine.
 - Only functions piped onto the column can compute the value. Arithmetic operators can't, but the
-  equivalent functions can: write `#issues.estimate|times(2)%sum` rather than
-  `(#issues.estimate * 2)%sum`. For anything else, define a [computed column](#computed-columns) and
+  equivalent functions can: write `#issues.id|times(2)%sum` rather than
+  `(#issues.id * 2)%sum`. For anything else, define a [computed column](#computed-columns) and
   aggregate that.
 
 ### Sorting within an aggregate function
@@ -1197,7 +1202,7 @@ is either a [standalone sorting expression](#sorting-outside-of-result-columns) 
 
 > For each issue, list its label names in alphabetical order
 
-```
+```qd
 #issues $title $#labels.name%list(\\name)
 ```
 
@@ -1211,7 +1216,7 @@ result column. Combine it with `d` and `n` as usual: `\sd`, `\sn`, `\sdn`.
 
 > For each issue, list its label names in reverse alphabetical order
 
-```
+```qd
 #issues $title $#labels.name%list(\sd)
 ```
 
@@ -1226,7 +1231,7 @@ intermediate join table that the path passes through.
 
 > For each issue, list all its label names, ordered by the join table's own `id` column
 
-```
+```qd
 #issues $title $#issue_labels.label.name%list_all(\\id)
 ```
 
@@ -1241,7 +1246,7 @@ column being aggregated, reached the same way, that's a sort by the aggregated v
 [`list`](./functions.md#list) removes duplicate values, which affects how it can be sorted. Take this
 query, which lists the users who have commented on each issue:
 
-```
+```qd
 #issues $title $#comments.user.username%list
 ```
 
@@ -1255,7 +1260,7 @@ every sorting entry within `list` must be one of the following:
 
   > For each issue, list the users who have commented on it, alphabetically
 
-  ```
+  ```qd
   #issues $title $#comments.user.username%list(\s)
   ```
 
@@ -1266,19 +1271,19 @@ every sorting entry within `list` must be one of the following:
   > For each issue, list the users who have commented on it, in the order in which they first
   > commented
 
-  ```
+  ```qd
   #issues $title $#comments.user.username%list(\\created_at%min)
   ```
 
   > ... with the most recently active commenter first
 
-  ```
+  ```qd
   #issues $title $#comments.user.username%list(\\created_at%max \d)
   ```
 
   > ... with the most frequent commenter first, breaking ties alphabetically
 
-  ```
+  ```qd
   #issues $title $#comments.user.username%list(\\%count \d \s)
   ```
 
@@ -1302,7 +1307,7 @@ tie for first place under its sorting entries.
 
 > For each issue, show the users who made the most comments on it
 
-```
+```qd
 #issues $title $#comments.user.username%top(\\%count \d)
 ```
 
@@ -1317,7 +1322,7 @@ _every_ sorting entry, so each extra entry acts as a tiebreaker:
 > For each issue, show the users who made the most comments on it, keeping only those among them
 > who commented most recently
 
-```
+```qd
 #issues $title $#comments.user.username%top(\\%count \d \\created_at%max \d)
 ```
 
@@ -1329,39 +1334,31 @@ related records via a `#` path, and not for a column of [grouped](#grouping-and-
 
 ### "Has some" and "has none" conditions
 
-You can use the `++` and `--` shorthand syntax to construct conditions based on aggregate counts.
+`++` before a `#table` is a condition that's true when there's at least one related record, and `--` when there are none.
 
-> Projects that have at least one related issue
+> Projects that have at least one issue
 
-```
+```qd
 #projects ++#issues
 ```
 
-This expands to 
+This is short for `#projects #issues:>0`.
 
-```
-#projects #issues:>0
-```
+> Projects that have no issues
 
-> Projects that have no related issues
-
-```
+```qd
 #projects --#issues
 ```
 
-This expands to 
-
-```
-#projects #issues:0
-```
+This is short for `#projects #issues:0`.
 
 ### Conditions to filter aggregate data
 
-You can add a condition block after any aggregated table
+A condition set directly after a `#table` filters the related records before they're counted or aggregated.
 
 > Projects that have no open issues
 
-```
+```qd
 #projects --#issues{status:"open"}
 ```
 
@@ -1387,35 +1384,33 @@ Inside the block, everything is relative to the related table (here `issues`), j
 
 ### Transitive relationships
 
-You can refer to distantly-related tables
+A `#table` can name a table that's related only through other tables. Querydown finds the way there.
 
 > Show the number of issues associated with each client
 
-```
+```qd
 #clients $name $#issues
 ```
 
-Here, the `issues` table is not directly related to the `clients` table, but that's okay. The above code is shorthand for the following:
+The `issues` table isn't directly related to the `clients` table, but that's okay. The query above is short for this one:
 
-```
+```qd
 #clients $name $#products.#projects.#issues
 ```
 
-The shorthand works in this case because there is only one path through which `clients` can be joined to `issues`. **Querydown will choose the shortest unambiguous path it can find.**
+The shorthand works because there's only one way to get from `clients` to `issues`. **Querydown chooses the shortest path to many records of the table, as long as there's only one such path.**
 
 ### Related tables with single vs multiple records
 
-In our schema, the following query does not work. Let's see why
+A `#table` always means _many_ related records. Where the schema allows only one related record, it's an error.
 
 > Attempt to show the number of projects associated with each issue
 
-```qd
-#issues $title $#projects // ERROR!
+```qd error
+#issues $title $#projects
 ```
 
-This query gives an error because the schema only permits each issue to have _one_ project (not multiple).
-
-To reach the _single_ related project, use a [column name chain](#single-related-records-via-column-name-chains) instead:
+Each issue has just one project, so there's nothing to count. To reach the _single_ related project, use a [column name chain](#single-related-records-via-column-name-chains) instead:
 
 > Show the project name for each issue
 
@@ -1432,29 +1427,27 @@ _(A `>>projects` syntax, for referencing a single related record by its table na
 
 ### Ambiguous paths
 
-If the related table can be joined via multiple routes which tie as being the shortest path, then Querydown will throw an error.
+If more than one path to the related table ties for being the shortest, the `#table` is ambiguous, and the compiler reports an error.
 
-> Attempt to display the number of users associated with each issue.
+> Attempt to show the number of users associated with each issue
 
+```qd error
+#issues $id $title $#users
 ```
-#issues $id $title $#users // ERROR!
-```
 
-This doesn't work because the relationship graph has more than one path to reach _"multiple `users` records"_ which ties for being the shortest path. From `issues`, we can find _"multiple `users` records"_ either through the `assignments` table or through the `comments` table. Both paths require one extra hop between `issues` and `users`, so the paths are the same length and the compiler doesn't know which one to choose.
+From `issues`, there are two ways to reach _many_ `users` records: through the `assignments` table, and through the `comments` table. Each takes one table in between, so neither is shorter, and the compiler can't choose for you. (The `author` column leads from an issue to a user too, but only to [one](#related-tables-with-single-vs-multiple-records).)
 
-This works:
+Name the table in between to say which you mean.
 
 > The number of users _who are assigned_ to each issue
 
-```
+```qd
 #issues $id $title $#assignments.#users
 ```
 
-This also works:
+> The number of distinct users _who have commented_ on each issue
 
-> The number of unique users _who have commented_ on each issue
-
-```
+```qd
 #issues $id $title $#comments.#users.id%distinct
 ```
 
@@ -1494,8 +1487,8 @@ A table without such a foreign key can't lead back to itself this way:
 
 > Attempt to show, for each user, the number of "related" users
 
-```qd
-#users $* $#users // ERROR!
+```qd error
+#users $* $#users
 ```
 
 There are many ways to get from one user to other users: the same team, the same issues, and so on. Name a table in between to say which one you mean:
@@ -1534,7 +1527,7 @@ Without `(duplicate_of)`, `#labels.#issues` would end at the issues that share a
 
 ## Pipeline of multiple queries
 
-A query can be split into multiple **stages** separated by `~~~`. Each stage operates on the result of the previous stage instead of on a table from the schema. This lets you do things that a single query can't, such as filtering or aggregating the result of an earlier aggregation.
+A query can have several **stages**, separated by `~~~`. Each stage reads the result of the stage before it, instead of a table from the schema. This lets you do what a single query can't, such as filtering or aggregating the result of an earlier aggregation.
 
 > For each project, count the number of months in which at least 10 issues were created
 
@@ -1549,17 +1542,17 @@ Each stage is compiled to an SQL [common table expression](https://www.postgresq
 - A result column with an alias (e.g. `-> issue_count`) is referenced in the next stage by that alias.
 - A result column that is a plain column reference (e.g. `$project`) keeps its column name.
 
-The above query compiles to roughly:
+The query above compiles to:
 
-```sql
+```sql output
 WITH
   "pipe0" AS (
     SELECT
       "issues"."project" AS "project",
-      -- ...the year/month expression...
+      to_char("issues"."created_at", 'YYYY-MM') AS "column_2",
       count(*) AS "issue_count"
     FROM "issues"
-    GROUP BY -- ...
+    GROUP BY "issues"."project", to_char("issues"."created_at", 'YYYY-MM')
   )
 SELECT
   "pipe0"."project",
@@ -1570,7 +1563,7 @@ WHERE
 GROUP BY "pipe0"."project";
 ```
 
-Notes:
+A few things to know:
 
 - A stage's output columns become plain columns of the next stage's base table. They have no relationships, so you can reference them directly but cannot traverse to related records from them. Using a path like `#comments` in a later stage is an error: compute what you need from related records in the first stage, and output it as a column.
 - The intermediate columns are mostly untyped. As a result, the match operator (`:`) compares them using exact equality rather than type-aware matching (e.g. case-insensitive "contains" for text).
@@ -1580,7 +1573,7 @@ Notes:
 
 ## Union of multiple queries
 
-The `+++` operator performs an SQL `UNION ALL`, appending the results of one query to the results of another.
+The `+++` operator appends the results of one query to the results of another, like SQL's `UNION ALL`.
 
 > List all the issues related to issue 1234, along with the way in which they are related
 
@@ -1608,7 +1601,7 @@ $*(created_at \s)
 
 Each query in a union has its own base table, conditions, and result columns. The definitions written before the first query (constants, functions, user-defined tables, and so on) are available to all of them.
 
-Notes:
+A few things to know:
 
 - Each query in a union must have the same number of result columns, and the types of the columns must be compatible across the queries.
 - Column names are taken from the last query in a union. Where the last query leaves a column unnamed (a computed column without an alias, e.g. `$title|length`), the first query's name for that column is used instead.
@@ -1692,7 +1685,7 @@ stage and filter it as a plain column in the next stage:
 rn:1 $id $title $project
 ```
 
-### Limitations
+### Window function limitations
 
 - There is no syntax for an explicit **frame clause** (`ROWS`/`RANGE BETWEEN …`); windows use each
   function's SQL default frame. Note in particular that `last_value` and `nth_value` use the default
@@ -1709,7 +1702,11 @@ rn:1 $id $title $project
 
 ## Variables
 
+Definitions give names to values, computations, conditions, and whole queries. They all go at the start, before the base table, and the query after them can use what they define. An application that embeds Querydown can also supply definitions of its own ahead of each query.
+
 ### User-defined constants
+
+A constant names a value, which you can then use as `@name` anywhere in the query.
 
 > Show the issues created by user 1234
 
@@ -1718,9 +1715,8 @@ rn:1 $id $title $project
 #issues author:@user_id
 ```
 
-A constant is defined before the base table with `@name = expr`. Its value is **inlined** into the
-generated SQL wherever the constant is referenced (as `@name`). A constant's definition may itself
-reference another constant.
+A constant is defined with `@name = expr`. Its value is **inlined** into the generated SQL wherever
+you refer to it. A constant's definition can refer to constants defined before it.
 
 A constant stands for its value, so a value with a special meaning keeps that meaning when it
 arrives through a constant:
@@ -1744,9 +1740,8 @@ search terms: `#issues @statuses` finds the issues that mention "open" or "reope
 
 ### Defining a constant using the result of a query
 
-A constant may be defined as a `#( ... )` subquery whose inner query produces a single value. The
-subquery is **inlined** as a parenthesized scalar subquery (e.g. `(SELECT … )`) wherever the constant
-is referenced.
+A constant can hold the result of a query that produces a single value. Write the query within
+`#( )`.
 
 > Find issues created after the most recent comment was created
 
@@ -1755,12 +1750,15 @@ is referenced.
 #issues created_at:>@date_of_latest_comment
 ```
 
+The query is inlined as a scalar subquery (`(SELECT … )`) wherever you refer to the constant.
+
 ### Computed columns
 
-Computed columns let you define a named expression, scoped to a table, before the query. You can
-then reference it by name like a real column — in result columns, conditions, and even within the
-definitions of later computed columns. Definitions must come before the base table; they cannot
-appear within the query itself.
+A computed column is a named expression that belongs to a table. Once you define it, with
+`#table.name = expr`, you can use it by name like a real column of that table: in result columns,
+in conditions, and in the definitions of later computed columns.
+
+> Show each user, along with whether they are old enough to buy alcohol
 
 ```qd
 #users.age = birth_date|age|years|floor
@@ -1792,16 +1790,18 @@ functions before the aggregate function: see
 
 ### User-defined functions
 
-> Given a fiscal year which begins on February 1st, find issues that were opened in fiscal-year 2020 and marked due in 2021
+A function names a computation, which you can then apply to different values.
+
+> Given a fiscal year that begins on February 1st, find issues that were opened in fiscal year 2020 and are due in fiscal year 2021
 
 ```qd
 @@fiscal_year = @date => (@date - 1m)|year
 #issues created_at|fiscal_year:2020 due_date|fiscal_year:2021
 ```
 
-A function is defined before the base table with `@@name = @param1 @param2 => body`. It behaves like
-a built-in scalar function: it can be applied via a pipe (`value|name`) or with extra arguments
-(`value|name(extra)`), where the piped-in value becomes the first argument. When applied, the
+A function is defined with `@@name = @param1 @param2 => body`. It behaves like a built-in scalar
+function: you can apply it with a pipe (`value|name`), possibly with more arguments
+(`value|name(extra)`), where the piped-in value is the first argument. When applied, the
 arguments are bound to the parameters and the body is **inlined** into the generated SQL. (Built-in
 functions take precedence over a user-defined function of the same name.)
 
@@ -1832,6 +1832,8 @@ An argument that doesn't refer to its record, such as a literal, can be used any
 
 ### Function with multiple parameters
 
+A function can take several parameters, separated by spaces.
+
 > Show each issue's title along with the number of days until it's due, clamped between 0 and 30
 
 ```qd
@@ -1839,16 +1841,18 @@ An argument that doesn't refer to its record, such as a literal, can be used any
 #issues $title $due_date|countdown|days|clamp(0 30)
 ```
 
-- Parameters are separated by spaces, as are arguments.
+- Arguments are separated by spaces too.
 - The piped-in value (`due_date|countdown|days`) is bound to the first parameter (`@value`), and the parenthesized arguments are bound to the rest, in order (`@low` = `0`, `@high` = `30`).
 - The function can also be [called](#function-calling) without a pipe, passing all arguments in parentheses: `$@@clamp(due_date|countdown|days 0 30)`.
 - The number of arguments must match the number of parameters, otherwise the compiler reports an error.
 
 ### Function containing an assignment
 
-A function body may contain local assignments (`@name = expr`) before its final result expression.
-The assignments and the result expression may reference the function's parameters as well as earlier
-assignments.
+A function's body can begin with local assignments (`@name = expr`), which name intermediate
+values for the final expression to use. Each one can refer to the function's parameters and to the
+assignments before it.
+
+> Count the users of each generation
 
 ```qd
 @@generation = @birth_date =>
@@ -1866,39 +1870,43 @@ assignments.
 #users $birth_date|generation \g $%count
 ```
 
-### Custom Comparisons
+### Custom comparisons
 
-> Find issues that have a comment containing the word "workaround".
+A custom comparison gives a meaning to comparing a made-up name against a value. You use the name like a column on the left of a comparison, and it expands to conditions of your choosing.
 
-```
+> Find issues that have a comment containing the word "workaround"
+
+```qd
 #issues.comment:@x = ++#comments{body:@x}
 
 #issues comment:workaround
 ```
 
-One use case here is that an application incorporating Querydown might provide its own custom comparisons as a convenience for users.
+A custom comparison is defined with `#table.name:@parameter = condition`. An application that embeds Querydown might define some ahead of each query, as a convenience for its users.
 
-Assuming that `#issues.comment` is already defined as stated above, and is prepended before a query runs, then we can also do a similar query using a regex like this:
+If the definition uses the match operator (`:`), and every comparison within it does too, then you can use the custom comparison with any other operator, which takes the place of each `:`.
 
-```
+> Find issues that have a comment matching a regular expression
+
+```qd
+#issues.comment:@x = ++#comments{body:@x}
+
 #issues comment:~"work[ -]?around"
 ```
 
-This works because if the custom comparison is defined using the match operator (`:`) and all comparisons performed within the definition also use the match operator, then we can switch the comparison operator when calling the custom comparison.
+> Find issues that have a comment exactly equal to "+1"
 
-Similarly, we can do:
+```qd
+#issues.comment:@x = ++#comments{body:@x}
 
-> Find all issues that contain a comment exactly equal to the string "+1"
-
-```
 #issues comment:="+1"
 ```
 
-If the custom comparison is defined with any comparisons that are not just `:`, then the comparison must always be called exactly as it was defined.
+If the definition uses any other operator, then the custom comparison must be used exactly as it was defined.
 
-> Find all issues where the user having the exact username "david" has commented, authored, or been assigned.
+> Find issues that the user with the exact username "david" has commented on, authored, or been assigned to
 
-```
+```qd
 #issues.participant:@x = [
   ++#comments{user.username:=@x}
   ++#assignments{user.username:=@x}
@@ -1908,7 +1916,7 @@ If the custom comparison is defined with any comparisons that are not just `:`, 
 #issues participant:david
 ```
 
-With this definition, attempting to call `participant:~"david"` will fail.
+With this definition, `participant:~"david"` is an error.
 
 A few more things to know:
 
@@ -1924,24 +1932,26 @@ A few more things to know:
 
 ### Linked record comparisons
 
-Normally, comparing against a linked record requires naming a column on that record. For example, to
-find issues authored by "alice" you'd reach through the `author` link to the `username` column:
+A linked record comparison defines what it means to compare a link to a table's records against a
+value, so that you don't have to name a column of the linked record.
 
-```
+Normally, to find issues authored by "alice", you reach through the `author` link to the `username`
+column:
+
+```qd
 #issues author.username:alice
 ```
 
-You can make this more succinct and intuitive by defining a `__querydown_linked_record_comparison`
-custom comparison on the linked table. This special [custom comparison](#custom-comparisons) supplies
-the meaning of comparing directly against one of that table's records.
+To make `author:alice` mean the same thing, define a [custom comparison](#custom-comparisons) named
+`__querydown_linked_record_comparison` on the linked table.
 
-```
+```qd
 #users.__querydown_linked_record_comparison:@x = username:@x
 
 #issues author:alice
 ```
 
-With this definition in place, `author:alice` means exactly the same thing as
+With this definition, `author:alice` means exactly the same thing as
 `author.username:alice`. It works for any to-one link that lands on the `users` table, including
 multi-hop chains such as `duplicate_of.author:alice`.
 
@@ -1950,14 +1960,15 @@ here too. If the body uses only the match operator (`:`), the comparison can be 
 switched operator](#custom-comparisons), so `author:=alice` and `author:~"^al"` both work. The body
 can also be any expression — for instance, matching on either of two columns:
 
-```
+```qd
 #users.__querydown_linked_record_comparison:@x = [username:@x email:@x]
 
 #issues author:alice
 ```
 
-An application incorporating Querydown might prepend these definitions for its users as a convenience,
-so that comparing against a linked record "just works" without needing to know which column to match.
+An application that embeds Querydown might supply these definitions ahead of each query, so that
+comparing against a linked record just works, without its users needing to know which column to
+match.
 
 Once a linked record comparison is defined for a table, it applies to **every** comparison made
 directly against a link to that table. That includes comparisons that would otherwise have compared
@@ -1965,7 +1976,9 @@ the foreign key itself: with the definition above, `author:5` no longer finds th
 `author` column is 5, because it now compares the author's username. To compare the key, name the
 column it refers to:
 
-```
+```qd
+#users.__querydown_linked_record_comparison:@x = username:@x
+
 #issues author.id:5
 ```
 
@@ -1975,12 +1988,8 @@ username.
 
 ### User-defined tables
 
-A user-defined table is defined before the base table with `#name = #( query )`. It names a
-subquery, which compiles to a CTE. The name can then be used as the base table of the query — or of a
-later user-defined table. Each user-defined table's output columns become the columns available
-wherever it is used as a base table. As with the result of a [pipeline](#pipeline-of-multiple-queries)
-stage, those columns have no relationships, and only the dates, datetimes, and durations among them
-keep their types.
+A user-defined table names a query, whose results you can then query as if they were a table. It's
+defined with `#name = #( query )`.
 
 > For each project, count the number of months in which at least 10 issues were created
 
@@ -1991,13 +2000,21 @@ keep their types.
 #project_months issue_count:>=10 $project \g $%count
 ```
 
+- The name can be the base table of the query, or of a later user-defined table.
+- The result columns of the inner query are the columns of the table.
+- As with the result of a [pipeline](#pipeline-of-multiple-queries) stage, those columns have no
+  relationships, and only the dates, datetimes, and durations among them keep their types.
+- A user-defined table compiles to a common table expression (CTE).
+
 ## Annotations
+
+Annotations attach data of your own to a query. Querydown doesn't interpret them. It passes them through to the application, alongside the SQL, for the application to use as it sees fit: for column widths, number formats, a choice of chart, and so on.
 
 ### Column-level annotations
 
-You can associate arbitrary, application-defined annotations with any result column by writing an object prefixed with a `@` sigil. The annotation must come **last** in the column spec — after any sorting/grouping flags and after the column alias.
+To annotate a result column, write an object prefixed with a `@` sigil **last** in the column, after any flags and alias.
 
-> Show several columns from the `issues` table, attaching display annotations to each.
+> Show several columns of each issue, with a display annotation on each
 
 ```qd
 #issues
@@ -2009,9 +2026,10 @@ $#comments @{formattingConditions:[
   {gte:5 bg:'#d5d2ff'}
 ]}
 ```
-In addition to the query SQL, this also produces the following annotations:
 
-```json
+Along with the SQL, compiling this query produces these annotations:
+
+```json output
 {
   "columnAnnotations": [
     { "width": 100 },
@@ -2027,7 +2045,7 @@ In addition to the query SQL, this also produces the following annotations:
 }
 ```
 
-The exact structure of the annotation is entirely up to you. Querydown does not interpret it — it only provides a way to specify arbitrary annotations for any column and pass them through to the output.
+The structure of an annotation is entirely up to you (or to the application you're writing queries for).
 
 #### The annotation output
 
@@ -2060,17 +2078,17 @@ A few things to watch out for:
 
 ### Query-level annotations
 
-You can also associate an annotation with the query as a whole, by writing an object prefixed with `\\\` at the very **end** of the query — after the result columns, and after the last stage of a [pipeline](#pipeline-of-multiple-queries).
+To annotate the query as a whole, write an object prefixed with `\\\` at the very **end** of the query, after the result columns, and after the last stage of a [pipeline](#pipeline-of-multiple-queries).
 
-> Show all issues. Also associate `{"foo": 100}` as a JSON annotation with the query. This annotation will get passed through as output from the Querydown compiler, separate from the SQL output.
+> Show all issues, and annotate the query with `{"foo": 100}`
 
 ```qd
 #issues \\\{"foo": 100}
 ```
 
-In addition to the query SQL, this also produces the following annotation:
+Along with the SQL, compiling this query produces this annotation:
 
-```json
+```json output
 {
   "queryAnnotation": { "foo": 100 }
 }
@@ -2097,26 +2115,26 @@ A few rules:
 
 ## Limit and offset
 
-Limits and offsets are specified as options to the Querydown compiler, not written in the query. This gives pagination control to the _application_ instead of the query author: the same query can be compiled once per page, and an end-user can't write a query that fetches more rows than the application allows.
+There's no syntax for limiting the number of rows. Limits and offsets are options to the compiler instead. That leaves pagination to the _application_ rather than to the query's author: the same query can be compiled once for each page, and nobody can write a query that fetches more rows than the application allows.
 
 | Option   | SQL      | Effect                                           |
 | -------- | -------- | ------------------------------------------------ |
 | `limit`  | `LIMIT`  | The maximum number of rows to return             |
 | `offset` | `OFFSET` | The number of rows to skip before returning any  |
 
-Both are optional non-negative integers, and either may be used without the other. Each consumer of the compiler exposes them in its own way:
+Both are optional non-negative integers, and you can use either without the other. How you pass them depends on how you run the compiler:
 
-- Rust: the `limit` and `offset` fields of `Options` (each an `Option<u64>`)
-- JavaScript: an options object passed as the last argument to `compile` or `compile_sections`, e.g. `compile(schema, "postgres", query, { limit: 50, offset: 100 })`
-- CLI: `querydown compile --limit 50 --offset 100 …`
+- [Rust](./setup/rust.md#options): the `limit` and `offset` fields of `Options`
+- [JavaScript](./setup/javascript.md#compile): an options object as the last argument to `compile` or `compile_sections`, e.g. `compile(schema, "postgres", query, { limit: 50, offset: 100 })`
+- [CLI](./setup/cli.md#compile-a-query): `querydown compile --limit 50 --offset 100 …`
 
-> With a limit of `50` and an offset of `100`, the third page of issues, oldest first:
+> With a limit of `50` and an offset of `100`, the third page of issues, oldest first
 
-```qd
+```qd limit=50 offset=100
 #issues \\created_at \\id $title
 ```
 
-```sql
+```sql output
 SELECT
   "issues"."title"
 FROM "issues"
@@ -2133,12 +2151,15 @@ A few things to keep in mind:
 - Because all [joined data is aggregated](#mandatory-aggregation) with respect to the base table, the limit counts rows of the result (base table rows, or groups when [grouping](#grouping-and-aggregation)), never related records.
 - Without sorting, a database is free to return rows in any order, so pages may overlap or skip rows. To paginate reliably, sort on something unique, such as the primary key (e.g. `\\id` as the last sorting expression).
 
-## Things you can't do (yet?)
+## What you can't do
 
-- Join on arbitrary columns
-- Inequality joins
-- Lots of functions missing!
-- Data series generation (e.g. number of issues opened each month, showing rows for months with zero issues opened)
-- Hierarchical data traversal
+Querydown doesn't try to cover all of SQL. Here are some things it can't express, at least for now:
 
+- Anything but reading data. Querydown compiles to `SELECT` queries only.
+- Joins on arbitrary columns, or on anything but equality. Tables are related only through the links in the schema that the compiler is given.
+- Results with more rows than the base table has, since [related data is always aggregated](#mandatory-aggregation).
+- Generated series of data, e.g. the number of issues opened each month, with a row for each month in which none were.
+- Traversal of hierarchies of any depth, which SQL does with recursive CTEs.
+- Many functions. The [list of built-in functions](./functions.md) is still short.
 
+The home page has a fuller account of [what Querydown isn't for](../site/content/home.md#limitations).

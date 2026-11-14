@@ -1,7 +1,6 @@
--- Typed, empty table definitions for the "issues" schema, mirroring issue_schema.json (column
--- names) and issue_schema.dbml (column types). Used by the `db-tests` feature to run compiled
--- corpus SQL against real Postgres and DuckDB. Written in SQL that both engines accept; keep this
--- in sync with issue_schema.json when columns change.
+-- Typed, empty table definitions for the "issues" schema, mirroring issue_schema.json. Used by the
+-- `db-tests` feature to run compiled corpus SQL against real Postgres and DuckDB. Written in SQL
+-- that both engines accept; keep this in sync with issue_schema.json when columns change.
 
 CREATE TABLE "users" (
   "id" integer,

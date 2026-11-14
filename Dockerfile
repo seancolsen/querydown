@@ -15,7 +15,8 @@ ARG USERNAME=dev
 ARG USER_UID=1000
 ARG USER_GID=1000
 
-# System packages + Node.js 20 (needed for the site and for Claude Code).
+# System packages + Node.js 24 (needed for the site, which requires 22.17 or later, and for Claude
+# Code).
 #
 # `postgresql` backs the `db-tests` feature, which runs the compiled corpus SQL against real
 # databases (see DEVELOPMENT.md). The Postgres binaries land under /usr/lib/postgresql/<ver>/bin;
@@ -31,7 +32,7 @@ RUN apt-get update \
         unzip \
         postgresql \
     && ln -sf /usr/lib/postgresql/*/bin/* /usr/local/bin/ \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
@@ -40,8 +41,8 @@ RUN rustup component add clippy rustfmt \
     && rustup target add wasm32-unknown-unknown \
     && curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
 
-# Claude Code CLI and doctoc (regenerates the docs tables of contents — see DEVELOPMENT.md).
-RUN npm install -g @anthropic-ai/claude-code doctoc
+# Claude Code CLI.
+RUN npm install -g @anthropic-ai/claude-code
 
 # Playwright drives headless Chromium for the CodeMirror package's visual tests
 # (bindings/codemirror; see DEVELOPMENT.md). Keep this in step with the exact `@playwright/test`

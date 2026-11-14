@@ -1,6 +1,6 @@
 //! Runs every corpus case's compiled SQL against real Postgres and DuckDB databases to catch SQL
 //! syntax and query-planning bugs that the string-comparison corpus test ([`super::corpus`])
-//! can't.
+//! can't. The examples in the documentation ([`super::docs_examples`]) get the same treatment.
 //!
 //! Gated behind the `db-tests` cargo feature. Postgres requires the `postgres` binaries on PATH
 //! (the dev container provides them — see DEVELOPMENT.md); DuckDB is compiled and statically linked
@@ -24,6 +24,7 @@ use testcase_markdown::TestCase;
 use super::corpus_loader::{
     build_case_options, has_soloed, is_skipped, is_soloed, load_cases, report, Opts,
 };
+use super::docs_examples::{self, DocExample, Expectation};
 use super::{get_test_resource, get_test_resource_path};
 use crate::Compiler;
 
@@ -61,6 +62,22 @@ fn test_db_corpus() {
         }
     }
 
+    // The documentation's examples run here too, rather than in a test of their own, so that they
+    // share this test's database servers.
+    if !has_soloed_tests {
+        for example in docs_examples::load_examples() {
+            if example.expectation != Expectation::Compiles {
+                continue;
+            }
+            for dialect in docs_examples::DIALECTS {
+                if let Err(message) = check_docs_example(&env, &example, dialect) {
+                    println!("{message}");
+                    failures += 1;
+                }
+            }
+        }
+    }
+
     // Stop the server and clean up before asserting, so a failure doesn't leak the process or the
     // temp directory. (Drop would also handle it during unwind, but this keeps the ordering clear.)
     drop(env);
@@ -68,6 +85,28 @@ fn test_db_corpus() {
     if failures > 0 {
         panic!("{failures} DB corpus failure(s). See output above.");
     }
+}
+
+/// Compiles a documentation example under `dialect` and validates the resulting SQL against that
+/// engine. An example that doesn't compile is reported by [`docs_examples`]'s own test, so it's
+/// passed over here.
+fn check_docs_example(env: &TestEnv, example: &DocExample, dialect: &str) -> Result<(), String> {
+    let Ok(result) = example.compile(dialect) else {
+        return Ok(());
+    };
+    let outcome = match dialect {
+        "postgres" => env.explain_postgres(&result.sql),
+        "duckdb" => env.explain_duckdb(&result.sql),
+        other => panic!("Unknown dialect: {other}"),
+    };
+    outcome.map_err(|db_error| {
+        format!(
+            "\n── {} ({dialect}) ──\nThe database rejects this documentation example.\n\n{}\n\n{}\n\n{db_error}\n",
+            example.location(),
+            example.source,
+            result.sql,
+        )
+    })
 }
 
 /// Compiles a case under `dialect` and validates the resulting SQL against that engine, returning a

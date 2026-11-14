@@ -1,0 +1,457 @@
+/*
+ * Global styles: the design tokens, the base typography, and the styles for content rendered from
+ * Markdown (which components can't scope, because that HTML arrives as a string).
+ *
+ * Colors are defined once, with `light-dark()`. The page follows the browser's color scheme unless
+ * the visitor chose a theme, which sets `data-theme` on the root element (see `app.html` and
+ * `lib/theme.svelte.ts`).
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: light-dark(#ffffff, #14161a);
+  --bg-subtle: light-dark(#f6f7f9, #1b1e23);
+  --bg-inset: light-dark(#eef0f3, #23272e);
+  --border: light-dark(#dfe2e7, #2d323a);
+  --border-strong: light-dark(#c4c9d1, #434a55);
+  --text: light-dark(#1b1d21, #e4e6ea);
+  --text-muted: light-dark(#5a6270, #9aa2ae);
+  --accent: light-dark(#0b5cad, #7db8ff);
+  --accent-subtle: light-dark(#e9f2fc, #1a2a3f);
+  --danger: light-dark(#b42318, #ff8a80);
+  --danger-subtle: light-dark(#fdeceb, #3a1d1b);
+  --shadow: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.5));
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --header-height: 3.25rem;
+  --gutter: clamp(1rem, 4vw, 2rem);
+  --radius: 6px;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 100%;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--header-height) + 1rem);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A plain button that shows an icon. */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--bg-inset);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.icon-button svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * Content rendered from Markdown
+ * ---------------------------------------------------------------------------------------------- */
+
+.prose {
+  overflow-wrap: break-word;
+}
+
+.prose:first-child > :first-child {
+  margin-top: 0;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  line-height: 1.25;
+  font-weight: 650;
+  text-wrap: balance;
+}
+
+.prose h1 {
+  font-size: 2rem;
+  margin: 0 0 1rem;
+  letter-spacing: -0.01em;
+}
+
+.prose h2 {
+  font-size: 1.5rem;
+  margin: 3rem 0 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.prose h3 {
+  font-size: 1.2rem;
+  margin: 2.5rem 0 0.75rem;
+}
+
+.prose h4 {
+  font-size: 1rem;
+  margin: 2rem 0 0.5rem;
+}
+
+.prose h2 + h3 {
+  margin-top: 1.5rem;
+}
+
+.prose :is(h1, h2, h3, h4) code {
+  font-size: 0.9em;
+}
+
+.prose .heading-anchor {
+  margin-left: 0.4em;
+  color: var(--text-muted);
+  font-weight: 400;
+  opacity: 0;
+}
+
+.prose :is(h2, h3, h4):hover .heading-anchor,
+.prose .heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.prose p,
+.prose ul,
+.prose ol,
+.prose table,
+.prose blockquote {
+  margin: 0 0 1rem;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.5rem;
+}
+
+.prose li {
+  margin: 0.25rem 0;
+}
+
+.prose li > p {
+  margin: 0.5rem 0;
+}
+
+.prose li > ul,
+.prose li > ol {
+  margin: 0.25rem 0;
+}
+
+.prose a {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 0.15em;
+}
+
+.prose a:hover {
+  text-decoration-color: currentColor;
+}
+
+.prose :not(pre) > code {
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: var(--bg-inset);
+  white-space: break-spaces;
+}
+
+.prose a > code {
+  color: inherit;
+}
+
+.prose kbd {
+  padding: 0.1em 0.4em;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+}
+
+.prose hr {
+  margin: 2.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.prose blockquote {
+  padding: 0.1rem 0 0.1rem 1rem;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+.prose blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.prose .table-wrap {
+  margin: 0 0 1rem;
+  overflow-x: auto;
+}
+
+.prose table {
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.prose th,
+.prose td {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  background: var(--bg-subtle);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Code blocks */
+
+.code-block {
+  position: relative;
+  margin: 0 0 1rem;
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.code-block pre code {
+  font-size: inherit;
+}
+
+.code-actions {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: flex;
+  gap: 0.15rem;
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  opacity: 0.55;
+  transition: opacity 0.1s;
+}
+
+.code-block:hover .code-actions,
+.code-actions:focus-within {
+  opacity: 1;
+}
+
+.code-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.code-action:hover {
+  background: var(--bg-inset);
+  color: var(--text);
+}
+
+.code-action svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.code-action[data-copied] {
+  color: var(--accent);
+}
+
+.code-action[data-copied]::after {
+  content: 'Copied';
+  position: absolute;
+  right: 100%;
+  margin-right: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--bg-inset);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* Colors for the languages that Shiki highlights. Querydown's come from /querydown-theme.css. */
+.shiki span {
+  color: light-dark(var(--shiki-light), var(--shiki-dark));
+}
+
+/* Examples: a description, the Querydown, and what it compiles to. */
+
+.example {
+  margin: 0 0 1.25rem;
+}
+
+.example-caption {
+  margin: 0 0 0.4rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.example-caption > p {
+  margin: 0;
+}
+
+.example .code-block {
+  margin-bottom: 0;
+}
+
+.example-sql {
+  margin-top: -1px;
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  font-size: 0.875rem;
+}
+
+.example:has(.example-sql) .code-block pre {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.example-sql summary {
+  padding: 0.15rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.example-sql summary:hover {
+  color: var(--text);
+}
+
+.example-sql pre {
+  margin: 0;
+  padding: 0.5rem 1rem 0.85rem;
+  overflow-x: auto;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.example-sql pre code {
+  font-size: inherit;
+}
+
+.example-fails .code-block pre {
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.example-error {
+  margin: -1px 0 0 !important;
+  padding: 0.45rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--danger-subtle);
+  font-size: 0.875rem;
+}
+
+.example-error strong {
+  color: var(--danger);
+}
+
+.example-hint {
+  color: var(--text-muted);
+}

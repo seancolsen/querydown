@@ -1,21 +1,26 @@
-# Querydown functions
+# Functions
 
-Querydown provides a set of built-in functions in two flavors:
+This page lists every function built into Querydown, with an example of each.
 
-- **Scalar** functions operate within a single row and are applied with the `|` (pipe) operator.
-- **Aggregate** functions combine values across many related rows and are applied with the `%` operator.
+Functions come in three kinds:
 
-See **[Function piping](./language.md#function-piping)** for more on the syntax. In short:
+- **Scalar** functions work on the values of a single row. You apply them with the [pipe](./language.md#function-piping) `|`.
+- **[Aggregate](#aggregate-functions)** functions combine values from many rows. You apply them with `%`.
+- **[Window](#window-functions)** functions compute a value for each row from the rows around it. You apply them with `%` to a window, which you define with `%%( )`.
 
-- The value to the **left** of the pipe becomes the function's **first argument**.
-- Any **additional** arguments are supplied in parentheses, separated by **spaces** (not commas).
-- When a function takes only one argument, the parentheses may be omitted.
+> Show each issue's status and title together, with "unknown" in place of a missing status
 
 ```qd
-#issues $status|concat(": ")|if_null("")|concat(title)
+#issues $status|if_null("unknown")|concat(": " title)
 ```
 
-These examples use the [issue-tracker schema](./language.md#example-schema).
+- The value to the **left** of the pipe is the function's **first argument**.
+- Any **more** arguments go in parentheses after the function's name, separated by **spaces** (not commas).
+- A function that needs no more arguments takes no parentheses.
+
+You can also [call a function without a pipe](./language.md#function-calling), and [define functions](./language.md#user-defined-functions) of your own. The list of built-in functions is still short, and more will be added.
+
+The examples use the [sample issue-tracker schema](./sample-schema.md).
 
 ## General functions
 
@@ -195,7 +200,7 @@ Caps the value at an upper bound, returning the lesser of the piped value and th
 
 ### `max`
 
-Returns the greatest of all its arguments (the piped value plus any in parentheses), compiling to SQL `GREATEST`. This is a row-wise scalar function; for the aggregate version see [`max`](#max-1) below.
+Returns the greatest of all its arguments (the piped value plus any in parentheses), compiling to SQL `GREATEST`. This is the scalar function, which compares values within a row. To find the greatest value across rows, use the [aggregate `max`](#max-aggregate).
 
 ```qd
 #issues $title $due_date|countdown|days|max(0)
@@ -203,7 +208,7 @@ Returns the greatest of all its arguments (the piped value plus any in parenthes
 
 ### `min`
 
-Returns the least of all its arguments (the piped value plus any in parentheses), compiling to SQL `LEAST`. This is a row-wise scalar function; for the aggregate version see [`min`](#min-1) below.
+Returns the least of all its arguments (the piped value plus any in parentheses), compiling to SQL `LEAST`. This is the scalar function, which compares values within a row. To find the least value across rows, use the [aggregate `min`](#min-aggregate).
 
 ```qd
 #issues $title $due_date|countdown|days|min(0)
@@ -241,7 +246,7 @@ Hashes a value deterministically to a floating-point number between 0 and 1. Use
 #users $email|unit_hash
 ```
 
-## Date & time functions
+## Date and time functions
 
 ### `age`
 
@@ -336,7 +341,15 @@ Converts an interval into a number of seconds, compiling to `EXTRACT(epoch FROM 
 
 ## Aggregate functions
 
-Aggregate functions are applied with `%` and combine values across many related rows. They may be applied to a **column path** (optionally reaching across a to-many relationship), or to a [value computed from that column](./language.md#aggregating-a-computed-value) by piping it through scalar functions first, e.g. `#comments.body|length%avg`. They can't be applied to any other kind of expression, such as `(#issues.estimate * 2)%sum`. See [Specifying an aggregate function](./language.md#specifying-an-aggregate-function) for more.
+Aggregate functions combine values from many rows into one, and are applied with `%`. The rows are either the [related records](./language.md#specifying-an-aggregate-function) reached by a `#table` path, or the rows of each group in a [grouped query](./language.md#grouping-and-aggregation).
+
+> For each project, show the number of issues and the date of the most recent one
+
+```qd
+#projects $name $#issues $#issues.created_at%max
+```
+
+An aggregate function is applied to a **column**, or to a [value computed from a column](./language.md#aggregating-a-computed-value) by piping it through scalar functions first, e.g. `#comments.body|length%avg`. It can't be applied to any other kind of expression, such as `(#issues.id * 2)%sum`.
 
 Where the descriptions below say "the values of a column", that includes such computed values.
 
@@ -372,17 +385,17 @@ Averages the values of a numeric column, compiling to SQL `avg`.
 #projects $name $#issues.id%avg
 ```
 
-### `max`
+### `max` (aggregate)
 
-Returns the largest value of a column, compiling to SQL `max`. This is the aggregate version; for the row-wise scalar version see [`max`](#max) above.
+Returns the largest value of a column, compiling to SQL `max`. To compare values within a row instead, use the [scalar `max`](#max).
 
 ```qd
 #projects $name $#issues.created_at%max // date of the most recent issue
 ```
 
-### `min`
+### `min` (aggregate)
 
-Returns the smallest value of a column, compiling to SQL `min`. This is the aggregate version; for the row-wise scalar version see [`min`](#min) above.
+Returns the smallest value of a column, compiling to SQL `min`. To compare values within a row instead, use the [scalar `min`](#min).
 
 ```qd
 #projects $name $#issues.created_at%min // date of the oldest issue
@@ -396,12 +409,24 @@ Collects the distinct values of a column into an array, compiling to SQL `array_
 #projects $name $#issues.title%list
 ```
 
-Sort the list by attaching sorting entries in parentheses (see [Sorting within an aggregate function](./language.md#sorting-within-an-aggregate-function)). Because `list` removes duplicates, each entry must sort either by the listed value itself (`\s`, `\sd`, …) or by an aggregated sorting expression that summarizes the records sharing each value (see [Sorting distinct values](./language.md#sorting-distinct-values)):
+To sort the list, put [sorting entries](./language.md#sorting-within-an-aggregate-function) in parentheses. Because `list` removes duplicates, each entry must sort either by the listed value itself (`\s`, `\sd`, …) or by an [aggregated sorting expression](./language.md#sorting-distinct-values), which summarizes the records that share each value.
+
+> For each project, list its issue titles in reverse alphabetical order
 
 ```qd
-#projects $name $#issues.title%list(\sd) // reverse alphabetical
-#issues $title $#comments.user.username%list(\\created_at%min) // in order of first comment
-#issues $title $#comments.user.username%list(\\%count \d \s) // most frequent commenter first
+#projects $name $#issues.title%list(\sd)
+```
+
+> For each issue, list the users who commented on it, in the order of their first comments
+
+```qd
+#issues $title $#comments.user.username%list(\\created_at%min)
+```
+
+> For each issue, list the users who commented on it, most frequent commenter first
+
+```qd
+#issues $title $#comments.user.username%list(\\%count \d \s)
 ```
 
 Sorting `list` by a per-record expression, such as `\\created_at`, is an error. Use [`list_all`](#list_all) for that.
@@ -416,18 +441,32 @@ Collects the values of a column into an array without removing duplicates, compi
 
 Unlike `list`, `list_all` may be sorted by any expression, including per-record ones, since it doesn't need to reconcile duplicates:
 
+> For each issue, list the username of each comment's author, oldest comment first
+
 ```qd
-#issues $title $#comments.user.username%list_all(\\created_at) // one entry per comment, oldest first
+#issues $title $#comments.user.username%list_all(\\created_at)
 ```
 
 ### `top`
 
 Collects the distinct values of a column that tie for first place under its sorting entries, as an array. Sorting entries work just as they do for [`list`](#list), but at least one is required, since they decide what comes first. Ties are values that tie on _every_ sorting entry, so adding a tiebreaker (such as `\s`) leaves a single value. The tied values are collected in ascending order.
 
+> For each issue, show the users who made the most comments on it
+
 ```qd
-#issues $title $#comments.user.username%top(\\%count \d) // the users who made the most comments
-#users $username $#comments.issue.title%top(\\created_at%max \d) // the issue(s) each user commented on most recently
-#projects $name $#issues.title%top(\sd) // the alphabetically last issue title
+#issues $title $#comments.user.username%top(\\%count \d)
+```
+
+> For each user, show the issue (or issues) that they commented on most recently
+
+```qd
+#users $username $#comments.issue.title%top(\\created_at%max \d)
+```
+
+> For each project, show the issue title that comes last alphabetically
+
+```qd
+#projects $name $#issues.title%top(\sd)
 ```
 
 See [Keeping only the top values](./language.md#keeping-only-the-top-values) for more. `top` is only supported for values from related records via a `#` path, not for a column of [grouped](./language.md#grouping-and-aggregation) records.
@@ -458,13 +497,13 @@ Multiplies the values of a numeric column together. DuckDB has a native `product
 
 ## Window functions
 
-Window functions compute a value across a set of rows related to the current row, without collapsing
-them. They are applied over a window definition with the `%%( … )%func` syntax — see [Window
-functions](./language.md#window-functions) in the language guide for the syntax, including how
-partitioning, ordering, and value arguments are written.
+Window functions compute a value for each row from a set of rows around it, without collapsing
+those rows into one. You apply them to a window, defined with `%%( )`, as in `%%( … )%func`. The
+language page explains [how to define a window](./language.md#window-functions): how to partition
+and order it, and how to pass arguments.
 
-The set below is restricted to functions that both Postgres and DuckDB support. Value arguments (the
-column to operate on, plus any extras) are written in parentheses after the function name.
+Arguments (the column to work on, and any others) go in parentheses after the function's name.
+These are the window functions that both PostgreSQL and DuckDB support.
 
 ### `row_number`
 
@@ -480,19 +519,35 @@ order. Takes no value argument. Compiles to SQL `row_number`.
 Ranks rows within the partition, leaving gaps after ties. Takes no value argument. Compiles to SQL
 `rank`.
 
+```qd
+#issues $id $%%(project\p created_at\s)%rank -> rank
+```
+
 ### `dense_rank`
 
 Like `rank`, but without gaps after ties. Takes no value argument. Compiles to SQL `dense_rank`.
+
+```qd
+#issues $id $%%(project\p created_at\s)%dense_rank -> rank
+```
 
 ### `percent_rank`
 
 The relative rank of a row as a value between 0 and 1. Takes no value argument. Compiles to SQL
 `percent_rank`.
 
+```qd
+#issues $id $%%(project\p created_at\s)%percent_rank -> percentile
+```
+
 ### `cume_dist`
 
-The cumulative distribution of a row within its partition. Takes no value argument. Compiles to SQL
-`cume_dist`.
+The cumulative distribution of a row within its partition: the fraction of rows that come at or
+before it. Takes no value argument. Compiles to SQL `cume_dist`.
+
+```qd
+#issues $id $%%(project\p created_at\s)%cume_dist -> fraction
+```
 
 ### `ntile`
 
@@ -517,26 +572,43 @@ Compiles to SQL `lag`.
 
 Like `lag`, but reads from a row *after* the current row. Compiles to SQL `lead`.
 
+```qd
+#issues $id $%%(project\p created_at\s)%lead(status) -> next_status
+```
+
 ### `first_value`
 
 Returns the value of the given column from the first row of the window frame. Compiles to SQL
 `first_value`.
 
+```qd
+#issues $id $%%(project\p created_at\s)%first_value(title) -> first_title
+```
+
 ### `last_value`
 
 Returns the value of the given column from the last row of the window frame. Compiles to SQL
-`last_value`. Note that the default frame ends at the current row.
+`last_value`. The default frame ends at the current row (and the rows that tie with it), so this is
+rarely the last row of the partition.
+
+```qd
+#issues $id $%%(project\p created_at\s)%last_value(title) -> latest_title
+```
 
 ### `nth_value`
 
 Returns the value of the given column from the nth row of the window frame. Arguments: the column and
 the position `n`. Compiles to SQL `nth_value`.
 
-### `count`, `sum`, `avg`, `min`, `max`
+```qd
+#issues $id $%%(project\p created_at\s)%nth_value(title 2) -> second_title
+```
 
-The standard aggregates can also be applied as window functions, producing a running or
-partition-wide value rather than collapsing rows. Each takes the column to aggregate; `count` may be
-used on its own (`%count`) to mean `count(*)`.
+### Aggregates as window functions
+
+The aggregate functions `count`, `sum`, `avg`, `min`, and `max` can be applied to a window too. They
+then give a running or partition-wide value for each row, instead of collapsing the rows. Each takes
+the column to aggregate as its argument, and `count` can be used on its own (`%count`) to count rows.
 
 ```qd
 #issues $id $%%(project\p created_at\s)%sum(id) -> running_total

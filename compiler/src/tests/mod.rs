@@ -12,6 +12,7 @@ mod db_regex_flags;
 mod default_text_search;
 mod definitions;
 mod determinism;
+pub(crate) mod docs_examples;
 mod equality_operators;
 mod error_robustness;
 mod errors;

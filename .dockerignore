@@ -4,5 +4,7 @@ target/
 **/target/
 site/node_modules/
 site/build/
+site/wasm/
+site/.svelte-kit/
 bindings/js/pkg/
 .git/

@@ -1,11 +1,20 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%sveltekit.assets%/favicon.ico" sizes="any" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="%sveltekit.assets%/favicon.ico" sizes="32x32" />
     <link rel="icon" href="%sveltekit.assets%/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width" />
+    <script>
+      // Apply a stored theme choice before the first paint, so the page doesn't flash. Without a
+      // stored choice there is no `data-theme` attribute, and the CSS follows the browser's setting.
+      try {
+        const theme = localStorage.getItem('theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

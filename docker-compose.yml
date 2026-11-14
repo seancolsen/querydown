@@ -1,4 +1,4 @@
-# Development/testing container for Querydown. See docs/docker-dev.md.
+# Development/testing container for Querydown. See DEVELOPMENT.md.
 #
 # Usage:
 #   docker compose build
