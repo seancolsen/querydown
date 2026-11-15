@@ -94,7 +94,7 @@ Words after `qd` on the opening line of the block change what's expected of the 
 | Opening line | Meaning |
 | -- | -- |
 | ```` ```qd ```` | The example must compile, for every dialect. |
-| ```` ```qd error ```` | The example must **fail** to compile. The site shows the compiler's actual error message beneath it, so don't write the message out, and don't mark the mistake with a comment. |
+| ```` ```qd error ```` | The example must **fail** to compile. The site underlines the part of the code that the error is about, and shows the compiler's actual error message beneath it (after "This query fails to compile."), so don't write the message out, and don't mark the mistake with a comment. Give the example a description that makes clear the failure is the point, such as "Attempt to show…". |
 | ```` ```qd fragment ```` | The code isn't a whole query, so it's only highlighted, and isn't tested. Use this rarely: prefer inline code for a piece of syntax. |
 | ```` ```qd limit=50 offset=100 ```` | The example is compiled with those [compiler options](./language.md#limit-and-offset). |
 

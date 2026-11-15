@@ -11,7 +11,7 @@ import { createHighlighter, type Highlighter } from 'shiki';
 
 import { darkPalette, lightPalette } from '../../../../bindings/codemirror/src/highlight';
 import type { TokenStyle } from '../../../../bindings/codemirror/src/highlight';
-import { tokenize } from './querydown';
+import { type SourceRange, tokenize } from './querydown';
 
 export function escapeHtml(text: string): string {
   return text
@@ -21,16 +21,51 @@ export function escapeHtml(text: string): string {
     .replaceAll('"', '&quot;');
 }
 
-/** Highlights Querydown source as HTML, with one `<span class="qd-KIND">` for each token. */
-export function highlightQuerydown(source: string): string {
-  let html = '';
+/**
+ * Highlights Querydown source as HTML, with one `<span class="qd-KIND">` for each token.
+ *
+ * With a `mark`, the part of the source that it covers (such as the part that an error is about)
+ * is also wrapped in a `<span class="qd-mark">`. Tokens that it starts or ends within are split in
+ * two, so that the elements nest. An empty mark is widened to one character, so there's something
+ * to see.
+ */
+export function highlightQuerydown(source: string, mark: SourceRange | null = null): string {
+  const pieces: { from: number; to: number; kind: string | null }[] = [];
   let position = 0;
   for (const token of tokenize(source, 'query')) {
-    html += escapeHtml(source.slice(position, token.from));
-    html += `<span class="qd-${token.kind}">${escapeHtml(source.slice(token.from, token.to))}</span>`;
+    if (token.from > position) pieces.push({ from: position, to: token.from, kind: null });
+    pieces.push({ from: token.from, to: token.to, kind: token.kind });
     position = token.to;
   }
-  return html + escapeHtml(source.slice(position));
+  if (position < source.length) pieces.push({ from: position, to: source.length, kind: null });
+
+  const [markFrom, markTo] = mark ? widen(mark, source.length) : [-1, -1];
+  const marked = (offset: number) => offset >= markFrom && offset < markTo;
+
+  let html = '';
+  let inMark = false;
+  for (const piece of pieces) {
+    // Split the piece where the mark starts and ends.
+    const cuts = [piece.from, markFrom, markTo, piece.to].filter(
+      (cut, index) => index === 0 || index === 3 || (cut > piece.from && cut < piece.to),
+    );
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      if (marked(cuts[i]) !== inMark) {
+        inMark = !inMark;
+        html += inMark ? '<span class="qd-mark">' : '</span>';
+      }
+      const text = escapeHtml(source.slice(cuts[i], cuts[i + 1]));
+      html += piece.kind ? `<span class="qd-${piece.kind}">${text}</span>` : text;
+    }
+  }
+  return inMark ? html + '</span>' : html;
+}
+
+/** A mark's bounds within source of the given length, widened to one character if it's empty. */
+function widen(mark: SourceRange, length: number): [number, number] {
+  const from = Math.min(mark.from, length);
+  const to = Math.min(Math.max(mark.to, from + 1), length);
+  return [Math.min(from, to), to];
 }
 
 const CSS_PROPERTIES: Record<keyof TokenStyle, string> = {

@@ -35,8 +35,21 @@ export interface CompileOptions {
   offset?: number;
 }
 
-export type CompileOutcome =
-  { ok: true; sql: string } | { ok: false; message: string; hint: string | null };
+/** A range of source text, in UTF-16 code units (as JavaScript strings index it). */
+export interface SourceRange {
+  from: number;
+  to: number;
+}
+
+/** Why an example doesn't compile. */
+export interface CompileFailure {
+  message: string;
+  hint: string | null;
+  /** The part of the example that the error is about, if the error has a location. */
+  span: SourceRange | null;
+}
+
+export type CompileOutcome = { ok: true; sql: string } | ({ ok: false } & CompileFailure);
 
 /** Compiles an example against the sample schema, for PostgreSQL. */
 export function compileExample(source: string, options: CompileOptions = {}): CompileOutcome {
@@ -44,7 +57,8 @@ export function compileExample(source: string, options: CompileOptions = {}): Co
     return { ok: true, sql: compile(sampleSchema(), 'postgres', source, options).sql };
   } catch (error) {
     if (!is_querydown_error(error)) throw error;
-    return { ok: false, message: error.reason, hint: error.hint };
+    const span = error.span && { from: error.span.start.offset, to: error.span.end.offset };
+    return { ok: false, message: error.reason, hint: error.hint, span };
   }
 }
 

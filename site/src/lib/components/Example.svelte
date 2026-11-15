@@ -3,7 +3,8 @@
 
   An example that compiles has a button that shows its SQL, which links to the playground. One that
   doesn't compile, or whose output the page shows itself, links to the playground directly. One
-  that's expected to fail shows its error beneath it.
+  that's expected to fail underlines the part of its code that the error is about, and explains
+  the error beneath it, in a way that shows the failure to be part of the lesson.
 -->
 <script lang="ts">
   import type { Example } from '#lib/content-types.ts';
@@ -52,7 +53,7 @@
 
   {#if error}
     <p class="error">
-      <strong>Error:</strong>
+      This query fails to compile.
       {@render message(error.message)}
       {#if error.hint}<span class="hint">{@render message(error.hint)}</span>{/if}
     </p>
@@ -130,8 +131,12 @@
     font-size: 0.875rem;
   }
 
-  .error strong {
-    color: var(--danger);
+  /* The part of the code that the error is about, as `highlightQuerydown` marks it. */
+  .example :global(.qd-mark) {
+    text-decoration: underline wavy var(--danger);
+    text-decoration-skip-ink: none;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
   }
 
   .hint {

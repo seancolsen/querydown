@@ -40,6 +40,7 @@ import { visit } from 'unist-util-visit';
 
 import type {
   Block,
+  ExampleError,
   Feature,
   RenderedMarkdown,
   SearchSection,
@@ -112,14 +113,15 @@ interface CompiledExample {
   /** What the example compiles to, unless it's a fragment. */
   sql: string | null;
   /** Why the example doesn't compile, if it's expected not to. */
-  error: { message: string; hint: string | null } | null;
+  error: ExampleError | null;
 }
 
 /** Highlights and compiles an example, checking that it compiles (or fails to) as it declares. */
 function compileCodeBlock(node: Code, context: RenderContext): CompiledExample {
   const flags = parseExampleFlags(node.meta, context);
-  const code = highlightQuerydown(node.value);
-  if (flags.fragment) return { code, playground: null, sql: null, error: null };
+  if (flags.fragment) {
+    return { code: highlightQuerydown(node.value), playground: null, sql: null, error: null };
+  }
 
   const fragment = playgroundFragment({ query: node.value, ...flags.options });
   const playground = `${context.playgroundUrl}#${fragment}`;
@@ -131,9 +133,12 @@ function compileCodeBlock(node: Code, context: RenderContext): CompiledExample {
   if (!outcome.ok && !flags.error) {
     throw new Error(`${where}: this example doesn't compile: ${outcome.message}`);
   }
-  return outcome.ok
-    ? { code, playground, sql: outcome.sql, error: null }
-    : { code, playground, sql: null, error: outcome };
+  if (outcome.ok) {
+    return { code: highlightQuerydown(node.value), playground, sql: outcome.sql, error: null };
+  }
+  // The code underlines the part that the error is about.
+  const code = highlightQuerydown(node.value, outcome.span);
+  return { code, playground, sql: null, error: { message: outcome.message, hint: outcome.hint } };
 }
 
 /** Whether the code block after an example shows the example's output, as checked by the tests. */

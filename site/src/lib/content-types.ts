@@ -49,7 +49,10 @@ export interface Example {
   caption: string | null;
   /** The example's Querydown. */
   source: string;
-  /** The highlighted Querydown, as HTML. */
+  /**
+   * The highlighted Querydown, as HTML. If the example doesn't compile, the part of it that the
+   * error is about is wrapped in a `<span class="qd-mark">`.
+   */
   code: string;
   /** A link that opens the example in the playground, unless it's a fragment. */
   playground: string | null;
@@ -58,11 +61,16 @@ export interface Example {
    * fragment, an example that fails to compile, or one whose output the page shows itself.)
    */
   sql: string | null;
-  /**
-   * Why the example doesn't compile, if it's expected not to. The compiler quotes code with
-   * backticks, as Markdown does.
-   */
-  error: { message: string; hint: string | null } | null;
+  /** Why the example doesn't compile, if it's expected not to. */
+  error: ExampleError | null;
+}
+
+/** The compiler's explanation of why an example doesn't compile. */
+export interface ExampleError {
+  /** The compiler's message. It quotes code with backticks, as Markdown does. */
+  message: string;
+  /** The compiler's suggestion, if it has one, quoting code in the same way. */
+  hint: string | null;
 }
 
 /**
