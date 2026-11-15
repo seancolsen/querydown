@@ -41,33 +41,53 @@
 
 <style>
   .showcase {
-    --glow: color-mix(in srgb, var(--accent) 11%, transparent);
+    --wash: color-mix(in srgb, var(--bg-inset) 40%, var(--bg-subtle));
     --dots: color-mix(in srgb, var(--text-muted) 18%, transparent);
     --label-height: 1.6rem;
+    /* How far above and below the example its backdrop reaches. */
+    --reach: 6rem;
     position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    margin: 2.5rem 0 2rem;
-    padding: 1rem 1rem 1.1rem;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    background: radial-gradient(55% 80% at 42% 50%, var(--glow), transparent 75%), var(--bg-subtle);
-    box-shadow: 0 18px 40px -28px var(--shadow);
-    isolation: isolate;
+    margin: 3.5rem 0 3.25rem;
   }
 
-  /* A faint grid of dots behind it all, fading out toward the edges of the box. */
-  .showcase::before {
+  /* The backdrop: a soft wash of color, faintly blue in the middle, that fades out in every
+     direction, reaching the edges of the window at the sides. A border image's outset is painted,
+     but takes no room, so the backdrop doesn't make the page scroll sideways. The gradient is as
+     wide as the outset, so its width is set from the middle of the window.
+
+     It sits behind everything else on the page (so isn't isolated with the example), lest it tint
+     the text above and below. */
+  .showcase::before,
+  .showcase::after {
     content: '';
     position: absolute;
-    inset: 0;
     z-index: -1;
-    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  .showcase::before {
+    inset: 0;
+    border-image: radial-gradient(
+        50vw 50% at 50% 50%,
+        color-mix(in srgb, var(--accent) 10%, var(--wash)),
+        var(--wash) 38%,
+        color-mix(in srgb, var(--wash) 80%, transparent) 56%,
+        color-mix(in srgb, var(--wash) 40%, transparent) 76%,
+        transparent
+      )
+      fill 0 / 0 / var(--reach) 100vmax;
+  }
+
+  /* A faint grid of dots over the middle of the backdrop, fading out before the edges of the page's
+     content. */
+  .showcase::after {
+    inset: -2.5rem calc(-1 * var(--gutter));
     background: radial-gradient(circle at 1px 1px, var(--dots) 1px, transparent 1.5px) 0 0 / 14px
       14px;
-    mask-image: radial-gradient(70% 90% at 40% 50%, #000, transparent);
-    pointer-events: none;
+    mask-image: radial-gradient(closest-side, #000 40%, transparent);
   }
 
   .side {
@@ -174,7 +194,6 @@
       grid-template-columns: minmax(max-content, 2fr) auto minmax(0, 3fr);
       align-items: stretch;
       gap: 1.1rem;
-      padding: 1.4rem 1.6rem 1.6rem;
     }
 
     /* The SQL takes no height of its own, so it's stretched to the height of the Querydown. */
