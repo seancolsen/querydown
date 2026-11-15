@@ -5,6 +5,8 @@
 <script lang="ts">
   import { onMount, type Component } from 'svelte';
 
+  import PageMeta from '#lib/components/PageMeta.svelte';
+  import { PLAYGROUND } from '#lib/nav.ts';
   import { SITE_NAME } from '#lib/site.ts';
 
   let Playground = $state<Component | null>(null);
@@ -26,13 +28,11 @@
   });
 </script>
 
-<svelte:head>
-  <title>Playground · {SITE_NAME}</title>
-  <meta
-    name="description"
-    content="Write Querydown in your browser, and see the SQL that it compiles to."
-  />
-</svelte:head>
+<PageMeta
+  title="{SITE_NAME} playground · Write a query, see its SQL"
+  description="Write Querydown in your browser, and see the SQL that it compiles to for PostgreSQL or DuckDB. Nothing to install."
+  path={PLAYGROUND.href}
+/>
 
 <main>
   <h1 class="visually-hidden">Playground</h1>

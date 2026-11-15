@@ -132,8 +132,8 @@ A link to a file or a heading that doesn't exist fails the site's build, with a 
 
 ## Formatting
 
-- **One `#` heading per page**, which is the page's title. It should match the page's title in the navigation.
-- **The paragraph after the title** says what the page is for. It's also the page's description in search engines and in `/llms.txt`.
+- **One `#` heading per page**, which is the page's title. It should match the page's title in the navigation. In search results, the site follows it with the page's place in the navigation (as in "CLI · Setup · Docs · Querydown"), so a short title is fine.
+- **The paragraph after the title** says what the page is for. It's also the page's description in search engines, in link previews, and in `/llms.txt`. A search engine shows about 160 characters of it, so the site gives search engines only the sentences that fit. Put what matters in the first sentence or two, and name the thing that the page is about there. A paragraph that's wholly in italics (such as a release's "Not yet released") is taken as a note, and the description is the paragraph after it.
 - **No table of contents in the Markdown.** The site generates one from the headings.
 - **No images yet.** The renderer doesn't support them. (The ER diagram is a component, drawn from the schema's JSON.)
 - **Raw HTML is allowed**, and is how you give part of a page a class to [style](#styling-a-page). Use it sparingly, so that the file still reads well on GitHub.
@@ -174,7 +174,7 @@ The stylesheet applies to the whole site while its page is shown, so choose clas
 ## Before you commit
 
 1. Run `cargo test`, which tests every example.
-1. Run `npm run build` in `site/`, which renders every page and checks every link.
+1. Run `npm run build` in `site/`, which renders every page, checks every link, and checks that every page has a title and a description of its own.
 1. Read your change on the site (`npm run dev`), in both a wide and a narrow window.
 1. If you changed the language, check whether the [cheat sheet](./cheat-sheet.md), the [functions](./functions.md) page, and the home page's list of features need to follow.
 1. If you changed these conventions, or how the site renders Markdown ([`site/src/lib/server/markdown.ts`](../site/src/lib/server/markdown.ts)), update this file.

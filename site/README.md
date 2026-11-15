@@ -24,11 +24,12 @@ docker compose run --rm -p 5173:5173 -w /workspace/site dev sh -c "npm install &
 | Command               | What it does                                                                                          |
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
 | `npm run dev`         | Serves the site for development                                                                       |
-| `npm run build`       | Builds the bindings and then the site into `build/`, and checks the result for broken links           |
+| `npm run build`       | Builds the bindings and then the site into `build/`, and checks the result (the two checks below)     |
 | `npm run preview`     | Serves `build/`, to see the site as it will be deployed                                               |
 | `npm run wasm`        | Rebuilds the WebAssembly bindings. **Run this after changing Rust code**, then restart `npm run dev`. |
 | `npm run check`       | Type-checks the code                                                                                  |
 | `npm run check:links` | Checks `build/` for broken internal links                                                             |
+| `npm run check:seo`   | Checks what the pages in `build/` tell search engines, and the sitemap                                |
 | `npm run format`      | Formats the code with Prettier                                                                        |
 
 To reach the dev server from outside the container, map its port in `docker-compose.yml` (e.g. `ports: ["5173:5173"]`) and run `npm run dev -- --host`.
@@ -79,6 +80,21 @@ The font files come from [Fontsource](https://fontsource.org/) packages, which [
 
 [`src/routes/playground/`](./src/routes/playground) is the only part of the site that's an application rather than a document. Its state is kept in the URL's fragment, in the format that [`src/lib/playground-url.ts`](./src/lib/playground-url.ts) describes, which is how every example in the docs can link to itself in the playground. A schema is only put in the URL if it has been edited.
 
+### For search engines
+
+Every page tells search engines and link previews about itself with [`PageMeta.svelte`](./src/lib/components/PageMeta.svelte), which writes these into the page's `<head>`:
+
+- **A title.** For a page in the navigation tree, it's the page's own title, then the groups that the page is in, then the site: "CLI · Setup · Docs · Querydown".
+- **A description**: the page's first paragraph, shortened to the sentences that a search engine has room to show (see [`src/lib/seo.ts`](./src/lib/seo.ts)).
+- **A canonical URL**, because a static host serves a page at more than one address (`/docs/language`, `/docs/language.html`, `/docs/language/`), and search engines should count them as one.
+- **Open Graph tags**, which chat apps and social networks make a link's preview from. The preview's picture is the same for every page: `static/social-card.png`, made by [`scripts/make-social-card.js`](./scripts/make-social-card.js). It's committed, and needs making again only if the branding, the tagline, or the fonts change.
+
+The home page also says what the site is called, as schema.org data. The page for URLs that don't exist asks not to be indexed.
+
+[`/sitemap.xml`](./src/routes/sitemap.xml/+server.ts) lists every page by its canonical URL, and `robots.txt` says where it is. URLs that only redirect (`/docs`, `/releases`) are left out of it.
+
+A new kind of page needs a `PageMeta` of its own, and a place in the sitemap. The build fails without them.
+
 ### For AI agents
 
 [`/llms.txt`](./src/routes/llms.txt/+server.ts) lists the site's pages, and [`/llms-full.txt`](./src/routes/llms-full.txt/+server.ts) is all of the documentation's Markdown in one file.
@@ -87,4 +103,5 @@ The font files come from [Fontsource](https://fontsource.org/) packages, which [
 
 - The build fails on a broken link between Markdown files, on an example that doesn't compile (or one marked `error` that does), and on a docs page that's missing from the navigation.
 - [`scripts/check-links.js`](./scripts/check-links.js) then checks every internal link and fragment in the built HTML.
+- [`scripts/check-seo.js`](./scripts/check-seo.js) checks that every built page has one title, description, canonical URL, and top-level heading, that no two pages share a title or a description, and that the sitemap lists exactly the pages that were built.
 - `cargo test` (from the repository root) tests every example in the docs. See [`docs/README.md`](../docs/README.md#how-examples-are-tested).

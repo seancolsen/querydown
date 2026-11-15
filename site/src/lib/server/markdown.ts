@@ -461,8 +461,16 @@ function searchSections(root: Root): SearchSection[] {
 // Pages
 // -------------------------------------------------------------------------------------------------
 
+/**
+ * A paragraph that's wholly in italics is a note about the page (such as a release's "Not yet
+ * released"), not a statement of what the page is about.
+ */
+const isNote = (node: RootContent) =>
+  node.type === 'paragraph' && node.children.length === 1 && node.children[0].type === 'emphasis';
+
+/** The page's description: its first paragraph, other than a note in italics. */
 function firstParagraph(root: Root): string {
-  const paragraph = root.children.find((node) => node.type === 'paragraph');
+  const paragraph = root.children.find((node) => node.type === 'paragraph' && !isNote(node));
   return paragraph ? toString(paragraph).replace(/\s+/g, ' ').trim() : '';
 }
 

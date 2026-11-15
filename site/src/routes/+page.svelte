@@ -2,18 +2,32 @@
   import Content from '#lib/components/Content.svelte';
   import Footer from '#lib/components/Footer.svelte';
   import Logo from '#lib/components/Logo.svelte';
+  import PageMeta from '#lib/components/PageMeta.svelte';
   import Wordmark from '#lib/components/Wordmark.svelte';
-  import { SITE_NAME, SITE_TAGLINE } from '#lib/site.ts';
+  import { canonicalUrl } from '#lib/seo.ts';
+  import { GITHUB_URL, SITE_NAME, SITE_TAGLINE } from '#lib/site.ts';
 
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
+
+  /** Tells search engines what the site is called, which they show beside its results. */
+  const website = $derived({
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: SITE_NAME,
+    url: canonicalUrl('/'),
+    description: data.description,
+    sameAs: [GITHUB_URL],
+  });
 </script>
 
-<svelte:head>
-  <title>{SITE_NAME} · {SITE_TAGLINE}</title>
-  <meta name="description" content={data.description} />
-</svelte:head>
+<PageMeta
+  title="{SITE_NAME} · {SITE_TAGLINE}"
+  description={data.description}
+  path="/"
+  structuredData={website}
+/>
 
 <main class="home">
   <!-- The logo and the wordmark stand in for the page's title, which is kept for screen readers. -->

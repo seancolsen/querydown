@@ -5,10 +5,12 @@
 <script lang="ts">
   import type { Page } from '#lib/content-types.ts';
   import { contains, isGroup, pagesOf, type NavNode } from '#lib/nav.ts';
-  import { githubFileUrl, SITE_NAME } from '#lib/site.ts';
+  import { titleInTree } from '#lib/seo.ts';
+  import { githubFileUrl } from '#lib/site.ts';
 
   import Content from './Content.svelte';
   import Footer from './Footer.svelte';
+  import PageMeta from './PageMeta.svelte';
 
   interface Props {
     page: Omit<Page, 'sections'>;
@@ -26,10 +28,12 @@
   });
 </script>
 
-<svelte:head>
-  <title>{page.title} · {SITE_NAME}</title>
-  <meta name="description" content={page.description} />
-</svelte:head>
+<PageMeta
+  title={titleInTree(nav, page)}
+  description={page.description}
+  path={page.url}
+  type="article"
+/>
 
 <main>
   <Content segments={page.segments} styles={page.styles} />

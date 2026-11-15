@@ -7,6 +7,8 @@
 
 <svelte:head>
   <title>{page.status === 404 ? 'Page not found' : 'Error'} · {SITE_NAME}</title>
+  <!-- Whatever status a host serves this page with, it isn't one to list in search results. -->
+  <meta name="robots" content="noindex" />
 </svelte:head>
 
 <main>

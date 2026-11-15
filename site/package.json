@@ -12,11 +12,12 @@
   "scripts": {
     "wasm": "node scripts/build-wasm.js",
     "dev": "node scripts/build-wasm.js --if-missing && vite dev",
-    "build": "node scripts/build-wasm.js && vite build && node scripts/check-links.js",
+    "build": "node scripts/build-wasm.js && vite build && node scripts/check-links.js && node scripts/check-seo.js",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:links": "node scripts/check-links.js",
+    "check:seo": "node scripts/check-seo.js",
     "format": "prettier --write ."
   },
   "devDependencies": {
