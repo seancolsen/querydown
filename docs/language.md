@@ -21,6 +21,7 @@ Base table          Conditions               Result columns       */
 - Most white space doesn't matter.
 - Comments are written with `//` for a single line, or `/* */` for several lines.
 - [Definitions](#variables), such as constants and functions, go before the base table.
+- [Pipeline](#pipeline-of-multiple-queries) and [union](#union-of-multiple-queries) can combine multiple queries into one.
 
 The results never have more rows than the base table does. Data from related tables is [always aggregated](#mandatory-aggregation), so you never write a join.
 
