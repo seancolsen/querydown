@@ -2,9 +2,9 @@
   An entity-relationship diagram of the sample issue-tracker schema.
 
   It's drawn from the same schema JSON that the docs' examples are compiled against, so its tables,
-  columns, and links can't drift from the schema. The placement of the tables is decided by hand,
-  below. The links are routed automatically, with right angles, in vertical lanes between the
-  columns of tables, so that no two links ever run along the same line.
+  columns, and links can't drift from the schema. Where the tables go, and how the links between
+  them run, is decided by hand, below. The links run with right angles, in vertical lanes between
+  the columns of tables, and the diagram refuses to draw two of them along the same line.
 -->
 <script lang="ts" module>
   import schema from '../../../../compiler/resources/test/issue_schema.json';
@@ -17,30 +17,64 @@
   const MIN_GAP = 48;
   /** The distance between the vertical lanes that links run along. */
   const LANE_SPACING = 12;
-  /** How far either side of its lane each of a net's two branches runs (see `branchX`). */
-  const BRANCH_OFFSET = 3;
   const CORNER_RADIUS = 5;
 
   /**
    * Where each table goes: which column of the grid, and which row its heading sits in. A row is the
    * height of one line of a table, so a table with n columns takes up n + 1 rows.
    *
-   * Links can only join tables in the same column or in neighboring columns. A link between tables
-   * in the same column goes around the right of the column. A foreign key in the same row as the
-   * column it refers to gets a straight line.
+   * Links can only join tables in the same column or in neighboring columns.
    */
   const PLACEMENT: Record<string, { column: number; row: number }> = {
-    issue_labels: { column: 0, row: 1 },
-    labels: { column: 0, row: 6 },
-    projects: { column: 0, row: 11 },
-    products: { column: 0, row: 18 },
-    blocks: { column: 1, row: 2 },
-    issues: { column: 1, row: 8 },
-    clients: { column: 1, row: 20 },
-    assignments: { column: 2, row: 0 },
-    comments: { column: 2, row: 5 },
-    users: { column: 2, row: 12 },
-    teams: { column: 2, row: 20 },
+    assignments: { column: 0, row: 0 },
+    comments: { column: 0, row: 5 },
+    users: { column: 0, row: 13 },
+    teams: { column: 0, row: 21 },
+    blocks: { column: 1, row: 1 },
+    issues: { column: 1, row: 6 },
+    projects: { column: 1, row: 17 },
+    labels: { column: 2, row: 6 },
+    issue_labels: { column: 2, row: 10 },
+    products: { column: 2, row: 15 },
+    clients: { column: 2, row: 21 },
+  };
+
+  /**
+   * How each link runs, keyed by its foreign key.
+   *
+   * A link runs in a gap: between two columns of tables, or outside the first or last column. A
+   * link between neighboring columns runs in the gap between them. A link between tables in the
+   * same column runs along the `side` of the column that it's given.
+   *
+   * In its gap, a link runs from the foreign key across to its `lane`, along the lane, and across to
+   * the column it refers to. Lanes are numbered from 0 at the left of the gap, and the gap is as
+   * wide as its lanes need. A foreign key in the same row as the column it refers to gets a straight
+   * line instead, and no lane.
+   *
+   * Links to the same column can share a lane, branching off it to each foreign key, since it
+   * doesn't matter which branch a reader follows. But the foreign keys sharing a lane must all be on
+   * one side of it, so that a reader can't follow a link from one foreign key to another. Links to
+   * different columns can share a lane where they're apart.
+   */
+  const ROUTES: Record<string, { side?: 'left' | 'right'; lane?: number }> = {
+    // Left of the first column
+    'assignments.user': { side: 'left', lane: 0 },
+    // Between the first and second columns
+    'comments.user': { side: 'right', lane: 0 },
+    'users.team': { side: 'right', lane: 1 },
+    'assignments.issue': { lane: 2 },
+    'comments.issue': {},
+    'issues.author': { lane: 3 },
+    'issues.project': { side: 'left', lane: 4 },
+    // Between the second and third columns
+    'issues.duplicate_of': { side: 'right', lane: 0 },
+    'blocks.blocking': { side: 'right', lane: 1 },
+    'blocks.blocker': { side: 'right', lane: 2 },
+    'projects.product': { lane: 2 },
+    'issue_labels.issue': { lane: 3 },
+    'products.client': { side: 'left', lane: 4 },
+    // Right of the third column
+    'issue_labels.label': { side: 'right', lane: 0 },
   };
 
   interface Box {
@@ -52,6 +86,15 @@
   }
 
   const linked = new Set(schema.links.map((link) => `${link.from.table}.${link.from.column}`));
+
+  for (const key of Object.keys(ROUTES)) {
+    if (!linked.has(key)) {
+      throw new Error(
+        `ROUTES in ErDiagram.svelte has a route for ${key}, which isn't a foreign key in the ` +
+          'sample schema.',
+      );
+    }
+  }
 
   const boxes: Box[] = schema.tables.map((table) => {
     const placement = PLACEMENT[table.name];
@@ -89,21 +132,6 @@
     fromLeft: boolean;
   }
 
-  /**
-   * All the links that point at the same column, in the same gap. They share one vertical lane,
-   * branching off it to each foreign key, since it doesn't matter which branch a reader follows.
-   */
-  interface Net {
-    gap: number;
-    target: End;
-    sources: { key: string; label: string; end: End }[];
-    /** Every point where the net meets a table: the target and each source. */
-    ends: End[];
-    top: number;
-    bottom: number;
-    lane: number;
-  }
-
   function end(table: string, column: string, gap: number): End {
     const box = boxes.find((b) => b.name === table);
     const row = box?.columns.find((c) => c.name === column);
@@ -112,118 +140,105 @@
     return { box, y: row.y, fromLeft: box.column < gap };
   }
 
-  const nets = new Map<string, Net>();
-  for (const link of schema.links) {
+  /** A horizontal or vertical stretch of a link, ignoring its round corners. */
+  interface Segment {
+    vertical: boolean;
+    /** The y of a horizontal segment, or the x of a vertical one. */
+    at: number;
+    from: number;
+    to: number;
+  }
+
+  interface Link {
+    key: string;
+    label: string;
+    gap: number;
+    /** Links to the same column in the same gap merge where they meet, and have the same group. */
+    group: string;
+    source: End;
+    target: End;
+    /** The link's lane, unless it's a straight line. */
+    lane?: number;
+  }
+
+  const links: Link[] = schema.links.map((link) => {
     const key = `${link.from.table}.${link.from.column}`;
+    const route = ROUTES[key];
+    if (!route) {
+      throw new Error(
+        `The sample schema has a link (from ${key}) that the ER diagram doesn't route. ` +
+          'Add it to ROUTES in ErDiagram.svelte.',
+      );
+    }
     const fromColumn = PLACEMENT[link.from.table].column;
     const toColumn = PLACEMENT[link.to.table].column;
-    if (Math.abs(fromColumn - toColumn) > 1) {
+    let gap: number;
+    if (fromColumn === toColumn) {
+      if (!route.side) {
+        throw new Error(
+          `In the ER diagram, ${key} links two tables in the same column, so its route in ` +
+            'ROUTES needs a side.',
+        );
+      }
+      gap = route.side === 'left' ? fromColumn : fromColumn + 1;
+    } else if (Math.abs(fromColumn - toColumn) === 1) {
+      if (route.side) {
+        throw new Error(
+          `In the ER diagram, ${key} links tables in neighboring columns, so it runs between ` +
+            "them, and its route in ROUTES can't have a side.",
+        );
+      }
+      gap = Math.max(fromColumn, toColumn);
+    } else {
       throw new Error(
         `In the ER diagram, ${key} links to a table that's more than one column away. ` +
           'Change PLACEMENT in ErDiagram.svelte so that the two tables are closer.',
       );
     }
-    const gap = fromColumn === toColumn ? fromColumn + 1 : Math.max(fromColumn, toColumn);
-    const netKey = `${gap}:${link.to.table}.${link.to.column}`;
-    let net = nets.get(netKey);
-    if (!net) {
-      const target = end(link.to.table, link.to.column, gap);
-      net = { gap, target, sources: [], ends: [target], top: 0, bottom: 0, lane: 0 };
-      nets.set(netKey, net);
-    }
     const source = end(link.from.table, link.from.column, gap);
-    net.sources.push({
-      key,
-      label: `${key} refers to ${link.to.table}.${link.to.column}`,
-      end: source,
-    });
-    net.ends.push(source);
-  }
-  for (const net of nets.values()) {
-    net.top = Math.min(...net.ends.map((e) => e.y));
-    net.bottom = Math.max(...net.ends.map((e) => e.y));
-  }
-
-  /**
-   * How bad an ordering of the lanes in a gap is, from left to right. Two links running along the
-   * same line are worst. After that come links crossing each other, and then the length of the
-   * horizontal parts of the links.
-   */
-  function cost(order: Net[]): number {
-    // Lanes are numbered from 0. The gap's left and right edges are at -1 and order.length.
-    const span = (e: End, lane: number) => (e.fromLeft ? [-1, lane] : [lane, order.length]);
-    let total = 0;
-    order.forEach((net, lane) => {
-      for (const e of net.ends) {
-        const [lo, hi] = span(e, lane);
-        total += hi - lo;
-        order.forEach((other, otherLane) => {
-          if (other === net) return;
-          if (otherLane > lo && otherLane < hi && e.y > other.top && e.y < other.bottom) {
-            total += 100;
-          }
-          for (const o of other.ends) {
-            if (o.y !== e.y) continue;
-            const [otherLo, otherHi] = span(o, otherLane);
-            if (Math.max(lo, otherLo) < Math.min(hi, otherHi)) total += 10_000;
-          }
-        });
-      }
-    });
-    return total;
-  }
-
-  function* permutations<T>(items: T[]): Generator<T[]> {
-    if (items.length <= 1) {
-      yield items;
-      return;
-    }
-    for (let i = 0; i < items.length; i++) {
-      const rest = [...items.slice(0, i), ...items.slice(i + 1)];
-      for (const permutation of permutations(rest)) yield [items[i], ...permutation];
-    }
-  }
-
-  function overlapError(gap: number): Error {
-    return new Error(
-      `In the ER diagram, two links between columns ${gap - 1} and ${gap} would run along the ` +
-        'same line. Change PLACEMENT in ErDiagram.svelte to move one of the tables up or down.',
-    );
-  }
-
-  /**
-   * The nets in each gap that need a lane, in the order of their lanes from left to right. A net
-   * whose ends are all in one row is a straight line across the gap, and doesn't need one.
-   */
-  const lanes = Array.from({ length: columnCount + 1 }, (_, gap) => {
-    const inGap = [...nets.values()].filter((net) => net.gap === gap);
-    const straight = inGap.filter((net) => net.top === net.bottom);
-    for (const net of straight) {
-      if (inGap.some((other) => other !== net && other.ends.some((e) => e.y === net.top))) {
-        throw overlapError(gap);
-      }
-    }
-    const laned = inGap.filter((net) => net.top !== net.bottom);
-    if (laned.length > 8) {
+    const target = end(link.to.table, link.to.column, gap);
+    if (source.y === target.y && route.lane !== undefined) {
       throw new Error(
-        `In the ER diagram, too many links run between columns ${gap - 1} and ${gap} to arrange ` +
-          'them all. Change PLACEMENT in ErDiagram.svelte to spread the tables out.',
+        `In the ER diagram, ${key} runs straight across to the column it refers to, so its ` +
+          "route in ROUTES can't have a lane.",
       );
     }
-    let best = laned;
-    let bestCost = Infinity;
-    for (const order of permutations(laned)) {
-      const c = cost(order);
-      if (c < bestCost) [best, bestCost] = [order, c];
+    if (source.y !== target.y && route.lane === undefined) {
+      throw new Error(`In the ER diagram, ${key} needs a lane in ROUTES.`);
     }
-    if (bestCost >= 10_000) throw overlapError(gap);
-    return best;
+    return {
+      key,
+      label: `${key} refers to ${link.to.table}.${link.to.column}`,
+      gap,
+      group: `${gap}:${link.to.table}.${link.to.column}`,
+      source,
+      target,
+      lane: route.lane,
+    };
   });
 
-  const gapWidths = lanes.map((nets, gap) => {
+  for (const link of links) {
+    const sharing = links.filter((l) => l.group === link.group && l.lane === link.lane);
+    if (
+      link.lane !== undefined &&
+      sharing.some((l) => l.source.fromLeft !== link.source.fromLeft)
+    ) {
+      throw new Error(
+        `In the ER diagram, ${link.key} shares a lane with a foreign key on the other side of it. ` +
+          'Give one of them another lane in ROUTES in ErDiagram.svelte.',
+      );
+    }
+  }
+
+  /** How many lanes each gap has. */
+  const laneCounts = Array.from({ length: columnCount + 1 }, (_, gap) =>
+    Math.max(0, ...links.filter((l) => l.gap === gap).map((l) => (l.lane ?? -1) + 1)),
+  );
+
+  const gapWidths = laneCounts.map((lanes, gap) => {
     const outer = gap === 0 || gap === columnCount;
-    if (outer) return INSET + nets.length * LANE_SPACING;
-    return Math.max(MIN_GAP, (nets.length + 1) * LANE_SPACING);
+    if (outer) return INSET + lanes * LANE_SPACING;
+    return Math.max(MIN_GAP, (lanes + 1) * LANE_SPACING);
   });
   const gapStarts = gapWidths.map((_, gap) => {
     let x = 0;
@@ -231,21 +246,15 @@
     return x;
   });
 
-  lanes.forEach((nets, gap) => {
+  function laneX(gap: number, lane: number): number {
     const start = gapStarts[gap];
     const width = gapWidths[gap];
-    nets.forEach((net, i) => {
-      if (gap === 0) {
-        // Keep the lanes outside the first column close to it.
-        net.lane = start + width - (nets.length - i) * LANE_SPACING;
-      } else if (gap === columnCount) {
-        // And likewise for the lanes outside the last column.
-        net.lane = start + (i + 1) * LANE_SPACING;
-      } else {
-        net.lane = start + (width * (i + 1)) / (nets.length + 1);
-      }
-    });
-  });
+    const lanes = laneCounts[gap];
+    // Keep the lanes outside the first and last columns close to them.
+    if (gap === 0) return start + width - (lanes - lane) * LANE_SPACING;
+    if (gap === columnCount) return start + (lane + 1) * LANE_SPACING;
+    return start + (width * (lane + 1)) / (lanes + 1);
+  }
 
   const boxX = (box: Box) => gapStarts[box.column] + gapWidths[box.column];
   /** Where a link touches a table's edge. */
@@ -267,53 +276,80 @@
     );
   }
 
-  /**
-   * Where the links from one side of the gap run vertically. When a net has foreign keys on both
-   * sides of the gap, each side gets its own line, just off the lane, so that a reader can't follow
-   * a link from one foreign key to another. The links from the far side cross over to the target.
-   */
-  function branchX(net: Net, fromLeft: boolean): number {
-    const split =
-      net.sources.some((s) => s.end.fromLeft) && net.sources.some((s) => !s.end.fromLeft);
-    if (!split) return net.lane;
-    return net.lane + (fromLeft ? -BRANCH_OFFSET : BRANCH_OFFSET);
+  const span = (a: number, b: number) => ({ from: Math.min(a, b), to: Math.max(a, b) });
+
+  const edges = links.map((link) => {
+    const x1 = edgeX(link.source);
+    const x2 = edgeX(link.target);
+    const y1 = link.source.y;
+    const y2 = link.target.y;
+    const lane = link.lane === undefined ? x2 : laneX(link.gap, link.lane);
+    const segments: Segment[] =
+      y1 === y2
+        ? [{ vertical: false, at: y1, ...span(x1, x2) }]
+        : [
+            { vertical: false, at: y1, ...span(x1, lane) },
+            { vertical: true, at: lane, ...span(y1, y2) },
+            { vertical: false, at: y2, ...span(lane, x2) },
+          ];
+    return {
+      ...link,
+      path: route(x1, y1, lane, x2, y2),
+      start: { x: x1, y: y1 },
+      corners:
+        y1 === y2
+          ? []
+          : [
+              { x: lane, y: y1 },
+              { x: lane, y: y2 },
+            ],
+      segments,
+    };
+  });
+
+  // Links that don't merge mustn't touch, except to cross.
+  edges.forEach((a, i) => {
+    for (const b of edges.slice(i + 1)) {
+      if (a.group === b.group) continue;
+      const touch = a.segments.some((s) =>
+        b.segments.some(
+          (t) =>
+            s.vertical === t.vertical &&
+            s.at === t.at &&
+            Math.max(s.from, t.from) <= Math.min(s.to, t.to),
+        ),
+      );
+      if (touch) {
+        throw new Error(
+          `In the ER diagram, the links from ${a.key} and ${b.key} would run into each other. ` +
+            'Change their lanes in ROUTES, or move a table in PLACEMENT, in ErDiagram.svelte.',
+        );
+      }
+    }
+  });
+
+  /** In how many directions the lines of a group of links leave a point. */
+  function directions(group: string, x: number, y: number): number {
+    const found = new Set<string>();
+    for (const s of edges.filter((e) => e.group === group).flatMap((e) => e.segments)) {
+      const [along, across] = s.vertical ? [y, x] : [x, y];
+      if (s.at !== across || along < s.from || along > s.to) continue;
+      if (s.from < along) found.add(s.vertical ? 'up' : 'left');
+      if (s.to > along) found.add(s.vertical ? 'down' : 'right');
+    }
+    return found.size;
   }
 
-  const edges = [...nets.values()].flatMap((net) =>
-    net.sources.map((source) => {
-      const x1 = edgeX(source.end);
-      const x = branchX(net, source.end.fromLeft);
-      return {
-        key: source.key,
-        label: source.label,
-        path: route(x1, source.end.y, x, edgeX(net.target), net.target.y),
-        start: { x: x1, y: source.end.y },
-      };
-    }),
-  );
-
-  /** Dots where a branch forks, to tell a fork apart from two links crossing. */
-  const junctions = [...nets.values()].flatMap((net) =>
-    [true, false].flatMap((fromLeft) => {
-      const sources = net.sources.filter((s) => s.end.fromLeft === fromLeft);
-      if (sources.length === 0) return [];
-      const x = branchX(net, fromLeft);
-      const target = net.target.y;
-      const ys = [...sources.map((s) => s.end.y), target];
-      const top = Math.min(...ys);
-      const bottom = Math.max(...ys);
-      // Whether the other branch's links cross this branch on their way to the target.
-      const crossedOver = fromLeft === net.target.fromLeft && x !== branchX(net, !fromLeft);
-      return [...new Set(ys)]
-        .filter((y) => {
-          let lines = sources.filter((s) => s.end.y === y).length;
-          lines += (y > top ? 1 : 0) + (y < bottom ? 1 : 0);
-          if (y === target) lines += crossedOver ? 2 : 1;
-          return lines >= 3;
-        })
-        .map((y) => ({ key: `${x}:${y}`, x, y }));
-    }),
-  );
+  /** Dots where links merge, to tell a fork apart from two links crossing. */
+  const junctions = [
+    ...new Map(
+      edges.flatMap((edge) =>
+        edge.corners
+          .filter((c) => directions(edge.group, c.x, c.y) >= 3)
+          .map((c) => [`${c.x}:${c.y}`, { key: `${c.x}:${c.y}`, ...c }] as const),
+      ),
+    ).values(),
+  ];
 </script>
 
 <figure>
