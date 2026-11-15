@@ -11,11 +11,14 @@
 
   const COLUMN_WIDTH = 176;
   const ROW_HEIGHT = 22;
-  const MARGIN = 28;
+  /** Room around the diagram's edges: just enough for the strokes, dots, and arrows there. */
+  const INSET = 3;
   /** The narrowest that the gap between two columns of tables can be. */
   const MIN_GAP = 48;
   /** The distance between the vertical lanes that links run along. */
   const LANE_SPACING = 12;
+  /** How far either side of its lane each of a net's two branches runs (see `branchX`). */
+  const BRANCH_OFFSET = 3;
   const CORNER_RADIUS = 5;
 
   /**
@@ -58,7 +61,7 @@
           'Add it to PLACEMENT in ErDiagram.svelte.',
       );
     }
-    const y = MARGIN + placement.row * ROW_HEIGHT;
+    const y = INSET + placement.row * ROW_HEIGHT;
     return {
       name: table.name,
       column: placement.column,
@@ -219,7 +222,8 @@
 
   const gapWidths = lanes.map((nets, gap) => {
     const outer = gap === 0 || gap === columnCount;
-    return Math.max(outer ? MARGIN : MIN_GAP, (nets.length + 1) * LANE_SPACING);
+    if (outer) return INSET + nets.length * LANE_SPACING;
+    return Math.max(MIN_GAP, (nets.length + 1) * LANE_SPACING);
   });
   const gapStarts = gapWidths.map((_, gap) => {
     let x = 0;
@@ -248,7 +252,7 @@
   const edgeX = (e: End) => boxX(e.box) + (e.fromLeft ? COLUMN_WIDTH : 0);
 
   const width = gapStarts[columnCount] + gapWidths[columnCount];
-  const height = MARGIN * 2 + Math.max(...boxes.map((box) => box.y - MARGIN + box.height));
+  const height = INSET * 2 + Math.max(...boxes.map((box) => box.y - INSET + box.height));
 
   /** A line from (x1, y1) across to the lane, along it, and across to (x2, y2), with round corners. */
   function route(x1: number, y1: number, lane: number, x2: number, y2: number): string {
@@ -263,28 +267,53 @@
     );
   }
 
+  /**
+   * Where the links from one side of the gap run vertically. When a net has foreign keys on both
+   * sides of the gap, each side gets its own line, just off the lane, so that a reader can't follow
+   * a link from one foreign key to another. The links from the far side cross over to the target.
+   */
+  function branchX(net: Net, fromLeft: boolean): number {
+    const split =
+      net.sources.some((s) => s.end.fromLeft) && net.sources.some((s) => !s.end.fromLeft);
+    if (!split) return net.lane;
+    return net.lane + (fromLeft ? -BRANCH_OFFSET : BRANCH_OFFSET);
+  }
+
   const edges = [...nets.values()].flatMap((net) =>
     net.sources.map((source) => {
       const x1 = edgeX(source.end);
+      const x = branchX(net, source.end.fromLeft);
       return {
         key: source.key,
         label: source.label,
-        path: route(x1, source.end.y, net.lane, edgeX(net.target), net.target.y),
+        path: route(x1, source.end.y, x, edgeX(net.target), net.target.y),
         start: { x: x1, y: source.end.y },
       };
     }),
   );
 
-  /** Dots where a net branches, to tell a branch apart from two links crossing. */
-  const junctions = [...nets.values()].flatMap((net) => {
-    const ys = [...new Set(net.ends.map((e) => e.y))];
-    return ys
-      .filter((y) => {
-        const branches = net.ends.filter((e) => e.y === y).length;
-        return branches + (y > net.top ? 1 : 0) + (y < net.bottom ? 1 : 0) >= 3;
-      })
-      .map((y) => ({ key: `${net.gap}:${net.lane}:${y}`, x: net.lane, y }));
-  });
+  /** Dots where a branch forks, to tell a fork apart from two links crossing. */
+  const junctions = [...nets.values()].flatMap((net) =>
+    [true, false].flatMap((fromLeft) => {
+      const sources = net.sources.filter((s) => s.end.fromLeft === fromLeft);
+      if (sources.length === 0) return [];
+      const x = branchX(net, fromLeft);
+      const target = net.target.y;
+      const ys = [...sources.map((s) => s.end.y), target];
+      const top = Math.min(...ys);
+      const bottom = Math.max(...ys);
+      // Whether the other branch's links cross this branch on their way to the target.
+      const crossedOver = fromLeft === net.target.fromLeft && x !== branchX(net, !fromLeft);
+      return [...new Set(ys)]
+        .filter((y) => {
+          let lines = sources.filter((s) => s.end.y === y).length;
+          lines += (y > top ? 1 : 0) + (y < bottom ? 1 : 0);
+          if (y === target) lines += crossedOver ? 2 : 1;
+          return lines >= 3;
+        })
+        .map((y) => ({ key: `${x}:${y}`, x, y }));
+    }),
+  );
 </script>
 
 <figure>
@@ -353,9 +382,6 @@
 
   .scroll {
     overflow-x: auto;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-subtle);
   }
 
   svg {
@@ -403,6 +429,7 @@
 
   .type {
     fill: var(--text-muted);
+    opacity: 0.65;
     text-anchor: end;
   }
 
