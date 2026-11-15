@@ -1,6 +1,8 @@
-# Writing the Querydown docs
+# Querydown documentation content
 
-This directory holds the documentation that's published at [querydown.org](https://querydown.org), as Markdown. This file is for the people (and the AI agents) who maintain it: it explains how the content is organized, the conventions it follows, and how it's tested. It isn't a page of the site.
+This directory holds the documentation content that's published at [querydown.org](https://querydown.org), as Markdown. This file is for the people (and the AI agents) who maintain it: it explains how the content is organized, the conventions it follows, and how it's tested. It isn't a page of the site.
+
+To build and preview the site locally, see [site/README.md](../site/README.md).
 
 To read the docs, start at [language.md](./language.md), or visit the site.
 

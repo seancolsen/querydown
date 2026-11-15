@@ -13,6 +13,12 @@ npm install
 npm run dev
 ```
 
+To start the dev server _outside the container_ run:
+
+```
+docker compose run --rm -p 5173:5173 -w /workspace/site dev sh -c "npm install && npm run dev -- --host"
+```
+
 `npm run dev` builds the WebAssembly bindings if they haven't been built, and starts a server that reloads the browser as you edit code or Markdown.
 
 | Command               | What it does                                                                                          |

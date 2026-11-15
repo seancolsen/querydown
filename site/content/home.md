@@ -93,9 +93,9 @@ Specifically:
 - The compiler requires knowledge of the database schema.
 - Joinable tables are specified within the schema definition you pass the compiler. You can't join arbitrary tables within Querydown code, or join on anything but equality.
 - A result can't have more rows than its base table, since [related data is always aggregated](../../docs/language.md#mandatory-aggregation).
-- Lots of [functions](../../docs/functions.md) are still missing.
-- Graph traversal of hierarchies of any depth, which you'd do in SQL with recursive CTEs, is impossible.
-- Data series generation is impossible. For example, you can't count the issues opened each month with a row for each month in which none were.
+- It implements some [functions](../../docs/functions.md), but many that you might want are still missing.
+- Queries that dynamically traverse graphs and hierarchies (which require recursive CTEs) are not yet possible.
+- Data series generation is not yet possible. For example, you can't count the issues opened each month with a row for each month in which none were.
 - It has no module system.
 
 Querydown is _not_:
