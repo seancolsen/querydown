@@ -41,6 +41,7 @@ A page of content is a Markdown file. [`src/lib/server/content.ts`](./src/lib/se
 - **Querydown examples** are compiled by the real compiler (to show their SQL, or their error) and highlighted by its tokenizer. Other languages are highlighted by [Shiki](https://shiki.style/). So pages need no JavaScript to show code.
 - **Headings** get the same ids as on GitHub, and become the page's table of contents and its entries in the search index.
 - **Marker comments** such as `<!-- er-diagram -->` are replaced by Svelte components.
+- **A page's stylesheet**, the CSS file beside its Markdown file (such as `content/home.css`), is included in the page.
 
 The navigation tree is defined in [`src/lib/nav.ts`](./src/lib/nav.ts), which is also what decides which files under `docs/` are pages.
 

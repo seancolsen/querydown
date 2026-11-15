@@ -1,5 +1,6 @@
 <!--
-  A slideshow of examples, each showing a description, the Querydown, and the SQL it compiles to.
+  A slideshow of examples, each showing the Querydown, a description of it, and the SQL it compiles
+  to. A note about all of them (such as which schema they use) may follow the slides.
 
   The slides sit in a row that scrolls and snaps, so the slideshow works by swiping or scrolling
   even without JavaScript. With it, the buttons and dots move between slides, and the slides
@@ -8,7 +9,7 @@
 <script lang="ts">
   import type { Slide } from '#lib/content-types.ts';
 
-  let { slides }: { slides: Slide[] } = $props();
+  let { slides, note = null }: { slides: Slide[]; note?: string | null } = $props();
 
   const INTERVAL = 8000;
 
@@ -53,6 +54,8 @@
   onwheel={takeOver}
   onfocusin={takeOver}
 >
+  <p class="badge" aria-hidden="true">Examples</p>
+
   <div class="track" bind:this={track} onscroll={onScroll}>
     {#each slides as slide, index}
       <div
@@ -61,11 +64,7 @@
         aria-roledescription="slide"
         aria-label="{index + 1} of {slides.length}"
       >
-        <div class="caption">
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- rendered from our own Markdown -->
-          {@html slide.caption}
-        </div>
-        <div class="panes">
+        <div class="query">
           <div class="pane">
             <div class="label">
               <span>Querydown</span>
@@ -74,11 +73,18 @@
             <!-- eslint-disable-next-line svelte/no-at-html-tags -- rendered from our own Markdown -->
             <pre class="qd"><code>{@html slide.code}</code></pre>
           </div>
-          <div class="pane">
-            <div class="label"><span>SQL</span></div>
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -- highlighted compiler output -->
-            {@html slide.sql}
+          <div class="caption">
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -- rendered from our own Markdown -->
+            {@html slide.caption}
           </div>
+        </div>
+        <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4v15m-6-6 6 6 6-6" />
+        </svg>
+        <div class="pane">
+          <div class="label"><span>SQL</span></div>
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- highlighted compiler output -->
+          {@html slide.sql}
         </div>
       </div>
     {/each}
@@ -113,14 +119,42 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg>
     </button>
   </div>
+
+  {#if note}
+    <div class="note">
+      <!-- eslint-disable-next-line svelte/no-at-html-tags -- rendered from our own Markdown -->
+      {@html note}
+    </div>
+  {/if}
 </section>
 
 <style>
   .slideshow {
-    margin: 1.5rem 0 1rem;
+    position: relative;
+    margin: 2.5rem 0 1.5rem;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--bg-subtle);
+  }
+
+  /* The label that sits on the top border. */
+  .badge {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 1;
+    margin: 0;
+    padding: 0.1rem 0.8rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    border-radius: 999px;
+    background: var(--accent-subtle);
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
   }
 
   .track {
@@ -135,20 +169,34 @@
     display: none;
   }
 
+  /* On a narrow screen, a slide is a column: the Querydown, its description, an arrow pointing
+     down, and the SQL. On a wide one, the Querydown and its description sit to the left of the
+     SQL, with an arrow pointing right between them. */
   .slide {
     flex: none;
     width: 100%;
     display: flex;
     flex-direction: column;
-    padding: 1.1rem 1.25rem 0.5rem;
+    gap: 0.4rem;
+    padding: 1.4rem 0.75rem 0.25rem;
     scroll-snap-align: start;
     scroll-snap-stop: always;
   }
 
+  .query {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+
   .caption {
-    min-height: 3.2em;
-    margin-bottom: 0.75rem;
-    font-size: 1.05rem;
+    padding: 0 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-style: italic;
+    line-height: 1.45;
+    text-align: center;
     text-wrap: balance;
   }
 
@@ -156,9 +204,24 @@
     margin: 0;
   }
 
-  .panes {
-    display: grid;
-    gap: 0.75rem;
+  .caption :global(p)::before {
+    content: '(';
+  }
+
+  .caption :global(p)::after {
+    content: ')';
+  }
+
+  .arrow {
+    flex: none;
+    align-self: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    fill: none;
+    stroke: var(--text-muted);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .pane {
@@ -184,20 +247,25 @@
     text-transform: uppercase;
   }
 
+  /* Code wraps rather than scrolling sideways, so that a whole query is always in view. */
   .pane :global(pre) {
-    /* Every slide is the same height, so that the page doesn't jump from one to the next. Longer
-       code scrolls. */
-    height: 13.5rem;
     margin: 0;
     padding: 0.75rem 0.8rem;
-    overflow: auto;
     background: none !important;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* The tallest slide sets the height of them all, so long SQL scrolls instead. */
+  .pane :global(pre.shiki) {
+    max-height: 18rem;
+    overflow-y: auto;
   }
 
   .pane :global(pre.qd) {
-    height: 6.5rem;
+    font-size: 0.875rem;
   }
 
   .pane :global(pre code) {
@@ -248,17 +316,40 @@
     background: var(--accent);
   }
 
+  .note {
+    padding: 0 0.9rem 0.6rem;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    text-align: right;
+  }
+
+  .note :global(p) {
+    margin: 0;
+  }
+
+  .note :global(a) {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+    text-underline-offset: 0.15em;
+  }
+
+  .note :global(a:hover) {
+    color: var(--text);
+    text-decoration-color: currentColor;
+  }
+
   @media (min-width: 48rem) {
-    .panes {
-      grid-template-columns: 1fr 1fr;
+    .slide {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1.6rem 1.25rem 0.5rem;
     }
 
-    .caption {
-      min-height: 1.6em;
-    }
-
-    .pane :global(pre.qd) {
-      height: 13.5rem;
+    .arrow {
+      transform: rotate(-90deg);
     }
   }
 </style>

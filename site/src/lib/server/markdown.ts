@@ -247,12 +247,24 @@ const marker = (node: RootContent): string | null =>
     ? (/^<!--\s*(\/?[a-z-]+)\s*-->$/.exec(node.value.trim())?.[1] ?? null)
     : null;
 
-/** The examples between `<!-- slideshow -->` and `<!-- /slideshow -->`, as slides. */
-function slides(nodes: RootContent[], context: RenderContext, shiki: Highlighter): Slide[] {
+/**
+ * The examples between `<!-- slideshow -->` and `<!-- /slideshow -->`, as slides, and the note
+ * (paragraphs after the last example) about all of them.
+ */
+function slideshow(
+  nodes: RootContent[],
+  context: RenderContext,
+  shiki: Highlighter,
+): { slides: Slide[]; note: string | null } {
   const result: Slide[] = [];
+  const note: RootContent[] = [];
   let caption: Blockquote | undefined;
   for (const node of nodes) {
-    if (node.type === 'blockquote') {
+    if (node.type === 'paragraph' && !caption) {
+      note.push(node);
+    } else if (note.length > 0) {
+      throw new Error(`${context.file}: a slideshow's note must come after its last example.`);
+    } else if (node.type === 'blockquote') {
       caption = node;
     } else if (node.type === 'code' && node.lang === 'qd' && caption) {
       const example = compileCodeBlock(node, context);
@@ -268,11 +280,12 @@ function slides(nodes: RootContent[], context: RenderContext, shiki: Highlighter
       caption = undefined;
     } else {
       throw new Error(
-        `${context.file}: a slideshow may only contain examples, each a blockquote followed by a \`qd\` code block.`,
+        `${context.file}: a slideshow may only contain examples, each a blockquote followed by a \`qd\` code block, and then a note.`,
       );
     }
   }
-  return result;
+  if (caption) throw new Error(`${context.file}: a slideshow's last description has no example.`);
+  return { slides: result, note: note.length > 0 ? renderNodes(note) : null };
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -379,7 +392,7 @@ export async function renderMarkdown(
       if (end === -1) throw new Error(`${context.file}: \`<!-- slideshow -->\` is never closed.`);
       flush();
       const contents = root.children.slice(index + 1, end);
-      segments.push({ type: 'slideshow', slides: slides(contents, context, shiki) });
+      segments.push({ type: 'slideshow', ...slideshow(contents, context, shiki) });
       index = end;
     } else {
       pending.push(node);

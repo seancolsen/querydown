@@ -26,9 +26,22 @@
         : [{ node, title: node.title, href: target.href }];
     }),
   );
+
+  /** Whether the page is scrolled to the very top. */
+  let atTop = $state(true);
+
+  $effect(() => {
+    const update = () => (atTop = window.scrollY <= 0);
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    return () => window.removeEventListener('scroll', update);
+  });
+
+  /** The home page's hero needs no line beneath the header until the page scrolls. */
+  const borderless = $derived(atTop && page.url.pathname === HOME.href);
 </script>
 
-<header>
+<header class:borderless>
   <button type="button" class="icon-button menu" onclick={onMenu} aria-label="Open the navigation">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
   </button>
@@ -58,7 +71,13 @@
       <kbd>/</kbd>
     </button>
     <ThemeToggle />
-    <a class="icon-button github" href={GITHUB_URL} aria-label="Querydown on GitHub">
+    <a
+      class="icon-button github"
+      href={GITHUB_URL}
+      target="_blank"
+      rel="noopener"
+      aria-label="Querydown on GitHub"
+    >
       <GitHubIcon />
       <span class="label">GitHub</span>
     </a>
@@ -77,6 +96,11 @@
     padding: 0 var(--gutter);
     border-bottom: 1px solid var(--border);
     background: var(--bg);
+    transition: border-color 0.15s;
+  }
+
+  header.borderless {
+    border-bottom-color: transparent;
   }
 
   .menu {
@@ -95,7 +119,16 @@
     display: flex;
     align-items: center;
     gap: 0.6rem;
+    margin-inline: -0.4rem;
+    padding: 0.3rem 0.4rem;
+    border-radius: var(--radius);
     color: var(--text);
+    transition: color 0.15s;
+  }
+
+  .brand:hover {
+    color: var(--accent);
+    text-decoration: none;
   }
 
   .brand :global(.logo) {

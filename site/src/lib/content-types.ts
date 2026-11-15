@@ -33,7 +33,14 @@ export interface Slide {
  * renders (requested in Markdown with a marker comment such as `<!-- er-diagram -->`).
  */
 export type Segment =
-  { type: 'html'; html: string } | { type: 'slideshow'; slides: Slide[] } | { type: 'er-diagram' };
+  | { type: 'html'; html: string }
+  | {
+      type: 'slideshow';
+      slides: Slide[];
+      /** A note about all of the slides, as HTML, shown beneath them. */
+      note: string | null;
+    }
+  | { type: 'er-diagram' };
 
 export interface RenderedMarkdown {
   title: string;
@@ -47,4 +54,6 @@ export interface Page extends RenderedMarkdown {
   url: string;
   /** The Markdown file, relative to the repository root. */
   file: string;
+  /** The page's own CSS, from the `.css` file beside its Markdown file, if it has one. */
+  styles: string | null;
 }

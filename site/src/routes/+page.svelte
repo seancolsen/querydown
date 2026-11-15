@@ -2,6 +2,7 @@
   import Content from '#lib/components/Content.svelte';
   import Footer from '#lib/components/Footer.svelte';
   import Logo from '#lib/components/Logo.svelte';
+  import Wordmark from '#lib/components/Wordmark.svelte';
   import { SITE_NAME, SITE_TAGLINE } from '#lib/site.ts';
 
   import type { PageProps } from './$types';
@@ -15,8 +16,12 @@
 </svelte:head>
 
 <main class="home">
-  <Logo class="hero-logo" aria-hidden="true" />
-  <Content segments={data.segments} />
+  <!-- The logo and the wordmark stand in for the page's title, which is kept for screen readers. -->
+  <div class="hero" aria-hidden="true">
+    <Logo class="hero-logo" />
+    <Wordmark class="hero-wordmark" />
+  </div>
+  <Content segments={data.segments} styles={data.styles} />
   <Footer />
 </main>
 
@@ -27,24 +32,41 @@
     padding: 3rem var(--gutter) 0;
   }
 
-  .home :global(.hero-logo) {
-    display: block;
-    height: 4.5rem;
-    margin-bottom: 1.25rem;
+  .hero {
+    --size: clamp(2.75rem, 11vw, 4.25rem);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--size) * 0.3);
+    margin-bottom: 1.5rem;
   }
 
-  /* The page's title and its opening paragraph are the site's introduction. */
-  .home :global(.prose:first-of-type > h1) {
-    margin-bottom: 0.75rem;
-    font-size: clamp(2.2rem, 6vw, 3rem);
-    letter-spacing: -0.02em;
+  .hero :global(.hero-logo) {
+    height: var(--size);
   }
 
-  .home :global(.prose:first-of-type > h1 + p) {
+  /* In the same proportion to the logo as in the header. */
+  .hero :global(.hero-wordmark) {
+    height: calc(var(--size) * 0.66);
+  }
+
+  .hero + :global(.prose) > :global(h1:first-child) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* The opening paragraph is the site's introduction. */
+  .hero + :global(.prose) > :global(h1 + p) {
     max-width: 40rem;
+    margin: 0 auto;
     color: var(--text-muted);
     font-size: clamp(1.1rem, 2.6vw, 1.3rem);
     line-height: 1.5;
+    text-align: center;
     text-wrap: balance;
   }
 </style>

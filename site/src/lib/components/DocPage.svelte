@@ -32,7 +32,7 @@
 <div class="doc">
   <main>
     <Toc items={page.toc} variant="inline" />
-    <Content segments={page.segments} />
+    <Content segments={page.segments} styles={page.styles} />
 
     <nav class="pager" aria-label="Neighboring pages">
       {#if neighbors.previous}
@@ -63,9 +63,9 @@
     min-width: 0;
   }
 
+  /* Until there's room for the table of contents beside it, the content fills the width. */
   main {
     min-width: 0;
-    max-width: 48rem;
     padding: 2rem 0 0;
   }
 
@@ -110,12 +110,13 @@
     margin-top: 1.5rem;
   }
 
+  /* The table of contents stays beside the content, however wide the window. (The layout is only
+     as wide as the navigation, the content, and the table of contents need.) */
   @media (min-width: 80rem) {
     .doc {
       display: grid;
-      grid-template-columns: minmax(0, 48rem) 15rem;
-      justify-content: space-between;
-      gap: 2.5rem;
+      grid-template-columns: minmax(0, var(--content-width)) var(--toc-width);
+      gap: var(--column-gap);
     }
   }
 </style>

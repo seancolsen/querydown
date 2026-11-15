@@ -35,18 +35,9 @@
     type QueryEditor,
   } from './editors';
   import { decodeSchema, encodeSchema } from './schema-codec';
-
-  const STARTING_QUERY = String.raw`// Welcome to the Querydown playground!
-// Edit this query, and the SQL beside it updates as you type.
-
-#issues
-status:open
-created_at:<6m
-\\due_date
-$title
-$author.username -> author
-$#comments -> comments @{align:right}
-`;
+  // The query that the playground opens with. It's a file of its own so that `cargo test` can check
+  // that it compiles (see `compiler/src/tests/docs_examples.rs`).
+  import STARTING_QUERY from './starting-query.qd?raw';
 
   const DIALECT_NAMES: Record<Dialect, string> = { postgres: 'PostgreSQL', duckdb: 'DuckDB' };
 

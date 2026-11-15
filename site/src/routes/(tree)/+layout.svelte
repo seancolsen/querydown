@@ -18,7 +18,15 @@
 
 <style>
   .layout {
-    max-width: 92rem;
+    --nav-width: 15rem;
+    --content-width: 48rem;
+    --toc-width: 15rem;
+    --column-gap: 2.5rem;
+    /* Just wide enough for the three columns, so that there's no space between them to spare. */
+    max-width: calc(
+      var(--nav-width) + var(--content-width) + var(--toc-width) + 2 * var(--column-gap) + 2 *
+        var(--gutter)
+    );
     margin: 0 auto;
     padding: 0 var(--gutter);
   }
@@ -30,8 +38,8 @@
   @media (min-width: 64rem) {
     .layout {
       display: grid;
-      grid-template-columns: 15rem minmax(0, 1fr);
-      gap: 2.5rem;
+      grid-template-columns: var(--nav-width) minmax(0, 1fr);
+      gap: var(--column-gap);
     }
 
     aside {

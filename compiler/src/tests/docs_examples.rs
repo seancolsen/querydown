@@ -3,7 +3,8 @@
 //!
 //! The documentation is Markdown: the pages of the docs site (`docs/` and `site/content/`) and the
 //! repository's `README.md`. Every fenced code block in those files whose language is `qd` is an
-//! example. By default, an example must compile against the sample issue-tracker schema under
+//! example. So is every `.qd` file in those places and in the site's code (`site/src/`), such as
+//! the query that the playground opens with. By default, an example must compile against the sample issue-tracker schema under
 //! every dialect. Words after `qd` in the block's info string change what's expected of it:
 //!
 //! | Info string         | Meaning                                                              |
@@ -40,8 +41,9 @@ use crate::{CompileResult, Compiler, Error};
 /// The dialects that every example must compile under.
 pub const DIALECTS: [&str; 2] = ["postgres", "duckdb"];
 
-/// The Markdown files and directories (relative to the repository root) that hold examples.
-const SOURCES: [&str; 3] = ["README.md", "docs", "site/content"];
+/// The files and directories (relative to the repository root) that hold examples, as Markdown
+/// files or `.qd` files.
+const SOURCES: [&str; 4] = ["README.md", "docs", "site/content", "site/src"];
 
 /// What's expected of an example when it's compiled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,7 +237,8 @@ fn repo_root() -> PathBuf {
         .to_owned()
 }
 
-fn markdown_files(path: &Path, files: &mut Vec<PathBuf>) {
+/// Finds the files within `path` that hold examples: Markdown files and `.qd` files.
+fn example_files(path: &Path, files: &mut Vec<PathBuf>) {
     if path.is_dir() {
         let mut entries: Vec<PathBuf> = fs::read_dir(path)
             .unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()))
@@ -243,9 +246,12 @@ fn markdown_files(path: &Path, files: &mut Vec<PathBuf>) {
             .collect();
         entries.sort();
         for entry in entries {
-            markdown_files(&entry, files);
+            example_files(&entry, files);
         }
-    } else if path.extension().is_some_and(|extension| extension == "md") {
+    } else if path
+        .extension()
+        .is_some_and(|extension| extension == "md" || extension == "qd")
+    {
         files.push(path.to_owned());
     }
 }
@@ -257,14 +263,28 @@ pub fn load_examples() -> Vec<DocExample> {
     for source in SOURCES {
         let path = root.join(source);
         assert!(path.exists(), "{} does not exist", path.display());
-        markdown_files(&path, &mut files);
+        example_files(&path, &mut files);
     }
     let examples: Vec<DocExample> = files
         .iter()
         .flat_map(|path| {
             let file = path.strip_prefix(&root).unwrap().display().to_string();
-            let markdown = fs::read_to_string(path).unwrap();
-            examples_in(&file, &markdown)
+            let content = fs::read_to_string(path).unwrap();
+            if path.extension().is_some_and(|extension| extension == "qd") {
+                // A `.qd` file is one whole query, which must compile.
+                vec![DocExample {
+                    file,
+                    line: 1,
+                    source: content,
+                    expectation: Expectation::Compiles,
+                    limit: None,
+                    offset: None,
+                    expected_sql: Vec::new(),
+                    expected_annotations: None,
+                }]
+            } else {
+                examples_in(&file, &content)
+            }
         })
         .collect();
     // Guards against the docs moving without this loader following them.
@@ -453,4 +473,14 @@ fn examples_are_read_from_fences() {
     );
     assert!(examples[0].expected_annotations.is_some());
     assert_eq!(examples[1].expectation, Expectation::Fails);
+}
+
+#[test]
+fn the_playground_query_is_tested() {
+    // Guards against the playground's starting query moving without this loader following it.
+    let file = "site/src/routes/playground/starting-query.qd";
+    assert!(
+        load_examples().iter().any(|example| example.file == file),
+        "expected {file} to be among the examples"
+    );
 }

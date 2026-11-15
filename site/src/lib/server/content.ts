@@ -11,6 +11,10 @@
  *
  * Links between Markdown files are written as relative paths to the `.md` file (so that they work
  * on GitHub too) and are rewritten here to the URLs of the pages.
+ *
+ * A page can have a stylesheet of its own: a CSS file beside its Markdown file, with the same name
+ * (`site/content/home.css` for `site/content/home.md`). The page includes it, so that its Markdown
+ * can style the HTML it contains, by class name.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -64,6 +68,9 @@ export function fileOfUrl(url: string): string | null {
   } else return null;
   return existsSync(repoPath(file)) && urlOfFile(file) === url ? file : null;
 }
+
+/** The stylesheet that goes with a Markdown file, whether or not it exists. */
+const stylesheetOf = (file: string) => file.replace(/\.md$/, '.css');
 
 /** Compares version numbers such as `0.10.0` and `0.9.2`, for sorting in descending order. */
 function compareVersionsDescending(a: string, b: string): number {
@@ -159,12 +166,14 @@ function resolveLink(file: string, url: string, ids: Set<string>): string {
 const pageCache = new Map<string, { stamp: string; page: Promise<Page> }>();
 
 /**
- * A stamp that changes whenever anything a page is rendered from might have: its own file, the
- * files it may link to (whose headings are checked), or the schema its examples are compiled with.
+ * A stamp that changes whenever anything a page is rendered from might have: its own file and its
+ * stylesheet, the files it may link to (whose headings are checked), or the schema its examples
+ * are compiled with.
  */
 function contentStamp(): string {
-  return [SAMPLE_SCHEMA_FILE, HOME_FILE, ...markdownFiles(DOCS_DIR), ...markdownFiles(RELEASES_DIR)]
-    .map((file) => `${file}:${statSync(repoPath(file)).mtimeMs}`)
+  const pages = [HOME_FILE, ...markdownFiles(DOCS_DIR), ...markdownFiles(RELEASES_DIR)];
+  return [SAMPLE_SCHEMA_FILE, ...pages, ...pages.map(stylesheetOf)]
+    .map((file) => `${file}:${existsSync(repoPath(file)) ? statSync(repoPath(file)).mtimeMs : '-'}`)
     .join('|');
 }
 
@@ -175,11 +184,13 @@ export async function getPage(url: string): Promise<Page | null> {
   const stamp = contentStamp();
   const cached = pageCache.get(url);
   if (cached?.stamp === stamp) return cached.page;
+  const stylesheet = repoPath(stylesheetOf(file));
+  const styles = existsSync(stylesheet) ? readFileSync(stylesheet, 'utf8') : null;
   const page = renderMarkdown(readFileSync(repoPath(file), 'utf8'), {
     file,
     resolveLink: (link, ids) => resolveLink(file, link, ids),
     playgroundUrl: PLAYGROUND.href,
-  }).then((rendered) => ({ ...rendered, url, file }));
+  }).then((rendered) => ({ ...rendered, url, file, styles }));
   pageCache.set(url, { stamp, page });
   return page;
 }

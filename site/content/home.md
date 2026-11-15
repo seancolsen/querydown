@@ -24,11 +24,14 @@ crash
 --#assignments
 ```
 
+All of Querydown's [examples](../../docs/language.md) are written against a fictitious [issue-tracker schema](../../docs/sample-schema.md).
+
 <!-- /slideshow -->
 
-<small>All of Querydown's [examples](../../docs/language.md) are written against a fictitious [issue-tracker schema](../../docs/sample-schema.md).</small>
-
 Querydown is designed primarily as a library to be embedded into applications where power users need sophisticated searching and reporting tools. _(Picture GitHub's [issue search](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests), only more powerful.)_ It can be configured to work with any database schema. The code is succinct and safe for end-users to write, making it akin to **"markdown for SQL"**.
+
+<div class="platforms">
+<div>
 
 Current client bindings available:
 
@@ -36,10 +39,16 @@ Current client bindings available:
 - [JavaScript](../../docs/setup/javascript.md) (via WebAssembly)
 - A [command line tool](../../docs/setup/cli.md)
 
+</div>
+<div>
+
 Current database dialects supported:
 
 - PostgreSQL
 - DuckDB
+
+</div>
+</div>
 
 ## How it works
 
@@ -56,7 +65,23 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 ## Features
 
-[Intuitive joins](../../docs/language.md#referencing-single-related-records), [math](../../docs/language.md#arithmetic), [functions](../../docs/functions.md), [aggregations](../../docs/language.md#referencing-multiple-related-records), [custom display columns](../../docs/language.md#result-columns), [complex comparisons](../../docs/language.md#comparison-expansion), [window functions](../../docs/language.md#window-functions), [unions](../../docs/language.md#union-of-multiple-queries), [pipelines](../../docs/language.md#pipeline-of-multiple-queries), [annotations](../../docs/language.md#annotations), [comments](../../docs/language.md#query-anatomy), [variables](../../docs/language.md#variables), [user-defined functions](../../docs/language.md#user-defined-functions)
+<div class="features">
+
+- [Intuitive joins](../../docs/language.md#referencing-single-related-records)
+- [Math](../../docs/language.md#arithmetic)
+- [Functions](../../docs/functions.md)
+- [Aggregations](../../docs/language.md#referencing-multiple-related-records)
+- [Custom display columns](../../docs/language.md#result-columns)
+- [Complex comparisons](../../docs/language.md#comparison-expansion)
+- [Window functions](../../docs/language.md#window-functions)
+- [Unions](../../docs/language.md#union-of-multiple-queries)
+- [Pipelines](../../docs/language.md#pipeline-of-multiple-queries)
+- [Annotations](../../docs/language.md#annotations)
+- [Comments](../../docs/language.md#query-anatomy)
+- [Variables](../../docs/language.md#variables)
+- [User-defined functions](../../docs/language.md#user-defined-functions)
+
+</div>
 
 For editors, there's [syntax highlighting and autocompletion for CodeMirror](../../docs/setup/codemirror.md).
 
@@ -109,6 +134,8 @@ Many certainly would not! I get it. Querydown is aimed at the kind of user who w
 - Regular expressions (on a more conceptual level, in that the language is designed without keywords)
 
 ### How is this different from other projects?
+
+<div class="comparisons">
 
 - <details><summary>Malloy</summary>
 
@@ -181,6 +208,8 @@ Many certainly would not! I get it. Querydown is aimed at the kind of user who w
     But LinkedQL is SQL with extensions, so the rest of each query is ordinary SQL, including writes. It's a JavaScript database client that connects to PostgreSQL or MySQL (or its own embedded engine) and runs your queries, and a reference to many records gives you one row per record unless you aggregate them yourself. Querydown is a language of its own, designed for searching rather than for application code.
 
     </details>
+
+</div>
 
 ### Is this AI slop?
 

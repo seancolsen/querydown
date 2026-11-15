@@ -1,0 +1,10 @@
+// Welcome to the Querydown playground!
+// Edit this query, and the SQL beside it updates as you type.
+
+#issues
+status:open
+created_at:<6m
+\\due_date
+$title
+$author.username -> author
+$#comments -> comments @{align:right}

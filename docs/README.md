@@ -110,7 +110,7 @@ A plain ```` ```sql ```` block isn't checked. Use `output` whenever a block clai
 
 ### How examples are tested
 
-- `cargo test` runs [`compiler/src/tests/docs_examples.rs`](../compiler/src/tests/docs_examples.rs), which finds every example in `README.md`, `docs/`, and `site/content/`, and compiles it for PostgreSQL and for DuckDB.
+- `cargo test` runs [`compiler/src/tests/docs_examples.rs`](../compiler/src/tests/docs_examples.rs), which finds every example in `README.md`, `docs/`, and `site/content/`, and compiles it for PostgreSQL and for DuckDB. It also compiles every `.qd` file in those places and in `site/src/`, each of which holds one whole query. That's how the query that the playground opens with ([`starting-query.qd`](../site/src/routes/playground/starting-query.qd)) is tested.
 - `cargo test --features db-tests` also has real PostgreSQL and DuckDB databases plan each example's SQL.
 - The site's build compiles each example too (to show its SQL, or its error), and fails if an example doesn't do what its flags say.
 
@@ -134,6 +134,7 @@ A link to a file or a heading that doesn't exist fails the site's build, with a 
 - **The paragraph after the title** says what the page is for. It's also the page's description in search engines and in `/llms.txt`.
 - **No table of contents in the Markdown.** The site generates one from the headings.
 - **No images yet.** The renderer doesn't support them. (The ER diagram is a component, drawn from the schema's JSON.)
+- **Raw HTML is allowed**, and is how you give part of a page a class to [style](#styling-a-page). Use it sparingly, so that the file still reads well on GitHub.
 - **Tables** for anything with two or more attributes per item. **Lists** for rules and details.
 - **Code formatting** for anything that the reader might type or see in code: syntax, names of tables, columns, and functions, file names, commands.
 - Give other code blocks their language (`sql`, `rust`, `ts`, `json`, `sh`, `toml`), so that they're highlighted. Use `text` for terminal output.
@@ -146,7 +147,26 @@ A few things on the site aren't Markdown. A page asks for one with an HTML comme
 | Marker | What appears |
 | -- | -- |
 | `<!-- er-diagram -->` | The entity-relationship diagram of the sample schema |
-| `<!-- slideshow -->` … `<!-- /slideshow -->` | A slideshow of the examples between the markers, each a blockquote followed by a `qd` block. Each slide shows the description, the Querydown, and the SQL. |
+| `<!-- slideshow -->` … `<!-- /slideshow -->` | A slideshow of the examples between the markers, each a blockquote followed by a `qd` block. Each slide shows the Querydown, its description, and the SQL. Paragraphs after the last example are a note about all of them, shown at the foot of the slideshow. |
+
+### Styling a page
+
+A page can have a stylesheet of its own: a CSS file beside its Markdown file, with the same name. The home page (`site/content/home.md`) is styled by [`site/content/home.css`](../site/content/home.css), for example, and a `docs/foo.css` would style `docs/foo.md`. The page includes it, and the dev server reloads the page when you save it.
+
+To style part of a page, wrap it in an HTML element with a class, and leave a blank line inside each tag so that what's between them is still read as Markdown:
+
+````md
+<div class="features">
+
+- [Intuitive joins](./language.md#referencing-single-related-records)
+- [Math](./language.md#arithmetic)
+
+</div>
+````
+
+Then style the class in the page's stylesheet, starting each selector with `.prose` (as in `.prose .features ul`) so that it outranks the site's own styles for Markdown, and using the [colors and other variables](../site/src/app.css) that the rest of the site uses, so that the page suits both themes. GitHub ignores the class, and shows the Markdown inside as usual.
+
+The stylesheet applies to the whole site while its page is shown, so choose class names that the site's own styles don't use. Styles that more than one page needs belong in [`site/src/app.css`](../site/src/app.css) instead.
 
 ## Before you commit
 
