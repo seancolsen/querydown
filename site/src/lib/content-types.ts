@@ -28,6 +28,21 @@ export interface Slide {
   playground: string;
 }
 
+export interface Feature {
+  /** The feature's name, as plain text. */
+  name: string;
+  /** Where the docs explain the feature, if the name is a link. */
+  href: string | null;
+  /** The example's description, as HTML. */
+  caption: string;
+  /** The example's Querydown. */
+  source: string;
+  /** The highlighted Querydown, as HTML. */
+  code: string;
+  /** A link that opens the example in the playground. */
+  playground: string;
+}
+
 /**
  * A page is a sequence of segments: mostly HTML, with the occasional component that a Svelte page
  * renders (requested in Markdown with a marker comment such as `<!-- er-diagram -->`).
@@ -39,6 +54,12 @@ export type Segment =
       slides: Slide[];
       /** A note about all of the slides, as HTML, shown beneath them. */
       note: string | null;
+    }
+  | {
+      type: 'features';
+      /** The section's heading, as HTML, shown within the component. */
+      heading: string | null;
+      features: Feature[];
     }
   | { type: 'er-diagram' };
 

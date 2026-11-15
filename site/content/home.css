@@ -51,41 +51,6 @@
   color: var(--text-muted);
 }
 
-/* The features, as pills. */
-
-.prose .features ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0;
-  list-style: none;
-}
-
-.prose .features li {
-  margin: 0;
-}
-
-.prose .features a {
-  display: inline-block;
-  padding: 0.25rem 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-subtle);
-  color: var(--text);
-  font-size: 0.9375rem;
-  text-decoration: none;
-  transition:
-    border-color 0.15s,
-    color 0.15s,
-    background-color 0.15s;
-}
-
-.prose .features a:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  background: var(--accent-subtle);
-  color: var(--accent);
-}
-
 /* The comparisons with other projects: a stack of panels that expand. */
 
 .prose .comparisons > ul {
@@ -158,7 +123,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .prose .features a,
   .prose .comparisons summary,
   .prose .comparisons summary::before {
     transition: none;

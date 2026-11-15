@@ -6,6 +6,7 @@
   import type { Segment } from '#lib/content-types.ts';
 
   import ErDiagram from './ErDiagram.svelte';
+  import Features from './Features.svelte';
   import Slideshow from './Slideshow.svelte';
 
   interface Props {
@@ -33,6 +34,8 @@
     </div>
   {:else if segment.type === 'slideshow'}
     <Slideshow slides={segment.slides} note={segment.note} />
+  {:else if segment.type === 'features'}
+    <Features heading={segment.heading} features={segment.features} />
   {:else if segment.type === 'er-diagram'}
     <ErDiagram />
   {/if}

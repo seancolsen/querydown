@@ -8,7 +8,17 @@
 
 import GithubSlugger from 'github-slugger';
 import type { Element, Root as HastRoot } from 'hast';
-import type { Blockquote, Code, Heading, Html, Nodes, Parent, Root, RootContent } from 'mdast';
+import type {
+  Blockquote,
+  Code,
+  Heading,
+  Html,
+  ListItem,
+  Nodes,
+  Parent,
+  Root,
+  RootContent,
+} from 'mdast';
 import { toString } from 'mdast-util-to-string';
 import rehypeRaw from 'rehype-raw';
 import rehypeStringify from 'rehype-stringify';
@@ -19,7 +29,14 @@ import type { Highlighter } from 'shiki';
 import { unified } from 'unified';
 import { visit } from 'unist-util-visit';
 
-import type { RenderedMarkdown, SearchSection, Segment, Slide, TocItem } from '../content-types';
+import type {
+  Feature,
+  RenderedMarkdown,
+  SearchSection,
+  Segment,
+  Slide,
+  TocItem,
+} from '../content-types';
 import { playgroundFragment } from '../playground-url';
 import { escapeHtml, highlightCode, highlightQuerydown, loadHighlighter } from './highlight';
 import { compileExample, loadQuerydown, type CompileOptions } from './querydown';
@@ -303,6 +320,58 @@ function slideshow(
   return { slides: result, note: note.length > 0 ? renderNodes(note) : null };
 }
 
+/** One item of the list within `<!-- features -->`: a feature's name, a description, an example. */
+function feature(item: ListItem, context: RenderContext): Feature {
+  const [title, caption, code, ...rest] = item.children;
+  const shapeError = () =>
+    new Error(
+      `${context.file}: each feature must be a list item holding its name (which may be a link), then a blockquote describing an example, then the example as a \`qd\` code block.`,
+    );
+  if (
+    title?.type !== 'paragraph' ||
+    caption?.type !== 'blockquote' ||
+    code?.type !== 'code' ||
+    code.lang !== 'qd' ||
+    rest.length > 0
+  ) {
+    throw shapeError();
+  }
+  const link = title.children.length === 1 ? title.children[0] : null;
+  const example = compileCodeBlock(code, context);
+  if (!example.playground || example.error) {
+    throw new Error(`${context.file}: a feature's example must be one that compiles.`);
+  }
+  return {
+    name: toString(title),
+    href: link?.type === 'link' ? link.url : null,
+    caption: renderNodes(caption.children),
+    source: code.value,
+    code: example.code,
+    playground: example.playground,
+  };
+}
+
+/**
+ * The contents of `<!-- features -->` … `<!-- /features -->`: a heading, then a list of features,
+ * each with an example.
+ */
+function features(
+  nodes: RootContent[],
+  context: RenderContext,
+): { heading: string | null; features: Feature[] } {
+  const [first, ...others] = nodes;
+  const heading = first?.type === 'heading' ? first : null;
+  const rest = heading ? others : nodes;
+  const list = rest[0];
+  if (rest.length !== 1 || list.type !== 'list') {
+    throw new Error(`${context.file}: \`<!-- features -->\` must hold a heading and one list.`);
+  }
+  return {
+    heading: heading ? renderNodes([heading]) : null,
+    features: list.children.map((item) => feature(item, context)),
+  };
+}
+
 // -------------------------------------------------------------------------------------------------
 // The search index
 // -------------------------------------------------------------------------------------------------
@@ -402,6 +471,13 @@ export async function renderMarkdown(
     if (name === 'er-diagram') {
       flush();
       segments.push({ type: 'er-diagram' });
+    } else if (name === 'features') {
+      const end = root.children.findIndex((n, i) => i > index && marker(n) === '/features');
+      if (end === -1) throw new Error(`${context.file}: \`<!-- features -->\` is never closed.`);
+      flush();
+      const contents = root.children.slice(index + 1, end);
+      segments.push({ type: 'features', ...features(contents, context) });
+      index = end;
     } else if (name === 'slideshow') {
       const end = root.children.findIndex((n, i) => i > index && marker(n) === '/slideshow');
       if (end === -1) throw new Error(`${context.file}: \`<!-- slideshow -->\` is never closed.`);

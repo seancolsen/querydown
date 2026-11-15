@@ -63,25 +63,219 @@ Supported Database dialects
 
 The compiler doesn't connect to your database or run anything. What you do with the SQL is up to you.
 
-## Language Features
+<!-- features -->
 
-<div class="features">
+## Language features at a glance
+
+- [Text search](../../docs/language.md#default-text-search)
+
+  > Issues that mention "crash", but not "duplicate"
+
+  ```qd
+  #issues crash !duplicate
+  ```
+
+- [Filters](../../docs/language.md#comparisons-and-conditions)
+
+  > Open issues created in the past two weeks that have no due date
+
+  ```qd
+  #issues
+  status:open
+  created_at:<2w
+  due_date:@null
+  ```
 
 - [Intuitive joins](../../docs/language.md#referencing-single-related-records)
-- [Math](../../docs/language.md#arithmetic)
-- [Functions](../../docs/functions.md)
+
+  > Issues written by members of the Backend team, with each one's author and project
+
+  ```qd
+  #issues
+  author.team.name:Backend
+  $title
+  $author.username
+  $project.name
+  ```
+
 - [Aggregations](../../docs/language.md#referencing-multiple-related-records)
-- [Custom display columns](../../docs/language.md#result-columns)
+
+  > Each project, with its number of issues and the date of its newest one
+
+  ```qd
+  #projects
+  $name
+  $#issues
+  $#issues.created_at%max
+  ```
+
+- [Has some, has none](../../docs/language.md#has-some-and-has-none-conditions)
+
+  > Active projects that have open issues, but none created in the past month
+
+  ```qd
+  #projects
+  is_active
+  ++#issues{status:open}
+  --#issues{created_at:<1m}
+  ```
+
 - [Complex comparisons](../../docs/language.md#comparison-expansion)
+
+  > Open or reopened issues whose title or description mentions "crash" or "freeze"
+
+  ```qd
+  #issues
+  status:[open reopened]
+  [title description]:[crash freeze]
+  ```
+
+- [Custom display columns](../../docs/language.md#result-columns)
+
+  > Each user's name and contact details, most recently seen first
+
+  ```qd
+  #users
+  $username -> name
+  $^f"{username} <{email}>" -> contact
+  $last_seen \sd
+  ```
+
+- [Grouping](../../docs/language.md#grouping-and-aggregation)
+
+  > The number of issues with each status, and when the newest of them was created
+
+  ```qd
+  #issues
+  $status \g
+  $%count -> issues
+  $created_at%max -> newest
+  ```
+
+- [Math](../../docs/language.md#arithmetic)
+
+  > Each issue, with the number of days between its creation and its due date
+
+  ```qd
+  #issues
+  $title
+  $(due_date - created_at)|days -> days_allowed
+  ```
+
+- [Functions](../../docs/functions.md)
+
+  > Each issue, with its author's email address in lowercase, and the number of days until it's due (or zero, once it's overdue)
+
+  ```qd
+  #issues
+  $title
+  $author.email|lowercase
+  $due_date|countdown|days|max(0) -> days_left
+  ```
+
+- [Case expressions](../../docs/language.md#case-expressions)
+
+  > Each issue, categorized as "overdue", "due soon", or "due later"
+
+  ```qd
+  #issues
+  $title
+  $ ?
+    due_date|countdown|days:<0  ~ "overdue"
+    due_date|countdown|days:<30 ~ "due soon"
+    ~~ "due later"
+  ```
+
 - [Window functions](../../docs/language.md#window-functions)
+
+  > The newest issue in each project
+
+  ```qd
+  #issues
+  %%(project\p created_at\sd)%row_number:1
+  $project.name
+  $title
+  $created_at
+  ```
+
 - [Unions](../../docs/language.md#union-of-multiple-queries)
+
+  > The issues that duplicate issue 1234, and the issues that it blocks
+
+  ```qd
+  #issues duplicate_of:1234
+  $id
+  $title
+  $"Duplicate"
+  +++
+  #blocks blocker:1234
+  $blocking.id
+  $blocking.title
+  $"Blocked" -> relationship
+  ```
+
 - [Pipelines](../../docs/language.md#pipeline-of-multiple-queries)
-- [Annotations](../../docs/language.md#annotations)
-- [Comments](../../docs/language.md#query-anatomy)
+
+  > For each project, the number of months in which at least 10 issues were created
+
+  ```qd
+  #issues
+  $project \g
+  $created_at|year_month \g
+  $%count -> issue_count
+  ~~~
+  issue_count:>=10
+  $project \g
+  $%count
+  ```
+
 - [Variables](../../docs/language.md#variables)
+
+  > Issues created in the past two weeks by users who have been seen in that time
+
+  ```qd
+  @recent = 2w
+  #users.is_active = last_seen:<@recent
+  #issues
+  created_at:<@recent
+  author.is_active
+  ```
+
 - [User-defined functions](../../docs/language.md#user-defined-functions)
 
-</div>
+  > Given a fiscal year that begins on February 1st, issues opened in fiscal year 2020 and due in fiscal year 2021
+
+  ```qd
+  @@fiscal_year = @date => (@date - 1m)|year
+  #issues
+  created_at|fiscal_year:2020
+  due_date|fiscal_year:2021
+  ```
+
+- [Annotations](../../docs/language.md#annotations)
+
+  > Issues, with display settings that the application which runs the query can use
+
+  ```qd
+  #issues
+  $title      @{width:300}
+  $created_at @{format:relative}
+  $#comments  @{chart:bar}
+  ```
+
+- [Comments](../../docs/language.md#query-anatomy)
+
+  > Open bugs that nobody is working on
+
+  ```qd
+  // Bugs that need an owner
+  #issues
+  status:open
+  ++#labels{name:bug}  // labeled "bug"
+  --#assignments       /* and unassigned */
+  ```
+
+<!-- /features -->
 
 ## Limitations
 
