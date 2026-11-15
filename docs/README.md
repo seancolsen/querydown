@@ -24,7 +24,7 @@ The site itself (a SvelteKit app that renders these files) is in [`site/`](../si
 The site's navigation is a tree, defined in [`site/src/lib/nav.ts`](../site/src/lib/nav.ts). An item of the tree is either a page or a group of items, never both. (The URL of a group, like `/docs/setup`, redirects to the group's first page.)
 
 - **To add a docs page**, create the Markdown file, and list it in `nav.ts`. The build fails if the two disagree.
-- **To add a release**, create `site/content/releases/<version>.md`. Releases are found by themselves, and are listed newest first.
+- **To add a release**, create `site/content/releases/<version>.md`. Releases are found by themselves, and are listed newest first. [`RELEASING.md`](../RELEASING.md) describes what goes in the notes, as part of cutting a release.
 - **To move or rename a page**, also update the links to it. The build fails on the ones you miss.
 
 ## Who you're writing for

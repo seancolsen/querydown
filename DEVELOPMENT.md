@@ -188,6 +188,12 @@ add a `db_skip` to its ```` ```toml options ```` block: `db_skip = true` (all en
 This setup is also the foundation for future data-driven E2E tests: seed rows into the tables and assert
 on result sets instead of just running `EXPLAIN`.
 
+## Releasing
+
+[RELEASING.md](RELEASING.md) describes how to cut a release, which publishes the crates to
+crates.io and the JavaScript packages to npm. [scripts/release.sh](scripts/release.sh) does the
+mechanical parts, from the container.
+
 ## Optional: VS Code / Codespaces dev container
 
 If you use VS Code, [.devcontainer/devcontainer.json](.devcontainer/devcontainer.json) lets you run your **whole editor** inside this same container instead of opening a shell with `docker compose run`. It's a supplement — it reuses the exact same `docker-compose.yml` (Dockerfile, cache volumes, UID matching, entrypoint), so nothing about the CLI workflow above changes.

@@ -152,6 +152,7 @@ The documentation is published at [querydown.org](https://querydown.org), and it
 | [`bindings/codemirror/`](./bindings/codemirror) | The CodeMirror 6 language package |
 | [`docs/`](./docs) | The documentation, as Markdown |
 | [`site/`](./site) | The website that publishes the docs, and the playground |
+| [`scripts/`](./scripts) | The script that cuts a release (see [RELEASING.md](./RELEASING.md)) |
 
 To work on Querydown itself, see [DEVELOPMENT.md](./DEVELOPMENT.md).
 

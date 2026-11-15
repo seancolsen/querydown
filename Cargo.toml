@@ -7,12 +7,23 @@ members = [
     "bindings/js",
 ]
 
+# Every package in the repository (the crates here, and the npm packages built from `bindings/`)
+# shares this one version. Change it with `scripts/release.sh prepare <version>`, which also updates
+# the pins below and the CodeMirror package. See RELEASING.md.
 [workspace.package]
+version = "0.0.1"
 edition = "2021"
 license = "MIT"
+authors = ["Sean Colsen <colsen.sean@gmail.com>"]
 repository = "https://github.com/seancolsen/querydown"
-version = "0.0.1"
+homepage = "https://querydown.org"
 rust-version = "1.67.0"
+
+# The crates depend on each other at exactly the same version, since they're released together and
+# the parser's API is internal to Querydown.
+[workspace.dependencies]
+querydown = { version = "=0.0.1", path = "compiler" }
+querydown-parser = { version = "=0.0.1", path = "parser" }
 
 [profile.dev]
 # Full debug info (`debug = 2`) makes the combined `.debug_info` sections exceed 4 GB, which

@@ -1,7 +1,14 @@
 [package]
 name = "querydown-parser"
-version = "0.0.1"
-edition = "2021"
+description = "The parser of the Querydown language, used by the `querydown` compiler"
+keywords = ["querydown", "sql", "parser", "query-language"]
+categories = ["parser-implementations"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 chumsky = "0.13.0"

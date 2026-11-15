@@ -26,6 +26,13 @@ In short:
 - After changing documentation (or the site), build the site, which renders every page and checks
   every link: `cd site && npm install && npm run build`. This needs Node.js 22.17 or later.
 
+## Releases
+
+[RELEASING.md](RELEASING.md) describes how a release is cut and published to crates.io and npm, with
+`scripts/release.sh`. Every crate and npm package shares the version in the root `Cargo.toml`;
+change it only with `scripts/release.sh prepare <version>`. Never publish anything, or push a tag,
+unless asked to.
+
 ## Git commits
 
 Whenever you change files in the repo, make a Git commit at the end of your turn, without being asked. Commit straight to the current branch (usually `main`), and don't push.
