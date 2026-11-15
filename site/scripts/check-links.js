@@ -8,38 +8,17 @@
 // prerendering, and with those the Markdown renderer makes of links between Markdown files, but it
 // looks at the site as it was actually built, whatever the links came from.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import rehypeParse from 'rehype-parse';
 import { unified } from 'unified';
 import { visit } from 'unist-util-visit';
 
-const BUILD = fileURLToPath(new URL('../build', import.meta.url));
-const ORIGIN = 'https://querydown.org';
+import { BUILD, htmlFiles, ORIGIN, urlOf } from './built-site.js';
+
 /** Pages whose fragment isn't the id of an element. The playground keeps its state there. */
 const FREE_FRAGMENTS = new Set(['/playground']);
-
-if (!existsSync(BUILD)) {
-  console.error('There is no build to check. Run `npm run build` first.');
-  process.exit(1);
-}
-
-function htmlFiles(dir) {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const file = path.join(dir, entry.name);
-    if (entry.isDirectory()) return htmlFiles(file);
-    return entry.name.endsWith('.html') ? [file] : [];
-  });
-}
-
-/** The URL path that a built HTML file is served at. */
-function urlOf(file) {
-  const relative = path.relative(BUILD, file).split(path.sep).join('/');
-  if (relative === 'index.html') return '/';
-  return `/${relative.replace(/(\/index)?\.html$/, '')}`;
-}
 
 /** The built file that serves a URL path, if there is one. */
 function fileOf(pathname) {
@@ -54,7 +33,7 @@ const parser = unified().use(rehypeParse);
 
 /** The ids and the references of each page, read once. */
 const pages = new Map();
-for (const file of htmlFiles(BUILD)) {
+for (const file of htmlFiles()) {
   const tree = parser.parse(readFileSync(file, 'utf8'));
   const ids = new Set();
   const references = [];
