@@ -33,10 +33,8 @@ export interface Feature {
   name: string;
   /** Where the docs explain the feature, if the name is a link. */
   href: string | null;
-  /** The example's description, as HTML. */
+  /** A sentence that says what the example shows, as HTML. */
   caption: string;
-  /** The example's Querydown. */
-  source: string;
   /** The highlighted Querydown, as HTML. */
   code: string;
   /** A link that opens the example in the playground. */

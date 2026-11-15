@@ -150,7 +150,7 @@ A few things on the site aren't Markdown. A page asks for one with an HTML comme
 | -- | -- |
 | `<!-- er-diagram -->` | The entity-relationship diagram of the sample schema |
 | `<!-- slideshow -->` … `<!-- /slideshow -->` | A slideshow of the examples between the markers, each a blockquote followed by a `qd` block. Each slide shows the Querydown, its description, and the SQL. Paragraphs after the last example are a note about all of them, shown at the foot of the slideshow. |
-| `<!-- features -->` … `<!-- /features -->` | A heading, then a list of features, each item holding the feature's name (usually a link to the docs), a blockquote, and a `qd` block. It's shown as a box with the list of features beside the Querydown of the chosen one, and its description. No SQL is shown. |
+| `<!-- features -->` … `<!-- /features -->` | A heading, then a list of features, each item holding the feature's name (usually a link to the docs), a blockquote, and a `qd` block. It's shown as a box with the list of features beside the Querydown of the chosen one, which is followed by its description and a link to the docs. No SQL is shown. Here the description comes _after_ the code, so write it as a whole sentence about the query ("This query shows issues that…"). |
 
 ### Styling a page
 

@@ -411,7 +411,6 @@ function feature(item: ListItem, context: RenderContext): Feature {
     name: toString(title),
     href: link?.type === 'link' ? link.url : null,
     caption: renderNodes(caption.children),
-    source: code.value,
     code: example.code,
     playground: example.playground,
   };

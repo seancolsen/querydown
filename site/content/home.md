@@ -69,7 +69,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Text search](../../docs/language.md#default-text-search)
 
-  > Issues that mention "crash", but not "duplicate"
+  > This query shows issues that mention "crash", but not "duplicate".
 
   ```qd
   #issues crash !duplicate
@@ -77,7 +77,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Filters](../../docs/language.md#comparisons-and-conditions)
 
-  > Open issues created in the past two weeks that have no due date
+  > This query shows open issues created in the past two weeks that have no due date.
 
   ```qd
   #issues
@@ -88,7 +88,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Intuitive joins](../../docs/language.md#referencing-single-related-records)
 
-  > Issues written by members of the Backend team, with each one's author and project
+  > This query shows issues written by members of the Backend team, with each one's author and project.
 
   ```qd
   #issues
@@ -100,7 +100,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Aggregations](../../docs/language.md#referencing-multiple-related-records)
 
-  > Each project, with its number of issues and the date of its newest one
+  > This query shows each project, with its number of issues and the date of its newest one.
 
   ```qd
   #projects
@@ -111,7 +111,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Has some, has none](../../docs/language.md#has-some-and-has-none-conditions)
 
-  > Active projects that have open issues, but none created in the past month
+  > This query shows active projects that have open issues, but none created in the past month.
 
   ```qd
   #projects
@@ -122,7 +122,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Complex comparisons](../../docs/language.md#comparison-expansion)
 
-  > Open or reopened issues whose title or description mentions "crash" or "freeze"
+  > This query shows open or reopened issues whose title or description mentions "crash" or "freeze".
 
   ```qd
   #issues
@@ -132,7 +132,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Custom display columns](../../docs/language.md#result-columns)
 
-  > Each user's name and contact details, most recently seen first
+  > This query shows each user's name and contact details, most recently seen first.
 
   ```qd
   #users
@@ -143,7 +143,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Grouping](../../docs/language.md#grouping-and-aggregation)
 
-  > The number of issues with each status, and when the newest of them was created
+  > This query shows the number of issues with each status, and when the newest of them was created.
 
   ```qd
   #issues
@@ -154,7 +154,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Math](../../docs/language.md#arithmetic)
 
-  > Each issue, with the number of days between its creation and its due date
+  > This query shows each issue, with the number of days between its creation and its due date.
 
   ```qd
   #issues
@@ -164,7 +164,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Functions](../../docs/functions.md)
 
-  > Each issue, with its author's email address in lowercase, and the number of days until it's due (or zero, once it's overdue)
+  > This query shows each issue, with its author's email address in lowercase, and the number of days until it's due (or zero, once it's overdue).
 
   ```qd
   #issues
@@ -175,7 +175,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Case expressions](../../docs/language.md#case-expressions)
 
-  > Each issue, categorized as "overdue", "due soon", or "due later"
+  > This query shows each issue, categorized as "overdue", "due soon", or "due later".
 
   ```qd
   #issues
@@ -188,7 +188,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Window functions](../../docs/language.md#window-functions)
 
-  > The newest issue in each project
+  > This query shows the newest issue in each project.
 
   ```qd
   #issues
@@ -200,7 +200,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Unions](../../docs/language.md#union-of-multiple-queries)
 
-  > The issues that duplicate issue 1234, and the issues that it blocks
+  > This query shows the issues that duplicate issue 1234, and the issues that it blocks.
 
   ```qd
   #issues duplicate_of:1234
@@ -216,7 +216,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Pipelines](../../docs/language.md#pipeline-of-multiple-queries)
 
-  > For each project, the number of months in which at least 10 issues were created
+  > This query shows, for each project, the number of months in which at least 10 issues were created.
 
   ```qd
   #issues
@@ -231,7 +231,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Variables](../../docs/language.md#variables)
 
-  > Issues created in the past two weeks by users who have been seen in that time
+  > This query shows issues created in the past two weeks by users who have been seen in that time.
 
   ```qd
   @recent = 2w
@@ -243,7 +243,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [User-defined functions](../../docs/language.md#user-defined-functions)
 
-  > Given a fiscal year that begins on February 1st, issues opened in fiscal year 2020 and due in fiscal year 2021
+  > Given a fiscal year that begins on February 1st, this query shows issues opened in fiscal year 2020 and due in fiscal year 2021.
 
   ```qd
   @@fiscal_year = @date => (@date - 1m)|year
@@ -254,7 +254,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Annotations](../../docs/language.md#annotations)
 
-  > Issues, with display settings that the application which runs the query can use
+  > This query shows issues, along with display settings for the application that runs the query to use.
 
   ```qd
   #issues
@@ -265,7 +265,7 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 - [Comments](../../docs/language.md#query-anatomy)
 
-  > Open bugs that nobody is working on
+  > This query shows open bugs that nobody is working on.
 
   ```qd
   // Bugs that need an owner
