@@ -43,12 +43,56 @@ export interface Feature {
   playground: string;
 }
 
+/** An example in the prose: its Querydown, and what that compiles to. */
+export interface Example {
+  /** The example's description, as HTML, if it has one. */
+  caption: string | null;
+  /** The example's Querydown. */
+  source: string;
+  /** The highlighted Querydown, as HTML. */
+  code: string;
+  /** A link that opens the example in the playground, unless it's a fragment. */
+  playground: string | null;
+  /**
+   * The SQL that the example compiles to, if the page should offer to show it. (It doesn't for a
+   * fragment, an example that fails to compile, or one whose output the page shows itself.)
+   */
+  sql: string | null;
+  /**
+   * Why the example doesn't compile, if it's expected not to. The compiler quotes code with
+   * backticks, as Markdown does.
+   */
+  error: { message: string; hint: string | null } | null;
+}
+
 /**
- * A page is a sequence of segments: mostly HTML, with the occasional component that a Svelte page
+ * A piece of prose: HTML rendered from Markdown, with a Svelte component in place of each code
+ * block. HTML can't hold a component, so an element that has one within it (such as the list item
+ * of a step in some instructions) is a block of its own, with its contents as blocks.
+ */
+export type Block =
+  | { type: 'html'; html: string }
+  | {
+      type: 'element';
+      tag: string;
+      attributes: Record<string, string>;
+      children: Block[];
+    }
+  | {
+      type: 'code';
+      /** The code, to copy. */
+      source: string;
+      /** The highlighted code, as the HTML of a `<pre>` element. */
+      html: string;
+    }
+  | ({ type: 'example' } & Example);
+
+/**
+ * A page is a sequence of segments: mostly prose, with the occasional component that a Svelte page
  * renders (requested in Markdown with a marker comment such as `<!-- er-diagram -->`).
  */
 export type Segment =
-  | { type: 'html'; html: string }
+  | { type: 'prose'; blocks: Block[] }
   | {
       type: 'slideshow';
       slides: Slide[];

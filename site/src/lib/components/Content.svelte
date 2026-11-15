@@ -1,10 +1,11 @@
 <!--
-  Renders a page's segments: HTML from Markdown, interleaved with the components it asked for. Also
+  Renders a page's segments: prose from Markdown, interleaved with the components it asked for. Also
   includes the page's own stylesheet, if it has one.
 -->
 <script lang="ts">
   import type { Segment } from '#lib/content-types.ts';
 
+  import Blocks from './Blocks.svelte';
   import ErDiagram from './ErDiagram.svelte';
   import Features from './Features.svelte';
   import Slideshow from './Slideshow.svelte';
@@ -27,10 +28,9 @@
 </svelte:head>
 
 {#each segments as segment}
-  {#if segment.type === 'html'}
+  {#if segment.type === 'prose'}
     <div class="prose">
-      <!-- eslint-disable-next-line svelte/no-at-html-tags -- rendered from our own Markdown -->
-      {@html segment.html}
+      <Blocks blocks={segment.blocks} />
     </div>
   {:else if segment.type === 'slideshow'}
     <Slideshow slides={segment.slides} note={segment.note} />

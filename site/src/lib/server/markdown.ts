@@ -1,5 +1,8 @@
 /**
- * Renders the site's Markdown content to HTML.
+ * Renders the site's Markdown content, checking its examples as it goes.
+ *
+ * The result is mostly HTML, but each code block becomes the data for a Svelte component that shows
+ * it (see `Blocks.svelte`), and so do the components that a page asks for with a marker comment.
  *
  * This is ordinary GitHub-flavored Markdown, so that the files also read well on GitHub. The
  * conventions that the site adds on top of it are documented for authors in `docs/README.md`; keep
@@ -7,18 +10,24 @@
  */
 
 import GithubSlugger from 'github-slugger';
-import type { Element, Root as HastRoot } from 'hast';
+import type {
+  Element,
+  Nodes as HastNodes,
+  Root as HastRoot,
+  RootContent as HastRootContent,
+} from 'hast';
 import type {
   Blockquote,
   Code,
   Heading,
-  Html,
   ListItem,
+  Node as MdastNode,
   Nodes,
   Parent,
   Root,
   RootContent,
 } from 'mdast';
+import { find, html as htmlSchema } from 'property-information';
 import { toString } from 'mdast-util-to-string';
 import rehypeRaw from 'rehype-raw';
 import rehypeStringify from 'rehype-stringify';
@@ -30,6 +39,7 @@ import { unified } from 'unified';
 import { visit } from 'unist-util-visit';
 
 import type {
+  Block,
   Feature,
   RenderedMarkdown,
   SearchSection,
@@ -38,7 +48,7 @@ import type {
   TocItem,
 } from '../content-types';
 import { playgroundFragment } from '../playground-url';
-import { escapeHtml, highlightCode, highlightQuerydown, loadHighlighter } from './highlight';
+import { highlightCode, highlightQuerydown, loadHighlighter } from './highlight';
 import { compileExample, loadQuerydown, type CompileOptions } from './querydown';
 
 export interface RenderContext {
@@ -94,20 +104,6 @@ function parseExampleFlags(meta: string | null | undefined, context: RenderConte
   return flags;
 }
 
-const COPY_BUTTON =
-  '<button type="button" class="code-action" data-copy aria-label="Copy" title="Copy">' +
-  '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 1.5h7a1 1 0 0 1 1 1v8.5M3.5 4.5h7a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z"/></svg>' +
-  '</button>';
-
-const PLAYGROUND_ICON =
-  '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z"/></svg>';
-
-/** Shows and hides the SQL below an example (see `toggleSql` in `+layout.svelte`). */
-const SQL_BUTTON =
-  '<button type="button" class="code-action" data-sql-toggle aria-expanded="false" aria-label="Show the SQL" title="Show the SQL">' +
-  '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>' +
-  '</button>';
-
 interface CompiledExample {
   /** The highlighted source. */
   code: string;
@@ -145,81 +141,85 @@ function isOutputBlock(node: RootContent | undefined): boolean {
   return node?.type === 'code' && /(^|\s)output(\s|$)/.test(node.meta ?? '');
 }
 
-/** A compiler message as HTML. The compiler quotes code with backticks, as Markdown does. */
-function messageHtml(message: string): string {
-  return escapeHtml(message).replace(/`([^`]+)`/g, '<code>$1</code>');
+/** The element that a placeholder becomes in HTML, until `splitBlocks` swaps it for its block. */
+const PLACEHOLDER_TAG = 'x-block';
+
+/** Stands in for a code block in Markdown, so that the page shows a component there. */
+interface Placeholder extends MdastNode {
+  type: 'placeholder';
 }
 
-/**
- * An example's code, then what it compiles to. An example that compiles has a button that shows its
- * SQL, which links to the playground. One that doesn't, or whose SQL the page states itself, links
- * to the playground directly.
- */
-function exampleHtml(example: CompiledExample, showSql: boolean): string {
-  const sql = example.sql && showSql ? example.sql : null;
-  const playground = example.playground
-    ? `<a class="code-action" href="${escapeHtml(example.playground)}" target="_blank" rel="noopener" aria-label="Open in the playground" title="Open in the playground">${PLAYGROUND_ICON}</a>`
-    : '';
-  let html =
-    `<div class="code-block">` +
-    `<pre class="qd"><code>${example.code}</code></pre>` +
-    `<div class="code-actions">${COPY_BUTTON}${sql ? SQL_BUTTON : playground}</div>` +
-    `</div>`;
-  if (example.error) {
-    const hint = example.error.hint
-      ? ` <span class="example-hint">${messageHtml(example.error.hint)}</span>`
-      : '';
-    html += `<p class="example-error"><strong>Error:</strong> ${messageHtml(example.error.message)}${hint}</p>`;
-  } else if (sql) {
-    const link = example.playground
-      ? `<a class="example-playground" href="${escapeHtml(example.playground)}" target="_blank" rel="noopener">Open in the playground</a>`
-      : '';
-    html +=
-      `<div class="example-sql" hidden>${link}` +
-      `<pre><code>${escapeHtml(sql)}</code></pre></div>`;
+declare module 'mdast' {
+  interface BlockContentMap {
+    placeholder: Placeholder;
   }
-  return html;
+  interface RootContentMap {
+    placeholder: Placeholder;
+  }
 }
 
-function plainCodeHtml(node: Code, shiki: Highlighter): string {
-  return `<div class="code-block">${highlightCode(shiki, node.value, node.lang ?? null)}<div class="code-actions">${COPY_BUTTON}</div></div>`;
+/** Adds a block to `blocks`, returning a placeholder that refers to it by its position. */
+function placeholder(block: Block, blocks: Block[]): Placeholder {
+  blocks.push(block);
+  const properties = { dataBlock: blocks.length - 1 };
+  return { type: 'placeholder', data: { hName: PLACEHOLDER_TAG, hProperties: properties } };
 }
 
-const html = (value: string): Html => ({ type: 'html', value });
+/** Whether a placeholder is within `node`, at any depth. */
+function holdsPlaceholder(node: Nodes): boolean {
+  return (
+    'children' in node && node.children.some((c) => c.type === 'placeholder' || holdsPlaceholder(c))
+  );
+}
 
 /**
- * Replaces the code blocks within `parent` (at any depth) with highlighted HTML.
+ * Replaces the code blocks within `parent` (at any depth) with placeholders for the components
+ * that show them, adding those to `blocks`.
  *
  * A `qd` block is an example. A blockquote directly before one is its plain-English description,
- * and the two are wrapped up together.
+ * which the example shows above its code.
  */
-function transformCodeBlocks(parent: Parent, context: RenderContext, shiki: Highlighter): void {
+function transformCodeBlocks(
+  parent: Parent,
+  context: RenderContext,
+  shiki: Highlighter,
+  blocks: Block[],
+): void {
   const output: RootContent[] = [];
   const children = parent.children as RootContent[];
   children.forEach((node, index) => {
     if (node.type !== 'code') {
-      if ('children' in node) transformCodeBlocks(node, context, shiki);
+      if ('children' in node) transformCodeBlocks(node, context, shiki, blocks);
       output.push(node);
       return;
     }
     if (node.lang !== 'qd') {
-      output.push(html(plainCodeHtml(node, shiki)));
+      const html = highlightCode(shiki, node.value, node.lang ?? null);
+      output.push(placeholder({ type: 'code', source: node.value, html }, blocks));
       return;
     }
     const example = compileCodeBlock(node, context);
-    const body = exampleHtml(example, !isOutputBlock(children[index + 1]));
-    const classes = example.error ? 'example example-fails' : 'example';
     const previous = output.at(-1);
+    let caption: string | null = null;
     if (previous?.type === 'blockquote') {
+      if (holdsPlaceholder(previous)) {
+        const where = `${context.file}, line ${node.position?.start.line}`;
+        throw new Error(`${where}: an example's description can't hold a code block.`);
+      }
       output.pop();
-      output.push(
-        html(`<div class="${classes}"><div class="example-caption">`),
-        ...previous.children,
-        html(`</div>${body}</div>`),
-      );
-    } else {
-      output.push(html(`<div class="${classes}">${body}</div>`));
+      caption = renderNodes(previous.children);
     }
+    const showSql = !isOutputBlock(children[index + 1]);
+    const block: Block = {
+      type: 'example',
+      caption,
+      source: node.value,
+      code: example.code,
+      playground: example.playground,
+      sql: showSql ? example.sql : null,
+      error: example.error,
+    };
+    output.push(placeholder(block, blocks));
   });
   parent.children = output as Parent['children'];
 }
@@ -265,9 +265,70 @@ const toHtml = unified()
   .use(rehypePolish)
   .use(rehypeStringify);
 
+/** Renders Markdown as HTML. */
 function renderNodes(nodes: RootContent[]): string {
   const root: Root = { type: 'root', children: nodes };
   return toHtml.stringify(toHtml.runSync(root));
+}
+
+/** Renders Markdown whose code blocks are placeholders for `components`, as blocks. */
+function renderBlocks(nodes: RootContent[], components: Block[]): Block[] {
+  const root: Root = { type: 'root', children: nodes };
+  return splitBlocks(toHtml.runSync(root).children, components);
+}
+
+function hasPlaceholder(node: HastNodes): boolean {
+  if (node.type === 'element' && node.tagName === PLACEHOLDER_TAG) return true;
+  return 'children' in node && node.children.some(hasPlaceholder);
+}
+
+/**
+ * Turns HTML into blocks, swapping each placeholder for its block from `components`. Any element
+ * that holds a placeholder becomes a block of its own, and the HTML around them becomes HTML blocks.
+ */
+function splitBlocks(nodes: HastRootContent[], components: Block[]): Block[] {
+  const blocks: Block[] = [];
+  let pending: HastRootContent[] = [];
+  const flush = () => {
+    const html = toHtml.stringify({ type: 'root', children: pending });
+    if (html.trim()) blocks.push({ type: 'html', html });
+    pending = [];
+  };
+  for (const node of nodes) {
+    if (node.type !== 'element' || !hasPlaceholder(node)) {
+      pending.push(node);
+      continue;
+    }
+    flush();
+    blocks.push(
+      node.tagName === PLACEHOLDER_TAG
+        ? components[Number(node.properties.dataBlock)]
+        : {
+            type: 'element',
+            tag: node.tagName,
+            attributes: attributes(node),
+            children: splitBlocks(node.children, components),
+          },
+    );
+  }
+  flush();
+  return blocks;
+}
+
+/** An element's properties, as HTML attributes. */
+function attributes(element: Element): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(element.properties)) {
+    if (value == null || value === false) continue;
+    const info = find(htmlSchema, key);
+    result[info.attribute] =
+      value === true
+        ? ''
+        : Array.isArray(value)
+          ? value.join(info.commaSeparated ? ', ' : ' ')
+          : String(value);
+  }
+  return result;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -461,8 +522,9 @@ export async function renderMarkdown(
   const flush = () => {
     if (pending.length === 0) return;
     const part: Root = { type: 'root', children: pending };
-    transformCodeBlocks(part, context, shiki);
-    segments.push({ type: 'html', html: renderNodes(part.children) });
+    const components: Block[] = [];
+    transformCodeBlocks(part, context, shiki, components);
+    segments.push({ type: 'prose', blocks: renderBlocks(part.children, components) });
     pending = [];
   };
   for (let index = 0; index < root.children.length; index++) {
