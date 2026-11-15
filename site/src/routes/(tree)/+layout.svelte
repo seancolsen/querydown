@@ -1,4 +1,7 @@
-<!-- The layout for pages that sit in the navigation tree, which is shown beside them. -->
+<!--
+  The layout for pages that sit in the navigation tree, which is shown beside them (with the page's
+  table of contents within it).
+-->
 <script lang="ts">
   import NavTree from '#lib/components/NavTree.svelte';
 
@@ -18,14 +21,12 @@
 
 <style>
   .layout {
-    --nav-width: 15rem;
+    --nav-width: 17rem;
     --content-width: 48rem;
-    --toc-width: 15rem;
     --column-gap: 2.5rem;
-    /* Just wide enough for the three columns, so that there's no space between them to spare. */
+    /* Just wide enough for the two columns, so that there's no space between them to spare. */
     max-width: calc(
-      var(--nav-width) + var(--content-width) + var(--toc-width) + 2 * var(--column-gap) + 2 *
-        var(--gutter)
+      var(--nav-width) + var(--content-width) + var(--column-gap) + 2 * var(--gutter)
     );
     margin: 0 auto;
     padding: 0 var(--gutter);

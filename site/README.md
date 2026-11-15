@@ -49,7 +49,7 @@ A page of content is a Markdown file. [`src/lib/server/content.ts`](./src/lib/se
 - **Marker comments** such as `<!-- er-diagram -->` are replaced by Svelte components.
 - **A page's stylesheet**, the CSS file beside its Markdown file (such as `content/home.css`), is included in the page.
 
-The navigation tree is defined in [`src/lib/nav.ts`](./src/lib/nav.ts), which is also what decides which files under `docs/` are pages.
+The navigation tree is defined in [`src/lib/nav.ts`](./src/lib/nav.ts), which is also what decides which files under `docs/` are pages. Beneath the current page, the tree lists that page's table of contents, and marks the section being read (which [`src/lib/reading.svelte.ts`](./src/lib/reading.svelte.ts) keeps track of). On a narrow screen, the tree is in a drawer that the header's menu button opens.
 
 ### The compiler in the site
 

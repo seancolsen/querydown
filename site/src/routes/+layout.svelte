@@ -17,19 +17,36 @@
   import { onMount } from 'svelte';
 
   import { afterNavigate, refreshAll } from '$app/navigation';
+  import { page } from '$app/state';
 
   import Header from '#lib/components/Header.svelte';
   import NavTree from '#lib/components/NavTree.svelte';
   import Search from '#lib/components/Search.svelte';
+  import { watchSections } from '#lib/reading.svelte.ts';
 
   import type { LayoutProps } from './$types';
 
   let { data, children }: LayoutProps = $props();
 
   let drawer: HTMLDialogElement;
+  let drawerTree: NavTree;
   let search: Search;
 
+  function openDrawer() {
+    drawer.showModal();
+    drawerTree.reveal();
+  }
+
+  /** Closes the drawer when a link in it is followed, or when the backdrop is clicked. */
+  function onDrawerClick(event: MouseEvent) {
+    const target = event.target as Element;
+    if (target === drawer || target.closest('a')) drawer.close();
+  }
+
   afterNavigate(() => drawer.close());
+
+  // Follow the reader through the sections of the page, for the navigation to mark.
+  $effect(() => watchSections(page.data.toc ?? []));
 
   onMount(() => {
     // While developing, re-render the page when a Markdown file changes (see vite.config.ts).
@@ -44,22 +61,17 @@
   <link rel="stylesheet" href="/querydown-theme.css" />
 </svelte:head>
 
-<Header nav={data.nav} onMenu={() => drawer.showModal()} onSearch={() => search.open()} />
+<Header nav={data.nav} onMenu={openDrawer} onSearch={() => search.open()} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-<dialog
-  class="drawer"
-  bind:this={drawer}
-  aria-label="Navigation"
-  onclick={(event) => event.target === drawer && drawer.close()}
->
+<dialog class="drawer" bind:this={drawer} aria-label="Navigation" onclick={onDrawerClick}>
   <div class="drawer-header">
     <span>Navigation</span>
     <button type="button" class="icon-button" onclick={() => drawer.close()} aria-label="Close">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
     </button>
   </div>
-  <NavTree nodes={data.nav} />
+  <NavTree bind:this={drawerTree} nodes={data.nav} />
 </dialog>
 
 <Search bind:this={search} />

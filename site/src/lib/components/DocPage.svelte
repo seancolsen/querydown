@@ -1,4 +1,7 @@
-<!-- A page of documentation: the content, its table of contents, and links to its neighbors. -->
+<!--
+  A page of documentation: the content, and links to its neighbors. (Its table of contents is in the
+  navigation: see NavTree.)
+-->
 <script lang="ts">
   import type { Page } from '#lib/content-types.ts';
   import { contains, isGroup, pagesOf, type NavNode } from '#lib/nav.ts';
@@ -6,7 +9,6 @@
 
   import Content from './Content.svelte';
   import Footer from './Footer.svelte';
-  import Toc from './Toc.svelte';
 
   interface Props {
     page: Omit<Page, 'sections'>;
@@ -29,41 +31,31 @@
   <meta name="description" content={page.description} />
 </svelte:head>
 
-<div class="doc">
-  <main>
-    <Toc items={page.toc} variant="inline" />
-    <Content segments={page.segments} styles={page.styles} />
+<main>
+  <Content segments={page.segments} styles={page.styles} />
 
-    <nav class="pager" aria-label="Neighboring pages">
-      {#if neighbors.previous}
-        <a class="previous" href={neighbors.previous.href}>
-          <span>Previous</span>
-          {neighbors.previous.title}
-        </a>
-      {/if}
-      {#if neighbors.next}
-        <a class="next" href={neighbors.next.href}>
-          <span>Next</span>
-          {neighbors.next.title}
-        </a>
-      {/if}
-    </nav>
+  <nav class="pager" aria-label="Neighboring pages">
+    {#if neighbors.previous}
+      <a class="previous" href={neighbors.previous.href}>
+        <span>Previous</span>
+        {neighbors.previous.title}
+      </a>
+    {/if}
+    {#if neighbors.next}
+      <a class="next" href={neighbors.next.href}>
+        <span>Next</span>
+        {neighbors.next.title}
+      </a>
+    {/if}
+  </nav>
 
-    <p class="source">
-      <a href={githubFileUrl(page.file)}>Edit this page on GitHub</a>
-    </p>
-    <Footer />
-  </main>
-
-  <Toc items={page.toc} variant="side" />
-</div>
+  <p class="source">
+    <a href={githubFileUrl(page.file)}>Edit this page on GitHub</a>
+  </p>
+  <Footer />
+</main>
 
 <style>
-  .doc {
-    min-width: 0;
-  }
-
-  /* Until there's room for the table of contents beside it, the content fills the width. */
   main {
     min-width: 0;
     padding: 2rem 0 0;
@@ -108,15 +100,5 @@
 
   .source + :global(footer) {
     margin-top: 1.5rem;
-  }
-
-  /* The table of contents stays beside the content, however wide the window. (The layout is only
-     as wide as the navigation, the content, and the table of contents need.) */
-  @media (min-width: 80rem) {
-    .doc {
-      display: grid;
-      grid-template-columns: minmax(0, var(--content-width)) var(--toc-width);
-      gap: var(--column-gap);
-    }
   }
 </style>
