@@ -18,6 +18,8 @@
   /** The distance between the vertical lanes that links run along. */
   const LANE_SPACING = 12;
   const CORNER_RADIUS = 5;
+  /** The radius of a corner where a link merges into another. It must be less than LANE_SPACING. */
+  const MERGE_RADIUS = 10;
 
   /**
    * Where each table goes: which column of the grid, and which row its heading sits in. A row is the
@@ -263,22 +265,32 @@
   const width = gapStarts[columnCount] + gapWidths[columnCount];
   const height = INSET * 2 + Math.max(...boxes.map((box) => box.y - INSET + box.height));
 
-  /** A line from (x1, y1) across to the lane, along it, and across to (x2, y2), with round corners. */
-  function route(x1: number, y1: number, lane: number, x2: number, y2: number): string {
+  /**
+   * A line from (x1, y1) across to the lane, along it, and across to (x2, y2), with round corners of
+   * radius r1 and r2.
+   */
+  function route(
+    x1: number,
+    y1: number,
+    lane: number,
+    x2: number,
+    y2: number,
+    r1: number,
+    r2: number,
+  ): string {
     if (y1 === y2) return `M${x1},${y1} H${x2}`;
     const dy = Math.sign(y2 - y1);
-    const r = Math.min(CORNER_RADIUS, Math.abs(y2 - y1) / 2);
     const out = Math.sign(lane - x1);
     const back = Math.sign(x2 - lane);
     return (
-      `M${x1},${y1} H${lane - out * r} Q${lane},${y1} ${lane},${y1 + dy * r} ` +
-      `V${y2 - dy * r} Q${lane},${y2} ${lane + back * r},${y2} H${x2}`
+      `M${x1},${y1} H${lane - out * r1} Q${lane},${y1} ${lane},${y1 + dy * r1} ` +
+      `V${y2 - dy * r2} Q${lane},${y2} ${lane + back * r2},${y2} H${x2}`
     );
   }
 
   const span = (a: number, b: number) => ({ from: Math.min(a, b), to: Math.max(a, b) });
 
-  const edges = links.map((link) => {
+  const paths = links.map((link) => {
     const x1 = edgeX(link.source);
     const x2 = edgeX(link.target);
     const y1 = link.source.y;
@@ -292,24 +304,12 @@
             { vertical: true, at: lane, ...span(y1, y2) },
             { vertical: false, at: y2, ...span(lane, x2) },
           ];
-    return {
-      ...link,
-      path: route(x1, y1, lane, x2, y2),
-      start: { x: x1, y: y1 },
-      corners:
-        y1 === y2
-          ? []
-          : [
-              { x: lane, y: y1 },
-              { x: lane, y: y2 },
-            ],
-      segments,
-    };
+    return { ...link, x1, y1, lane, x2, y2, segments };
   });
 
   // Links that don't merge mustn't touch, except to cross.
-  edges.forEach((a, i) => {
-    for (const b of edges.slice(i + 1)) {
+  paths.forEach((a, i) => {
+    for (const b of paths.slice(i + 1)) {
       if (a.group === b.group) continue;
       const touch = a.segments.some((s) =>
         b.segments.some(
@@ -331,7 +331,7 @@
   /** In how many directions the lines of a group of links leave a point. */
   function directions(group: string, x: number, y: number): number {
     const found = new Set<string>();
-    for (const s of edges.filter((e) => e.group === group).flatMap((e) => e.segments)) {
+    for (const s of paths.filter((p) => p.group === group).flatMap((p) => p.segments)) {
       const [along, across] = s.vertical ? [y, x] : [x, y];
       if (s.at !== across || along < s.from || along > s.to) continue;
       if (s.from < along) found.add(s.vertical ? 'up' : 'left');
@@ -340,16 +340,21 @@
     return found.size;
   }
 
-  /** Dots where links merge, to tell a fork apart from two links crossing. */
-  const junctions = [
-    ...new Map(
-      edges.flatMap((edge) =>
-        edge.corners
-          .filter((c) => directions(edge.group, c.x, c.y) >= 3)
-          .map((c) => [`${c.x}:${c.y}`, { key: `${c.x}:${c.y}`, ...c }] as const),
-      ),
-    ).values(),
-  ];
+  /**
+   * The radius of a link's corner at (x, y). Where the link merges into another there, the corner
+   * is wider, so that it reads as a branch turning the way the links run, toward the column they
+   * refer to.
+   */
+  function radius(link: (typeof paths)[number], x: number, y: number): number {
+    const r = directions(link.group, x, y) >= 3 ? MERGE_RADIUS : CORNER_RADIUS;
+    return Math.min(r, Math.abs(link.y2 - link.y1) / 2);
+  }
+
+  const edges = paths.map((p) => {
+    const r1 = radius(p, p.lane, p.y1);
+    const r2 = radius(p, p.lane, p.y2);
+    return { ...p, path: route(p.x1, p.y1, p.lane, p.x2, p.y2, r1, r2) };
+  });
 </script>
 
 <figure>
@@ -381,10 +386,7 @@
         {/each}
       </g>
       {#each edges as edge (edge.key)}
-        <circle class="dot" cx={edge.start.x} cy={edge.start.y} r="2.5" />
-      {/each}
-      {#each junctions as junction (junction.key)}
-        <circle class="dot" cx={junction.x} cy={junction.y} r="2.5" />
+        <circle class="dot" cx={edge.x1} cy={edge.y1} r="2.5" />
       {/each}
 
       {#each boxes as box (box.name)}
