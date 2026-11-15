@@ -328,7 +328,7 @@ kbd {
 
 .code-block pre {
   margin: 0;
-  padding: 0.85rem 1rem;
+  padding: 0.5rem 0.75rem;
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -343,8 +343,8 @@ kbd {
 
 .code-actions {
   position: absolute;
-  top: 0.35rem;
-  right: 0.35rem;
+  top: 0.25rem;
+  right: 0.25rem;
   display: flex;
   gap: 0.15rem;
   border-radius: var(--radius);
@@ -354,7 +354,8 @@ kbd {
 }
 
 .code-block:hover .code-actions,
-.code-actions:focus-within {
+.code-actions:focus-within,
+.code-actions:has([aria-expanded='true']) {
   opacity: 1;
 }
 
@@ -385,6 +386,17 @@ kbd {
   stroke-width: 1.3;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+
+/* The button that shows an example's SQL looks pressed while it does. */
+.code-action[aria-expanded='true'] {
+  background: var(--accent-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.code-action[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 
 .code-action[data-copied] {
@@ -429,32 +441,34 @@ kbd {
 }
 
 .example-sql {
+  position: relative;
   margin-top: -1px;
   border: 1px solid var(--border);
   border-radius: 0 0 var(--radius) var(--radius);
   font-size: 0.875rem;
 }
 
-.example:has(.example-sql) .code-block pre {
+.example-sql[hidden] {
+  display: none;
+}
+
+.example:has(.example-sql:not([hidden])) .code-block pre {
   border-radius: var(--radius) var(--radius) 0 0;
 }
 
-.example-sql summary {
-  padding: 0.15rem 1rem;
-  color: var(--text-muted);
+.example-playground {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.6rem;
+  padding: 0 0.25rem;
+  border-radius: 4px;
+  background: var(--bg);
   font-size: 0.75rem;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  user-select: none;
-}
-
-.example-sql summary:hover {
-  color: var(--text);
 }
 
 .example-sql pre {
   margin: 0;
-  padding: 0.5rem 1rem 0.85rem;
+  padding: 0.5rem 0.75rem;
   overflow-x: auto;
   line-height: 1.5;
   color: var(--text-muted);

@@ -85,7 +85,7 @@ Examples are the heart of the docs, and **every one is tested**. A fenced code b
 - **The blockquote directly before an example is its plain-English description.** The site shows the two together. Describe what the query finds ("Issues that…"), not the syntax it uses.
 - **Every example uses the [sample schema](./sample-schema.md)**, the issue tracker. Don't invent tables or columns, even in passing. If the schema lacks something that an example needs, mention the hypothetical in prose (with inline code) rather than in an example.
 - **Every example is a whole query**, which compiles by itself. If it needs a definition from an earlier example, repeat the definition.
-- On the site, each example gets a button to copy it and one to open it in the playground, and can show the SQL that it compiles to. You don't write any of that.
+- On the site, each example gets a button to copy it and one that shows the SQL it compiles to, with a link that opens it in the playground. You don't write any of that.
 
 ### Flags
 

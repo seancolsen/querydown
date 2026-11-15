@@ -42,6 +42,23 @@
     });
   }
 
+  /** Shows or hides the SQL below an example, when its button is clicked. */
+  function toggleSql(event: MouseEvent) {
+    const button = (event.target as Element).closest<HTMLElement>('[data-sql-toggle]');
+    const sql = button?.closest('.example')?.querySelector<HTMLElement>('.example-sql');
+    if (!button || !sql) return;
+    sql.hidden = !sql.hidden;
+    const label = sql.hidden ? 'Show the SQL' : 'Hide the SQL';
+    button.setAttribute('aria-expanded', String(!sql.hidden));
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  }
+
+  function onDocumentClick(event: MouseEvent) {
+    copyCode(event);
+    toggleSql(event);
+  }
+
   onMount(() => {
     // While developing, re-render the page when a Markdown file changes (see vite.config.ts).
     import.meta.hot?.on('content:update', () => void refreshAll());
@@ -55,7 +72,7 @@
   <link rel="stylesheet" href="/querydown-theme.css" />
 </svelte:head>
 
-<svelte:document onclick={copyCode} />
+<svelte:document onclick={onDocumentClick} />
 
 <Header nav={data.nav} onMenu={() => drawer.showModal()} onSearch={() => search.open()} />
 

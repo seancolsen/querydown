@@ -85,6 +85,12 @@ const COPY_BUTTON =
 const PLAYGROUND_ICON =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z"/></svg>';
 
+/** Shows and hides the SQL below an example (see `toggleSql` in `+layout.svelte`). */
+const SQL_BUTTON =
+  '<button type="button" class="code-action" data-sql-toggle aria-expanded="false" aria-label="Show the SQL" title="Show the SQL">' +
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>' +
+  '</button>';
+
 interface CompiledExample {
   /** The highlighted source. */
   code: string;
@@ -127,24 +133,33 @@ function messageHtml(message: string): string {
   return escapeHtml(message).replace(/`([^`]+)`/g, '<code>$1</code>');
 }
 
+/**
+ * An example's code, then what it compiles to. An example that compiles has a button that shows its
+ * SQL, which links to the playground. One that doesn't, or whose SQL the page states itself, links
+ * to the playground directly.
+ */
 function exampleHtml(example: CompiledExample, showSql: boolean): string {
+  const sql = example.sql && showSql ? example.sql : null;
   const playground = example.playground
     ? `<a class="code-action" href="${escapeHtml(example.playground)}" target="_blank" rel="noopener" aria-label="Open in the playground" title="Open in the playground">${PLAYGROUND_ICON}</a>`
     : '';
   let html =
     `<div class="code-block">` +
     `<pre class="qd"><code>${example.code}</code></pre>` +
-    `<div class="code-actions">${COPY_BUTTON}${playground}</div>` +
+    `<div class="code-actions">${COPY_BUTTON}${sql ? SQL_BUTTON : playground}</div>` +
     `</div>`;
   if (example.error) {
     const hint = example.error.hint
       ? ` <span class="example-hint">${messageHtml(example.error.hint)}</span>`
       : '';
     html += `<p class="example-error"><strong>Error:</strong> ${messageHtml(example.error.message)}${hint}</p>`;
-  } else if (example.sql && showSql) {
+  } else if (sql) {
+    const link = example.playground
+      ? `<a class="example-playground" href="${escapeHtml(example.playground)}" target="_blank" rel="noopener">Open in the playground</a>`
+      : '';
     html +=
-      `<details class="example-sql"><summary>SQL</summary>` +
-      `<pre><code>${escapeHtml(example.sql)}</code></pre></details>`;
+      `<div class="example-sql" hidden>${link}` +
+      `<pre><code>${escapeHtml(sql)}</code></pre></div>`;
   }
   return html;
 }
