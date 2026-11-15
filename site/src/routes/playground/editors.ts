@@ -28,7 +28,12 @@ function appearance(theme: Theme): Extension {
     {
       '&': { height: '100%', color: 'var(--text)', backgroundColor: 'var(--bg)' },
       '&.cm-focused': { outline: 'none' },
-      '.cm-scroller': { fontFamily: 'var(--font-mono)', fontSize: '0.875rem', lineHeight: '1.5' },
+      '.cm-scroller': {
+        fontFamily: 'var(--font-mono)',
+        fontSize: '0.875rem',
+        lineHeight: '1.5',
+        fontVariantLigatures: 'none',
+      },
       '.cm-content': { caretColor: 'var(--text)', padding: '0.6rem 0' },
       '.cm-cursor': { borderLeftColor: 'var(--text)' },
       '.cm-gutters': {

@@ -32,6 +32,7 @@
 
   h1 {
     margin: 0 0 1rem;
+    font-family: var(--font-display);
     font-size: 2rem;
   }
 </style>

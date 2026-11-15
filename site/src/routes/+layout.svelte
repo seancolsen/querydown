@@ -1,5 +1,18 @@
 <script lang="ts">
+  // The site's fonts, bundled into the build (see `--font-sans` in app.css).
+  import '@fontsource-variable/red-hat-text/wght.css';
+  import '@fontsource-variable/red-hat-text/wght-italic.css';
+  import '@fontsource-variable/red-hat-display/wght.css';
+  import '@fontsource-variable/red-hat-mono/wght.css';
+  import '@fontsource-variable/red-hat-mono/wght-italic.css';
   import '../app.css';
+
+  // The upright Latin fonts, which nearly every page shows straight away. Preloading them means the
+  // browser doesn't wait for the stylesheet before it starts to fetch them. Vite gives these the
+  // same URLs as the stylesheets above do.
+  import textFont from '@fontsource-variable/red-hat-text/files/red-hat-text-latin-wght-normal.woff2?url';
+  import displayFont from '@fontsource-variable/red-hat-display/files/red-hat-display-latin-wght-normal.woff2?url';
+  import monoFont from '@fontsource-variable/red-hat-mono/files/red-hat-mono-latin-wght-normal.woff2?url';
 
   import { onMount } from 'svelte';
 
@@ -36,6 +49,9 @@
 </script>
 
 <svelte:head>
+  {#each [textFont, displayFont, monoFont] as href (href)}
+    <link rel="preload" {href} as="font" type="font/woff2" crossorigin="anonymous" />
+  {/each}
   <link rel="stylesheet" href="/querydown-theme.css" />
 </svelte:head>
 

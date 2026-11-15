@@ -55,6 +55,12 @@ The colors of highlighted Querydown come from the CodeMirror package's palettes,
 
 The site follows the browser's color scheme, unless the visitor picks a theme with the button in the header. Colors are CSS variables defined once in [`src/app.css`](./src/app.css) with `light-dark()`, and [`src/lib/theme.svelte.ts`](./src/lib/theme.svelte.ts) holds the visitor's choice.
 
+### Fonts
+
+The site uses Red Hat Text for prose, Red Hat Display for headings, and Red Hat Mono for code. Their files come from [Fontsource](https://fontsource.org/) packages, which [`src/routes/+layout.svelte`](./src/routes/+layout.svelte) imports, so Vite copies them into the build and nothing is fetched from a font service. The layout also preloads the upright Latin files, and [`src/app.css`](./src/app.css) names each font in a CSS variable (`--font-sans`, `--font-display`, and `--font-mono`).
+
+Red Hat Mono has no box-drawing characters, so a small font in [`src/lib/fonts/`](./src/lib/fonts) supplies them. Its README says where it came from.
+
 ### Search
 
 [`/search.json`](./src/routes/search.json/+server.ts) is an index of every section of every page, built with the site. The search dialog fetches it (and [MiniSearch](https://lucaong.github.io/minisearch/)) when it's first opened. Runs of symbols are indexed as terms, so that searching for `++` or `%%` finds the syntax.

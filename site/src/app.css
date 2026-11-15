@@ -23,14 +23,35 @@
   --danger-subtle: light-dark(#fdeceb, #3a1d1b);
   --shadow: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.5));
 
+  /*
+   * Red Hat Text for prose, Red Hat Display for headings, and Red Hat Mono for code. The font files
+   * are imported in `routes/+layout.svelte`, so they're part of the build.
+   */
   --font-sans:
-    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', sans-serif;
+    'Red Hat Text Variable', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    'Noto Sans', sans-serif;
+  --font-display: 'Red Hat Display Variable', var(--font-sans);
   --font-mono:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+    'Red Hat Mono Variable', 'Querydown Box Drawing', ui-monospace, SFMono-Regular, 'SF Mono',
+    Menlo, Consolas, 'Liberation Mono', monospace;
 
   --header-height: 3.25rem;
   --gutter: clamp(1rem, 4vw, 2rem);
   --radius: 6px;
+}
+
+/*
+ * Red Hat Mono has no box-drawing characters (such as `╰──╯`), which the docs use to annotate code.
+ * This font has only those characters, subset from JetBrains Mono. Its characters are as wide as
+ * Red Hat Mono's, so a drawing lines up with the code above it. See `lib/fonts/README.md`.
+ */
+@font-face {
+  font-family: 'Querydown Box Drawing';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./lib/fonts/box-drawing.woff2') format('woff2');
+  unicode-range: U+2500-257F;
 }
 
 :root[data-theme='light'] {
@@ -90,6 +111,8 @@ pre,
 kbd {
   font-family: var(--font-mono);
   font-size: 0.875em;
+  /* Show every character of the syntax as it's typed: `:=` is two characters, not one glyph. */
+  font-variant-ligatures: none;
 }
 
 .visually-hidden {
@@ -148,6 +171,13 @@ kbd {
   line-height: 1.25;
   font-weight: 650;
   text-wrap: balance;
+}
+
+/* The display cut is drawn for large sizes, so an h4 (at the size of the text) keeps the text cut. */
+.prose h1,
+.prose h2,
+.prose h3 {
+  font-family: var(--font-display);
 }
 
 .prose h1 {
