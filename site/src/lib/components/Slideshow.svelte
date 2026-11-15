@@ -343,12 +343,14 @@
     .slide {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-      align-items: center;
+      /* The tops of the Querydown and the SQL line up. */
+      align-items: start;
       gap: 0.75rem;
       padding: 1.6rem 1.25rem 0.5rem;
     }
 
     .arrow {
+      align-self: center;
       transform: rotate(-90deg);
     }
   }

@@ -1,10 +1,12 @@
 <!--
-  The site's navigation, as a tree. A group is a collapsible label, and only pages are links.
+  The site's navigation, as a tree. A group is a collapsible label, and only pages are links. Only
+  the groups that hold the current page start open, and moving to another page opens the groups
+  that hold it and closes the ones that don't.
 -->
 <script lang="ts">
   import { page } from '$app/state';
 
-  import { isGroup, type NavNode } from '#lib/nav.ts';
+  import { contains, isGroup, type NavNode } from '#lib/nav.ts';
 
   import Self from './NavTree.svelte';
 
@@ -15,7 +17,7 @@
   {#each nodes as node (isGroup(node) ? node.path : node.href)}
     <li>
       {#if isGroup(node)}
-        <details open>
+        <details open={contains(node, page.url.pathname)}>
           <summary>{node.title}</summary>
           <Self nodes={node.children} depth={depth + 1} />
         </details>

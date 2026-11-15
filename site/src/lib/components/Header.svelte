@@ -41,7 +41,7 @@
   const borderless = $derived(atTop && page.url.pathname === HOME.href);
 </script>
 
-<header class:borderless>
+<header class:borderless class:scrolled={!atTop}>
   <button type="button" class="icon-button menu" onclick={onMenu} aria-label="Open the navigation">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
   </button>
@@ -96,11 +96,18 @@
     padding: 0 var(--gutter);
     border-bottom: 1px solid var(--border);
     background: var(--bg);
-    transition: border-color 0.15s;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
 
   header.borderless {
     border-bottom-color: transparent;
+  }
+
+  /* Once the page scrolls, a faint shadow sets the header above the content beneath it. */
+  header.scrolled {
+    box-shadow: 0 2px 8px -2px var(--shadow);
   }
 
   .menu {
@@ -123,11 +130,10 @@
     padding: 0.3rem 0.4rem;
     border-radius: var(--radius);
     color: var(--text);
-    transition: color 0.15s;
   }
 
   .brand:hover {
-    color: var(--accent);
+    background: var(--bg-inset);
     text-decoration: none;
   }
 

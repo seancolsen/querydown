@@ -1,9 +1,12 @@
 <!--
-  The headings of the current page. On a wide screen the `side` variant sits beside the content and
-  marks the section being read; otherwise the `inline` variant is a collapsed list above the
-  content. A page renders both, and CSS shows the one that suits the screen.
+  The headings of the current page. On a wide screen the `side` variant sits beside the content,
+  marks the section being read, and collapses the sections that the reader isn't within. Otherwise
+  the `inline` variant is a collapsed list above the content. A page renders both, and CSS shows
+  the one that suits the screen.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+
   import type { TocItem } from '#lib/content-types.ts';
 
   interface Props {
@@ -16,6 +19,13 @@
 
   let active = $state<string | null>(null);
 
+  /**
+   * The heading whose link was last clicked, which stays marked until the reader scrolls by
+   * themselves. (A heading near the end of a page can't reach the top of the window, so the scroll
+   * position alone wouldn't mark it.)
+   */
+  let clicked: string | null = null;
+
   $effect(() => {
     if (variant !== 'side') return;
     const headings = items
@@ -25,6 +35,7 @@
 
     // The section being read is the last one whose heading has passed the top of the viewport.
     const update = () => {
+      if (clicked) return;
       const threshold = 96;
       let current: string | null = null;
       for (const heading of headings) {
@@ -33,34 +44,82 @@
       }
       active = current;
     };
+    const release = () => {
+      if (clicked) {
+        clicked = null;
+        update();
+      }
+    };
     update();
+    const userInput = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
     window.addEventListener('scroll', update, { passive: true });
-    return () => window.removeEventListener('scroll', update);
+    for (const type of userInput) window.addEventListener(type, release, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', update);
+      for (const type of userInput) window.removeEventListener(type, release);
+    };
+  });
+
+  /** The index of each item's parent: the closest item before it with a shallower heading. */
+  const parents = $derived(
+    items.map((item, index) => {
+      for (let i = index - 1; i >= 0; i--) if (items[i].depth < item.depth) return i;
+      return null;
+    }),
+  );
+
+  /**
+   * The items to list. The side variant lists the top-level sections, and the subsections only of
+   * the sections that the reader is within: the rest are collapsed.
+   */
+  const shown = $derived.by(() => {
+    if (variant !== 'side') return items;
+    const within = new Set<number>();
+    const index = items.findIndex((item) => item.id === active);
+    for (let i = index < 0 ? null : index; i !== null; i = parents[i]) within.add(i);
+    return items.filter((_, index) => {
+      const parent = parents[index];
+      return parent === null || within.has(parent);
+    });
   });
 
   let list = $state<HTMLElement>();
 
+  const linkTo = (id: string) => list?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`);
+
+  /** Marks the clicked heading, without moving the link that was clicked within the list. */
+  async function onclick(id: string) {
+    if (variant !== 'side' || !list) return;
+    const before = linkTo(id)?.getBoundingClientRect().top;
+    clicked = id;
+    active = id;
+    await tick();
+    const after = linkTo(id)?.getBoundingClientRect().top;
+    if (before !== undefined && after !== undefined) list.scrollTop += after - before;
+  }
+
   $effect(() => {
-    // Keep the marked heading in view within the (independently scrolling) list.
-    if (!active || !list) return;
-    const link = list.querySelector<HTMLElement>(`[data-id="${CSS.escape(active)}"]`);
+    // Keep the marked heading in view within the (independently scrolling) list, as the reader
+    // scrolls through the page.
+    if (!active || !list || clicked) return;
+    const link = linkTo(active);
     if (!link || link.offsetParent === null) return;
-    const scroller = list.closest<HTMLElement>('.wide');
-    if (!scroller) return;
-    const top = link.offsetTop - scroller.offsetTop;
-    if (top < scroller.scrollTop + 16 || top > scroller.scrollTop + scroller.clientHeight - 48) {
-      scroller.scrollTop = top - scroller.clientHeight / 2;
+    const box = list.getBoundingClientRect();
+    const top = link.getBoundingClientRect().top - box.top;
+    if (top < 16 || top > list.clientHeight - 48) {
+      list.scrollTop += top - list.clientHeight / 2;
     }
   });
 </script>
 
 {#snippet links()}
   <ul>
-    {#each items as item (item.id)}
+    {#each shown as item (item.id)}
       <li style:--depth={item.depth - 2}>
         <a
           href="#{item.id}"
           data-id={item.id}
+          onclick={() => onclick(item.id)}
           aria-current={active === item.id ? 'location' : undefined}
         >
           {item.text}
