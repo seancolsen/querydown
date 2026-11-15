@@ -25,8 +25,31 @@
   let copied = $state(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  /**
+   * Copies text with a hidden textarea and `execCommand`, for when the async clipboard API isn't
+   * available (it exists only in secure contexts, so not on a page served over plain HTTP from
+   * anywhere but localhost).
+   */
+  function copyWithSelection(text: string): boolean {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.append(area);
+    area.select();
+    try {
+      return document.execCommand('copy');
+    } finally {
+      area.remove();
+    }
+  }
+
   async function copy() {
-    await navigator.clipboard.writeText(source);
+    try {
+      await navigator.clipboard.writeText(source);
+    } catch {
+      if (!copyWithSelection(source)) return;
+    }
     copied = true;
     clearTimeout(timer);
     timer = setTimeout(() => (copied = false), 1500);
