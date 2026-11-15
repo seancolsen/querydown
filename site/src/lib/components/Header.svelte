@@ -242,12 +242,16 @@
   }
 
   @media (min-width: 40rem) {
-    .menu {
-      display: none;
-    }
-
     nav {
       display: flex;
+    }
+  }
+
+  /* The menu opens the navigation drawer, which is needed until the sidebar takes its place, at the
+     width set in routes/(tree)/+layout.svelte. */
+  @media (min-width: 64rem) {
+    .menu {
+      display: none;
     }
   }
 </style>
