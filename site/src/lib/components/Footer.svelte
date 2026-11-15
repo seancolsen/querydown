@@ -8,6 +8,7 @@
     <a href="{GITHUB_URL}/blob/main/LICENSE">MIT license</a>, and made by
     <a href="https://github.com/seancolsen/">Sean Colsen</a>.
   </p>
+  <p>&copy; 2022&ndash;{new Date().getFullYear()} Sean Colsen.</p>
 </footer>
 
 <style>
@@ -21,5 +22,9 @@
 
   p {
     margin: 0;
+  }
+
+  p + p {
+    margin-top: 0.25rem;
   }
 </style>
