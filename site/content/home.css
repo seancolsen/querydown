@@ -5,36 +5,48 @@
  * Each selector starts with `.prose`, so that it outranks the site's styles for Markdown content.
  */
 
-/* The client bindings and the database dialects: side by side, in a band that spans the window. */
+/* The client bindings and the database dialects: two halves of a box, each a label above a row of
+   pills. (The pills echo the features' names, in the box further down the page.) */
 
 .prose .platforms {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 2rem 6rem;
+  --glow: color-mix(in srgb, var(--accent) 8%, transparent);
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   margin: 2rem 0;
-  padding: 1.1rem 0 1.2rem;
-  background: var(--bg-subtle);
-  /* The background and borders reach the edges of the window, without making it scroll sideways. */
-  box-shadow: 0 0 0 100vmax var(--bg-subtle);
-  clip-path: inset(0 -100vmax);
-  border-block: 1px solid;
-  border-image: linear-gradient(var(--border), var(--border)) 1 / 1px 0 / 0 100vmax;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background:
+    radial-gradient(60% 120% at 50% 0%, var(--glow), transparent 70%),
+    var(--bg-subtle);
+  box-shadow: 0 18px 40px -30px var(--shadow);
+  overflow: hidden;
 }
 
 .prose .platforms > div {
+  padding: 1rem 1.25rem 1.15rem;
   text-align: center;
 }
 
+/* A line between the halves, wherever the second one is: beside the first, or below it. */
+.prose .platforms > div + div {
+  box-shadow: -1px -1px 0 var(--border);
+}
+
 .prose .platforms p {
-  margin: 0 0 0.35rem;
+  margin: 0 0 0.6rem;
   color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 .prose .platforms ul {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
+  gap: 0.4rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -42,13 +54,57 @@
 
 .prose .platforms li {
   margin: 0;
+  padding: 0.25rem 0.85rem;
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow:
+    inset 0 0 0 1px var(--border),
+    0 1px 2px var(--shadow);
+  font-size: 0.9375rem;
+  font-weight: 550;
+  line-height: 1.5;
 }
 
-/* A dot between items, which stays at the end of a line when the list wraps. */
-.prose .platforms li:not(:last-child)::after {
-  content: '·';
-  margin: 0 0.55em;
-  color: var(--text-muted);
+/* A pill that's a link is wholly a link. */
+.prose .platforms li:has(> a) {
+  padding: 0;
+}
+
+.prose .platforms li > a {
+  display: block;
+  padding: 0.25rem 0.85rem;
+  border-radius: inherit;
+  text-decoration: none;
+  transition:
+    background-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.prose .platforms li > a:hover {
+  background: var(--accent-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, var(--border));
+  text-decoration: none;
+}
+
+/* The questions, and the footer below them (see routes/+page.svelte), sit on a band of a slightly
+   different color that reaches the edges of the window. */
+
+.prose .questions {
+  margin-top: 4rem;
+  padding: 3rem 0 1rem;
+  background: var(--bg-subtle);
+  /* The background and the top border reach the edges of the window, without making it scroll
+     sideways. */
+  box-shadow: 0 0 0 100vmax var(--bg-subtle);
+  clip-path: inset(0 -100vmax);
+  border-top: 1px solid;
+  border-image: linear-gradient(var(--border), var(--border)) 1 / 1px 0 0 / 0 100vmax;
+}
+
+.prose .questions > h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 /* The comparisons with other projects: a stack of panels that expand. */
@@ -57,7 +113,9 @@
   padding: 0;
   list-style: none;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 1px 3px var(--shadow);
   overflow: hidden;
 }
 
@@ -86,7 +144,7 @@
 }
 
 .prose .comparisons summary:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-inset);
 }
 
 /* A chevron that points down when the panel is open. */
@@ -123,6 +181,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .prose .platforms li > a,
   .prose .comparisons summary,
   .prose .comparisons summary::before {
     transition: none;

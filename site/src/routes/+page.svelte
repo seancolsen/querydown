@@ -50,6 +50,15 @@
     height: calc(var(--size) * 0.66);
   }
 
+  /* The footer carries on the band that the questions sit on (see content/home.css), right up to
+     the bottom of the page. */
+  .home > :global(footer) {
+    margin-top: 0;
+    background: var(--bg-subtle);
+    box-shadow: 0 0 0 100vmax var(--bg-subtle);
+    clip-path: inset(0 -100vmax);
+  }
+
   .hero + :global(.prose) > :global(h1:first-child) {
     position: absolute;
     width: 1px;

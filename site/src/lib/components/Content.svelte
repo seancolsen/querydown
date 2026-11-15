@@ -8,7 +8,7 @@
   import Blocks from './Blocks.svelte';
   import ErDiagram from './ErDiagram.svelte';
   import Features from './Features.svelte';
-  import Slideshow from './Slideshow.svelte';
+  import Showcase from './Showcase.svelte';
 
   interface Props {
     segments: Segment[];
@@ -32,10 +32,10 @@
     <div class="prose">
       <Blocks blocks={segment.blocks} />
     </div>
-  {:else if segment.type === 'slideshow'}
-    <Slideshow slides={segment.slides} note={segment.note} />
+  {:else if segment.type === 'showcase'}
+    <Showcase code={segment.code} sql={segment.sql} lines={segment.lines} />
   {:else if segment.type === 'features'}
-    <Features heading={segment.heading} features={segment.features} />
+    <Features heading={segment.heading} features={segment.features} note={segment.note} />
   {:else if segment.type === 'er-diagram'}
     <ErDiagram />
   {/if}

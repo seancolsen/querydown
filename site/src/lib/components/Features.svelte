@@ -1,7 +1,8 @@
 <!--
   The language's features, each with an example: a list of the features beside the Querydown of the
   chosen one, which is followed by a sentence saying what the query shows, and a link to the docs.
-  The section's heading sits within the box, above both.
+  The section's heading sits within the box, above both, and a note about all of the examples may
+  sit at its foot.
 
   The features are tabs. On a wide screen they're a column, and the chosen example sits level with
   its feature's name, or as near to level as it can be without leaving the box. On a narrow screen
@@ -12,7 +13,11 @@
 <script lang="ts">
   import type { Feature } from '#lib/content-types.ts';
 
-  let { heading = null, features }: { heading?: string | null; features: Feature[] } = $props();
+  let {
+    heading = null,
+    features,
+    note = null,
+  }: { heading?: string | null; features: Feature[]; note?: string | null } = $props();
 
   const id = $props.id();
 
@@ -213,6 +218,13 @@
       {/each}
     </div>
   </div>
+
+  {#if note}
+    <div class="note">
+      <!-- eslint-disable-next-line svelte/no-at-html-tags -- rendered from our own Markdown -->
+      {@html note}
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -502,6 +514,31 @@
 
   .try:hover {
     color: var(--text);
+  }
+
+  .note {
+    margin-top: 1.4rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .note :global(p) {
+    margin: 0;
+  }
+
+  .note :global(a) {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+    text-underline-offset: 0.15em;
+  }
+
+  .note :global(a:hover) {
+    color: var(--text);
+    text-decoration-color: currentColor;
   }
 
   /* On a wide screen, the features are a column to the left of the example. */

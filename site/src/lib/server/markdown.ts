@@ -45,7 +45,7 @@ import type {
   RenderedMarkdown,
   SearchSection,
   Segment,
-  Slide,
+  Showcase,
   TocItem,
 } from '../content-types';
 import { playgroundFragment } from '../playground-url';
@@ -346,44 +346,23 @@ const marker = (node: RootContent): string | null =>
     : null;
 
 /**
- * The examples between `<!-- slideshow -->` and `<!-- /slideshow -->`, as slides, and the note
- * (paragraphs after the last example) about all of them.
+ * The example between `<!-- showcase -->` and `<!-- /showcase -->`, with the SQL it compiles to.
  */
-function slideshow(
-  nodes: RootContent[],
-  context: RenderContext,
-  shiki: Highlighter,
-): { slides: Slide[]; note: string | null } {
-  const result: Slide[] = [];
-  const note: RootContent[] = [];
-  let caption: Blockquote | undefined;
-  for (const node of nodes) {
-    if (node.type === 'paragraph' && !caption) {
-      note.push(node);
-    } else if (note.length > 0) {
-      throw new Error(`${context.file}: a slideshow's note must come after its last example.`);
-    } else if (node.type === 'blockquote') {
-      caption = node;
-    } else if (node.type === 'code' && node.lang === 'qd' && caption) {
-      const example = compileCodeBlock(node, context);
-      if (!example.sql || !example.playground) {
-        throw new Error(`${context.file}: a slide must be an example that compiles.`);
-      }
-      result.push({
-        caption: renderNodes(caption.children),
-        code: example.code,
-        sql: highlightCode(shiki, example.sql, 'sql'),
-        playground: example.playground,
-      });
-      caption = undefined;
-    } else {
-      throw new Error(
-        `${context.file}: a slideshow may only contain examples, each a blockquote followed by a \`qd\` code block, and then a note.`,
-      );
-    }
+function showcase(nodes: RootContent[], context: RenderContext, shiki: Highlighter): Showcase {
+  const [code, ...rest] = nodes;
+  if (code?.type !== 'code' || code.lang !== 'qd' || rest.length > 0) {
+    throw new Error(`${context.file}: \`<!-- showcase -->\` must hold one \`qd\` code block.`);
   }
-  if (caption) throw new Error(`${context.file}: a slideshow's last description has no example.`);
-  return { slides: result, note: note.length > 0 ? renderNodes(note) : null };
+  const example = compileCodeBlock(code, context);
+  if (!example.sql) {
+    throw new Error(`${context.file}: the showcase's example must be one that compiles.`);
+  }
+  const lines = (text: string) => text.trimEnd().split('\n').length;
+  return {
+    code: example.code,
+    sql: highlightCode(shiki, example.sql, 'sql'),
+    lines: { querydown: lines(code.value), sql: lines(example.sql) },
+  };
 }
 
 /** One item of the list within `<!-- features -->`: a feature's name, a description, an example. */
@@ -418,22 +397,24 @@ function feature(item: ListItem, context: RenderContext): Feature {
 
 /**
  * The contents of `<!-- features -->` … `<!-- /features -->`: a heading, then a list of features,
- * each with an example.
+ * each with an example, then the paragraphs of a note about all of them.
  */
 function features(
   nodes: RootContent[],
   context: RenderContext,
-): { heading: string | null; features: Feature[] } {
+): { heading: string | null; features: Feature[]; note: string | null } {
   const [first, ...others] = nodes;
   const heading = first?.type === 'heading' ? first : null;
-  const rest = heading ? others : nodes;
-  const list = rest[0];
-  if (rest.length !== 1 || list.type !== 'list') {
-    throw new Error(`${context.file}: \`<!-- features -->\` must hold a heading and one list.`);
+  const [list, ...note] = heading ? others : nodes;
+  if (list?.type !== 'list' || note.some((node) => node.type !== 'paragraph')) {
+    throw new Error(
+      `${context.file}: \`<!-- features -->\` must hold a heading, one list, and then any paragraphs of a note.`,
+    );
   }
   return {
     heading: heading ? renderNodes([heading]) : null,
     features: list.children.map((item) => feature(item, context)),
+    note: note.length > 0 ? renderNodes(note) : null,
   };
 }
 
@@ -544,12 +525,12 @@ export async function renderMarkdown(
       const contents = root.children.slice(index + 1, end);
       segments.push({ type: 'features', ...features(contents, context) });
       index = end;
-    } else if (name === 'slideshow') {
-      const end = root.children.findIndex((n, i) => i > index && marker(n) === '/slideshow');
-      if (end === -1) throw new Error(`${context.file}: \`<!-- slideshow -->\` is never closed.`);
+    } else if (name === 'showcase') {
+      const end = root.children.findIndex((n, i) => i > index && marker(n) === '/showcase');
+      if (end === -1) throw new Error(`${context.file}: \`<!-- showcase -->\` is never closed.`);
       flush();
       const contents = root.children.slice(index + 1, end);
-      segments.push({ type: 'slideshow', ...slideshow(contents, context, shiki) });
+      segments.push({ type: 'showcase', ...showcase(contents, context, shiki) });
       index = end;
     } else {
       pending.push(node);

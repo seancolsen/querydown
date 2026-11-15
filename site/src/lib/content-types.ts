@@ -17,15 +17,14 @@ export interface SearchSection {
   text: string;
 }
 
-export interface Slide {
-  /** The example's description, as HTML. */
-  caption: string;
+/** An example, beside the SQL that it compiles to. */
+export interface Showcase {
   /** The highlighted Querydown, as HTML. */
   code: string;
-  /** The highlighted SQL that the example compiles to, as HTML. */
+  /** The highlighted SQL, as HTML. */
   sql: string;
-  /** A link that opens the example in the playground. */
-  playground: string;
+  /** How many lines each is. */
+  lines: { querydown: number; sql: number };
 }
 
 export interface Feature {
@@ -99,17 +98,14 @@ export type Block =
  */
 export type Segment =
   | { type: 'prose'; blocks: Block[] }
-  | {
-      type: 'slideshow';
-      slides: Slide[];
-      /** A note about all of the slides, as HTML, shown beneath them. */
-      note: string | null;
-    }
+  | ({ type: 'showcase' } & Showcase)
   | {
       type: 'features';
       /** The section's heading, as HTML, shown within the component. */
       heading: string | null;
       features: Feature[];
+      /** A note about all of the features' examples, as HTML, shown beneath them. */
+      note: string | null;
     }
   | { type: 'er-diagram' };
 

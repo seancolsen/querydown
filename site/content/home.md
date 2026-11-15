@@ -2,9 +2,7 @@
 
 Querydown is a domain-specific language for expressively writing relational database queries that compile to SQL.
 
-<!-- slideshow -->
-
-> Show open issues created in the past two months, along with their author and date of most recent comment
+<!-- showcase -->
 
 ```qd
 #issues
@@ -15,25 +13,14 @@ $author.username
 $#comments.created_at%max
 ```
 
-> Show unassigned issues that mention "crash" and are labeled "bug"
-
-```qd
-#issues
-crash
-++#labels{name:bug}
---#assignments
-```
-
-Querydown's [examples](../../docs/language.md) use a fictitious [issue-tracker schema](../../docs/sample-schema.md).
-
-<!-- /slideshow -->
+<!-- /showcase -->
 
 Querydown is designed primarily as a library to be embedded into applications where power users need sophisticated searching and reporting tools. _(Picture GitHub's [issue search](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests), only more powerful.)_ It can be configured to work with any database schema. The code is succinct and safe for end-users to write, making it akin to **"markdown for SQL"**.
 
 <div class="platforms">
 <div>
 
-Client bindings for
+Client bindings
 
 - [Rust](../../docs/setup/rust.md)
 - [JavaScript](../../docs/setup/javascript.md)
@@ -42,7 +29,7 @@ Client bindings for
 </div>
 <div>
 
-Supported Database dialects
+Database dialects
 
 - PostgreSQL
 - DuckDB
@@ -275,6 +262,8 @@ The compiler doesn't connect to your database or run anything. What you do with 
   --#assignments       /* and unassigned */
   ```
 
+Querydown's [examples](../../docs/language.md) use a fictitious [issue-tracker schema](../../docs/sample-schema.md).
+
 <!-- /features -->
 
 ## Limitations
@@ -306,6 +295,8 @@ Querydown is a nascent project. It works, but it's young, and has not been battl
 - It has bindings for two languages and supports two database systems.
 - It has no language server, and editor support for CodeMirror only.
 - It's the work of one person, with one application in production.
+
+<div class="questions">
 
 ## Questions
 
@@ -408,3 +399,5 @@ Many certainly would not! I get it. Querydown is aimed at the kind of user who w
 ### Is this AI slop?
 
 Maybe some of it. 🤷🏻 But not entirely! I started this project before the AI boom, and I laid the foundations by hand to build a working Querydown compiler the old fashioned way. Then I later leveraged Claude Code heavily to flesh it out. I've been thoughtful of how I guide AI in developing this project, and it has a lot of tests!
+
+</div>
