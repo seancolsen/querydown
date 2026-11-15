@@ -6,21 +6,37 @@ Every example is written against the [sample issue-tracker schema](./sample-sche
 
 ## Query anatomy
 
-A query names one table, then filters its rows with conditions, then chooses what to show with result columns.
+A query has the following sections:
 
 ```qd
- #issues   status:"open" due_date:<@now   $id $title $author.*   /*
-╰───────╯ ╰────────────────────────────╯ ╰────────────────────╯   *
-Base table          Conditions               Result columns       */
+// Definitions (optional)
+   @min_comments = 5
+   #issues.label:@x = ++#labels{name:@x}
+
+// The base table (REQUIRED)
+   #issues
+
+// Conditions (optional)
+   #comments:>=@min_comments
+   label:bug
+
+// Sorting (optional)
+   \\due_date \d
+
+// Result columns (optional)
+   $id
+   $title
+   $author.*
 ```
 
-- The **base table** always comes first. Every query has exactly one base table.
-- **[Conditions](#comparisons-and-conditions)** can follow the base table, separated by spaces. If you omit them, the query returns all the rows of the table.
-- **[Result columns](#result-columns)** are expressions that each follow a dollar sign `$`. If you omit them, the query returns all the columns of the table.
-- A query with conditions _and_ result columns must have them in that order. [Sorting expressions](#sorting-outside-of-result-columns), if any, go between the two.
+- [Definitions](#variables), such as constants and functions, go first.
+- Every query has exactly one base table.
+- [Conditions](#comparisons-and-conditions) can follow the base table, separated by spaces. If you omit them, the query returns all the rows of the table.
+- Sorting can be specified in [the sorting section](#sorting-outside-of-result-columns) (as above), or via [column control flags](#basic-sorting) on result columns.
+- [Result columns](#result-columns) are expressions that each follow a dollar sign `$`. If you omit them, the query returns all the columns of the base table.
 - Most white space doesn't matter.
 - Comments are written with `//` for a single line, or `/* */` for several lines.
-- [Definitions](#variables), such as constants and functions, go before the base table.
+
 - [Pipeline](#pipeline-of-multiple-queries) and [union](#union-of-multiple-queries) can combine multiple queries into one.
 
 The results never have more rows than the base table does. Data from related tables is [always aggregated](#mandatory-aggregation), so you never write a join.

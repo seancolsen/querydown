@@ -216,7 +216,7 @@
     color: var(--text);
   }
 
-  @media (min-width: 40rem) {
+  @media (min-width: 55rem) {
     .search {
       min-width: 11rem;
       border-color: var(--border);
@@ -241,7 +241,7 @@
     }
   }
 
-  @media (min-width: 64rem) {
+  @media (min-width: 40rem) {
     .menu {
       display: none;
     }

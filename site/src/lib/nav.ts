@@ -59,7 +59,7 @@ export const RELEASES_PATH = '/releases';
 
 /** Builds the whole tree, given the release pages (newest first). */
 export function buildNav(releases: NavPage[]): NavNode[] {
-  return [HOME, { title: 'Releases', path: RELEASES_PATH, children: releases }, DOCS, PLAYGROUND];
+  return [HOME, DOCS, { title: 'Releases', path: RELEASES_PATH, children: releases }, PLAYGROUND];
 }
 
 /** Every page within a node, in order. */
