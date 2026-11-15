@@ -60,7 +60,7 @@ When a section grows long, or needs several examples of different things, split 
 
 Written **imperatively**, as things to do. Headings are actions ("Compile a query", not "Compilation"), and steps go in ordered lists, one action per step, with the command or code to use. Reference material (tables of options, function signatures) comes after the steps.
 
-Until Querydown is published to crates.io and npm, installation instructions pin a Git commit.
+Installation instructions use the packages on crates.io and npm, without naming a version, so that they don't go stale with each release. Building from a Git commit is the exception, for code that isn't released yet.
 
 ### The cheat sheet
 

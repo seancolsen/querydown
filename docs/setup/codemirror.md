@@ -4,7 +4,7 @@ The `querydown-codemirror` package gives a [CodeMirror 6](https://codemirror.net
 
 Both features run on Querydown's own parser, through the [JavaScript package](./javascript.md), so they follow the language's rules exactly. For example, a bare word is a column in `$title`, a string in `title:performance`, and a search term in `#issues performance`, and each is colored accordingly.
 
-If you haven't yet, [build the package](./installation.md#build-the-codemirror-package).
+If you haven't yet, [install the package](./installation.md#install-the-codemirror-package).
 
 ## Add highlighting
 
@@ -27,7 +27,7 @@ If you haven't yet, [build the package](./installation.md#build-the-codemirror-p
     });
     ```
 
-You pass `tokenize` in, rather than the package importing it, so that the package works however you built and loaded the compiler. If `tokenize` throws (because the compiler isn't loaded yet, say), the editor still works, only without highlighting, and the error is logged to the console once.
+You pass `tokenize` in, rather than the package importing it, so that the package works however you load the compiler. Use the same version of `querydown-codemirror` as of `querydown-js`. If `tokenize` throws (because the compiler isn't loaded yet, say), the editor still works, only without highlighting, and the error is logged to the console once.
 
 Besides highlighting, the extension tells CodeMirror about Querydown's comments (`//` and `/* */`), for the commands that toggle comments, and about its brackets, for `closeBrackets()` and `bracketMatching()`.
 

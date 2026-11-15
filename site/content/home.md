@@ -290,8 +290,8 @@ Querydown is _not_:
 
 Querydown is a nascent project. It works, but it's young, and has not been battle-tested:
 
-- Nothing is published to crates.io or npm yet. You [install it from Git](../../docs/setup/installation.md).
-- There are [no versioned releases](./releases/0.0.1.md) yet, and the language can still change in ways that break existing queries.
+- Its first release, [0.1.0](./releases/0.1.0.md), is on crates.io and npm. See [installation](../../docs/setup/installation.md).
+- Until version 1.0, the language can still change in ways that break existing queries.
 - It has bindings for two languages and supports two database systems.
 - It has no language server, and editor support for CodeMirror only.
 - It's the work of one person, with one application in production.

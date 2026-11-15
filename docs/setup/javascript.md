@@ -2,20 +2,11 @@
 
 The `querydown-js` package is the Querydown compiler, built to WebAssembly. It lets a JavaScript or TypeScript application compile queries in the browser, with no server involved, or in Node.js. It comes with TypeScript types.
 
-If you haven't yet, [build the package](./installation.md#build-the-javascript-package).
-
-## Choose a build target
-
-When you build the package, the `--target` that you give `wasm-pack` decides how your code loads the WebAssembly.
-
-| Target | Use it… | Loading |
-| -- | -- | -- |
-| `web` | in a browser, with or without a bundler such as Vite. **Start here.** | You call `init()` once before anything else. |
-| `bundler` | if your bundler handles WebAssembly modules itself | Nothing to call, but Vite needs [`vite-plugin-wasm`](https://github.com/Menci/vite-plugin-wasm) and `vite-plugin-top-level-await`. |
-
-The rest of this page assumes the `web` target. With the `bundler` target, leave out the call to `init()`.
+If you haven't yet, [install the package](./installation.md#install-the-javascript-package).
 
 ## Load the compiler
+
+The package loads its WebAssembly when you call its `init` function, rather than when you import it, so you decide when to fetch the `.wasm` file.
 
 1. Import the package's `init` function, and the URL of the `.wasm` file. With Vite, a `?url` import gives you the URL of a file that Vite serves:
 
@@ -243,8 +234,17 @@ function is_querydown_error(value: unknown): value is QuerydownError;
 
 Tells you whether a caught value is an error thrown by this package. See [errors](../errors.md#javascript).
 
+## Other build targets
+
+The package on npm is built with `wasm-pack`'s `web` target, which is why you call `init()`. If your bundler handles WebAssembly modules itself, you can instead [build the package from a commit](./installation.md#build-from-a-commit) with the `bundler` target, and leave out the call to `init()`:
+
+```sh
+wasm-pack build vendor/querydown/bindings/js --target bundler
+```
+
+With Vite, the `bundler` target needs [`vite-plugin-wasm`](https://github.com/Menci/vite-plugin-wasm) and `vite-plugin-top-level-await`.
+
 ## What's missing
 
-- The package isn't on npm yet, so you [build it yourself](./installation.md#build-the-javascript-package).
 - The `.wasm` file is about 1 MB (under 400 kB compressed), so load it only on the pages that compile queries.
 - There are no bindings for other languages yet. From a language without bindings, you can run the [CLI](./cli.md) as a subprocess.

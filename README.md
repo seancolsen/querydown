@@ -112,8 +112,8 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 Querydown is a nascent project. It works, and it has one application in production, but it's young:
 
-- Nothing is published to crates.io or npm yet. You [install it from this repository](./docs/setup/installation.md), pinned to a commit.
-- There are no versioned releases yet, and the language can still change in ways that break existing queries.
+- Its first release, [0.1.0](./site/content/releases/0.1.0.md), is on crates.io and npm. See [installation](./docs/setup/installation.md).
+- Until version 1.0, the language can still change in ways that break existing queries. A release that does so changes the minor version, and its notes say what to do.
 - Lots of [functions](./docs/functions.md) are still missing.
 - There's no language server, and no bindings beyond Rust and JavaScript.
 

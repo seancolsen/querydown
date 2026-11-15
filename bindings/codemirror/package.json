@@ -1,6 +1,6 @@
 {
   "name": "querydown-codemirror",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "CodeMirror 6 language support (syntax highlighting and autocompletion) for Querydown",
   "license": "MIT",
   "keywords": [
@@ -48,7 +48,7 @@
     "@codemirror/view": "^6.26.0",
     "@lezer/common": "^1.2.0",
     "@lezer/highlight": "^1.2.0",
-    "querydown-js": "^0.0.1"
+    "querydown-js": "^0.1.0"
   },
   "peerDependenciesMeta": {
     "querydown-js": {

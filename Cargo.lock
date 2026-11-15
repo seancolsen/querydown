@@ -1473,7 +1473,7 @@ dependencies = [
 
 [[package]]
 name = "querydown"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "duckdb",
  "itertools",
@@ -1486,7 +1486,7 @@ dependencies = [
 
 [[package]]
 name = "querydown-cli"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "clap",
  "querydown",
@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "querydown-js"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "js-sys",
  "querydown",
@@ -1508,7 +1508,7 @@ dependencies = [
 
 [[package]]
 name = "querydown-parser"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "chumsky",
  "serde",

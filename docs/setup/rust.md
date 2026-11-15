@@ -163,4 +163,4 @@ Offsets are in bytes, as usual for Rust strings. If your editor is CodeMirror, t
 
 ## What's missing
 
-The crate has no documentation on docs.rs yet, because it isn't published. Until it is, the doc comments in [the source](../../compiler/src/lib.rs) are the reference for anything this page doesn't cover.
+Much of the crate's [API documentation](https://docs.rs/querydown) on docs.rs is thin. For anything that this page doesn't cover, read the doc comments in [the source](../../compiler/src/lib.rs).
