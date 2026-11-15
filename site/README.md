@@ -57,9 +57,13 @@ The site follows the browser's color scheme, unless the visitor picks a theme wi
 
 ### Fonts
 
-The site uses Red Hat Text for prose, Red Hat Display for headings, and Red Hat Mono for code. Their files come from [Fontsource](https://fontsource.org/) packages, which [`src/routes/+layout.svelte`](./src/routes/+layout.svelte) imports, so Vite copies them into the build and nothing is fetched from a font service. The layout also preloads the upright Latin files, and [`src/app.css`](./src/app.css) names each font in a CSS variable (`--font-sans`, `--font-display`, and `--font-mono`).
+The site uses Red Hat Text for prose, Red Hat Display for headings, and Red Hat Mono for code. They were chosen over other warm, humanist sans-serifs (such as Source Sans, Fira Sans, and Recursive) because they're a family designed together: a text cut drawn for reading sizes, a display cut for headings, and a mono that matches them.
 
-Red Hat Mono has no box-drawing characters, so a small font in [`src/lib/fonts/`](./src/lib/fonts) supplies them. Its README says where it came from.
+The font files come from [Fontsource](https://fontsource.org/) packages, which [`src/routes/+layout.svelte`](./src/routes/+layout.svelte) imports, so Vite copies them into the build and nothing is fetched from a font service. The layout also preloads the upright Latin files, and [`src/app.css`](./src/app.css) names each font in a CSS variable (`--font-sans`, `--font-display`, and `--font-mono`).
+
+- Headings from h1 to h3 use the display cut. An h4 is the size of the text, so it keeps the text cut.
+- Code is shown without ligatures, so that the syntax looks as it's typed: `:=` is two characters, not one glyph.
+- Red Hat Mono has no box-drawing characters, so a small font in [`src/lib/fonts/`](./src/lib/fonts) supplies them, made by [`scripts/subset-box-drawing.js`](./scripts/subset-box-drawing.js). The README in that folder explains why it's needed, how it was made, and how to make it again.
 
 ### Search
 
