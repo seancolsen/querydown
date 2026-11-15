@@ -23,8 +23,6 @@ export interface Showcase {
   code: string;
   /** The highlighted SQL, as HTML. */
   sql: string;
-  /** How many lines each is. */
-  lines: { querydown: number; sql: number };
 }
 
 export interface Feature {

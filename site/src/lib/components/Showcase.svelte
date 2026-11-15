@@ -9,21 +9,17 @@
   let {
     code,
     sql,
-    lines,
   }: {
     /** The highlighted Querydown, as HTML. */
     code: string;
     /** The highlighted SQL, as the HTML of a `<pre>` element. */
     sql: string;
-    lines: { querydown: number; sql: number };
   } = $props();
-
-  const count = (n: number) => `${n} ${n === 1 ? 'line' : 'lines'}`;
 </script>
 
 <section class="showcase" aria-label="An example of Querydown, and the SQL it compiles to">
   <div class="side querydown">
-    <p class="label">Querydown <span class="count">{count(lines.querydown)}</span></p>
+    <p class="label">Querydown</p>
     <div class="pane">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -- highlighted from our own Markdown -->
       <pre class="qd"><code>{@html code}</code></pre>
@@ -35,7 +31,7 @@
   </svg>
 
   <div class="side sql">
-    <p class="label">SQL <span class="count">{count(lines.sql)}</span></p>
+    <p class="label">SQL</p>
     <div class="pane">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -- highlighted compiler output -->
       {@html sql}
@@ -46,7 +42,7 @@
 <style>
   .showcase {
     --glow: color-mix(in srgb, var(--accent) 11%, transparent);
-    --dots: color-mix(in srgb, var(--text-muted) 30%, transparent);
+    --dots: color-mix(in srgb, var(--text-muted) 18%, transparent);
     --label-height: 1.6rem;
     position: relative;
     display: flex;
@@ -81,9 +77,6 @@
   }
 
   .label {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
     height: calc(var(--label-height) - 0.4rem);
     margin: 0 0 0.4rem 0.15rem;
     color: var(--text-muted);
@@ -96,13 +89,6 @@
 
   .querydown .label {
     color: var(--accent);
-  }
-
-  .count {
-    color: var(--text-muted);
-    font-weight: 400;
-    letter-spacing: 0.02em;
-    text-transform: none;
   }
 
   .pane {

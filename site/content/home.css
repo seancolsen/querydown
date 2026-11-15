@@ -5,22 +5,55 @@
  * Each selector starts with `.prose`, so that it outranks the site's styles for Markdown content.
  */
 
-/* The client bindings and the database dialects: two halves of a box, each a label above a row of
-   pills. (The pills echo the features' names, in the box further down the page.) */
+/* The client bindings and the database dialects: two halves of a band, each a label above a row of
+   pills. (The pills echo the features' names, in the box further down the page.) The band is a warm,
+   faintly yellow one that reaches the edges of the window, to part the introduction above it from
+   the rest of the page. */
 
 .prose .platforms {
-  --glow: color-mix(in srgb, var(--accent) 8%, transparent);
+  --band-line: light-dark(#ece2c4, #3a3427);
   position: relative;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  margin: 2rem 0;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background:
-    radial-gradient(60% 120% at 50% 0%, var(--glow), transparent 70%),
-    var(--bg-subtle);
-  box-shadow: 0 18px 40px -30px var(--shadow);
-  overflow: hidden;
+  margin: 2.5rem 0;
+  padding: 0.5rem 0;
+  isolation: isolate;
+  /* A line above and below that, like the band, reaches the edges of the window without making it
+     scroll sideways: a border image's outset is painted, but takes no room. */
+  border-block: 1px solid;
+  border-image: linear-gradient(var(--band-line), var(--band-line)) 1 / 1px 0 / 0 100vmax;
+}
+
+/* The band is painted the same way, in two layers: a gradient that drifts from cream to pale gold to
+   peach across the window, and a soft glow over it. Their stops are placed from the middle of the
+   window, since the images are as wide as the outset. */
+.prose .platforms::before,
+.prose .platforms::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.prose .platforms::before {
+  border-image: linear-gradient(
+      90deg,
+      light-dark(#fbf7ea, #1c1b17) calc(50% - 50vw),
+      light-dark(#fcf2d3, #221f15) calc(50% - 20vw),
+      light-dark(#fbf8ef, #1c1b18) calc(50% + 6vw),
+      light-dark(#fcefdc, #221c16) calc(50% + 32vw),
+      light-dark(#fbf7ea, #1c1b17) calc(50% + 50vw)
+    )
+    fill 0 / 0 / 0 100vmax;
+}
+
+.prose .platforms::after {
+  border-image: radial-gradient(
+      36vw 150% at calc(50% - 14vw) 0%,
+      light-dark(rgb(255 228 140 / 0.35), rgb(255 205 90 / 0.06)),
+      transparent 70%
+    )
+    fill 0 / 0 / 0 100vmax;
 }
 
 .prose .platforms > div {
@@ -28,9 +61,26 @@
   text-align: center;
 }
 
-/* A line between the halves, wherever the second one is: beside the first, or below it. */
+/* A line between the halves, wherever the second one is: below the first, or beside it. */
 .prose .platforms > div + div {
-  box-shadow: -1px -1px 0 var(--border);
+  border-top: 1px solid var(--band-line);
+}
+
+@media (min-width: 36rem) {
+  .prose .platforms {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .prose .platforms > div + div {
+    border-top: 0;
+    border-left: 1px solid var(--band-line);
+  }
+}
+
+/* The band divides the page already, so the heading after it needs no rule of its own. */
+.prose .platforms + h2 {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .prose .platforms p {
@@ -54,13 +104,13 @@
 
 .prose .platforms li {
   margin: 0;
-  padding: 0.25rem 0.85rem;
+  padding: 0.2rem 0.7rem;
   border-radius: 999px;
   background: var(--bg);
   box-shadow:
-    inset 0 0 0 1px var(--border),
+    inset 0 0 0 1px var(--band-line),
     0 1px 2px var(--shadow);
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   font-weight: 550;
   line-height: 1.5;
 }
@@ -72,7 +122,7 @@
 
 .prose .platforms li > a {
   display: block;
-  padding: 0.25rem 0.85rem;
+  padding: 0.2rem 0.7rem;
   border-radius: inherit;
   text-decoration: none;
   transition:

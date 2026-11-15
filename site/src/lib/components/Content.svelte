@@ -33,7 +33,7 @@
       <Blocks blocks={segment.blocks} />
     </div>
   {:else if segment.type === 'showcase'}
-    <Showcase code={segment.code} sql={segment.sql} lines={segment.lines} />
+    <Showcase code={segment.code} sql={segment.sql} />
   {:else if segment.type === 'features'}
     <Features heading={segment.heading} features={segment.features} note={segment.note} />
   {:else if segment.type === 'er-diagram'}

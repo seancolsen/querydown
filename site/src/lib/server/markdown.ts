@@ -357,11 +357,9 @@ function showcase(nodes: RootContent[], context: RenderContext, shiki: Highlight
   if (!example.sql) {
     throw new Error(`${context.file}: the showcase's example must be one that compiles.`);
   }
-  const lines = (text: string) => text.trimEnd().split('\n').length;
   return {
     code: example.code,
     sql: highlightCode(shiki, example.sql, 'sql'),
-    lines: { querydown: lines(code.value), sql: lines(example.sql) },
   };
 }
 
