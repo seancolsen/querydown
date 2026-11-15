@@ -24,7 +24,7 @@ crash
 --#assignments
 ```
 
-All of Querydown's [examples](../../docs/language.md) are written against a fictitious [issue-tracker schema](../../docs/sample-schema.md).
+Querydown's [examples](../../docs/language.md) use a fictitious [issue-tracker schema](../../docs/sample-schema.md).
 
 <!-- /slideshow -->
 
@@ -33,16 +33,16 @@ Querydown is designed primarily as a library to be embedded into applications wh
 <div class="platforms">
 <div>
 
-Current client bindings available:
+Client bindings for
 
 - [Rust](../../docs/setup/rust.md)
-- [JavaScript](../../docs/setup/javascript.md) (via WebAssembly)
-- A [command line tool](../../docs/setup/cli.md)
+- [JavaScript](../../docs/setup/javascript.md)
+- [CLI](../../docs/setup/cli.md)
 
 </div>
 <div>
 
-Current database dialects supported:
+Supported Database dialects
 
 - PostgreSQL
 - DuckDB
@@ -63,7 +63,7 @@ Current database dialects supported:
 
 The compiler doesn't connect to your database or run anything. What you do with the SQL is up to you.
 
-## Features
+## Language Features
 
 <div class="features">
 
@@ -83,8 +83,6 @@ The compiler doesn't connect to your database or run anything. What you do with 
 
 </div>
 
-For editors, there's [syntax highlighting and autocompletion for CodeMirror](../../docs/setup/codemirror.md).
-
 ## Limitations
 
 Querydown doesn't attempt to support all of SQL. Some SQL queries will never be possible to write with Querydown. That's okay! Querydown tries to make it very _much easier_ to generate the _most common_ kinds of queries.
@@ -93,9 +91,11 @@ Specifically:
 
 - It only produces `SELECT` queries.
 - The compiler requires knowledge of the database schema.
-- Joinable tables are specified within the schema definition you pass the compiler. You can't join arbitrary tables within Querydown code.
+- Joinable tables are specified within the schema definition you pass the compiler. You can't join arbitrary tables within Querydown code, or join on anything but equality.
+- A result can't have more rows than its base table, since [related data is always aggregated](../../docs/language.md#mandatory-aggregation).
 - Lots of [functions](../../docs/functions.md) are still missing.
-- Graph traversal and data series generation that you'd do in SQL with recursive CTEs is impossible.
+- Graph traversal of hierarchies of any depth, which you'd do in SQL with recursive CTEs, is impossible.
+- Data series generation is impossible. For example, you can't count the issues opened each month with a row for each month in which none were.
 - It has no module system.
 
 Querydown is _not_:

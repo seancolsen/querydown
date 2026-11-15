@@ -30,7 +30,7 @@ The compiler needs a description of your database, as a JSON file.
 
 The [introspection](./introspection.md) page explains what's in the file, and how to write or adjust one by hand.
 
-To follow along without a database, download the [sample schema](../sample-schema.md#the-schema-as-files) instead, which the rest of this page uses.
+To follow along without a database, download the [sample schema](../sample-schema.md) instead, which the rest of this page uses.
 
 ## Compile a query
 

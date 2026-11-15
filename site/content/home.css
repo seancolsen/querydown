@@ -11,7 +11,7 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 1rem 3.5rem;
+  gap: 2rem 6rem;
   margin: 2rem 0;
   padding: 1.1rem 0 1.2rem;
   background: var(--bg-subtle);
@@ -20,7 +20,6 @@
   clip-path: inset(0 -100vmax);
   border-block: 1px solid;
   border-image: linear-gradient(var(--border), var(--border)) 1 / 1px 0 / 0 100vmax;
-  font-size: 0.875rem;
 }
 
 .prose .platforms > div {
@@ -30,7 +29,6 @@
 .prose .platforms p {
   margin: 0 0 0.35rem;
   color: var(--text-muted);
-  font-size: 0.8125rem;
 }
 
 .prose .platforms ul {
