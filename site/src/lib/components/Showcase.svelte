@@ -2,9 +2,9 @@
   An example of Querydown beside the SQL that it compiles to, to show at a glance how much SQL a
   little Querydown stands for. The SQL is small, and isn't meant to be read so much as seen.
 
-  On a wide screen the two sit side by side, as wide as each other, so that the arrow between them
-  is in the middle of the page. The Querydown decides how tall the boxes are: the SQL fills the
-  height beside it, and scrolls. On a narrow screen the SQL sits below, at a fixed height.
+  Each box is as tall as its code. On a wide screen the two sit side by side, at the same fixed
+  width, with their middles level, so that the arrow between them is in the middle of the page. On
+  a narrow screen the SQL sits below.
 -->
 <script lang="ts">
   let {
@@ -148,31 +148,13 @@
   }
 
   /* Small enough that there's plainly a lot of it, and still legible up close. The lines wrap, so
-     that it only scrolls one way. */
-  .sql .pane {
-    height: 13rem;
-  }
-
+     that it never scrolls. */
   .sql .pane :global(pre) {
-    height: 100%;
-    padding: 0.6rem 0.75rem 1.75rem;
-    overflow-y: auto;
+    padding: 0.6rem 0.75rem;
     font-size: 0.6rem;
     line-height: 1.2;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border-strong) transparent;
-  }
-
-  /* The SQL fades out at the foot of its pane, as if it goes on. */
-  .sql .pane::after {
-    content: '';
-    position: absolute;
-    inset: auto 0 0;
-    height: 1.75rem;
-    background: linear-gradient(transparent, var(--bg));
-    pointer-events: none;
   }
 
   /* A block arrow, lighter than everything around it: part of the picture, not a control. */
@@ -193,23 +175,13 @@
   @media (min-width: 48rem) {
     .showcase {
       display: grid;
-      /* The two panes are the same width, and the Querydown is never narrower than its longest
-         line. Centered, they put the arrow in the middle of the page. */
-      grid-template-columns: minmax(max-content, 18rem) auto minmax(0, 18rem);
+      /* The two panes are the same width, so that, centered, they put the arrow in the middle of
+         the page. Each is as tall as its code, and they're centered on each other: their labels
+         are the same height, so the middles of the panes are level too. */
+      grid-template-columns: 18rem auto 18rem;
       justify-content: center;
-      align-items: stretch;
+      align-items: center;
       gap: 1.1rem;
-    }
-
-    /* The SQL takes no height of its own, so it's stretched to the height of the Querydown. */
-    .sql {
-      contain: size;
-    }
-
-    .sql .pane {
-      flex: 1;
-      height: auto;
-      min-height: 0;
     }
 
     .arrow {
