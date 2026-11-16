@@ -1,6 +1,6 @@
 # Querydown
 
-Querydown is a domain-specific language for expressively writing relational database queries that compile to SQL.
+Querydown is a language for end-users to expressively write relational database queries that compile to SQL.
 
 <!-- showcase -->
 
@@ -308,7 +308,7 @@ I'm [Sean Colsen](https://github.com/seancolsen), an engineer who likes to tinke
 
 I had the idea for Querydown while writing a lot of SQL by hand for business intelligence and data visualization projects in the CRM space. SQL is powerful, but its syntax has always felt verbose to me. I don't like the amount of code I have to write to access joined data. And I don't like that its design requires so many internally consistent identifiers. I envisioned something simpler and more expressive — even if it meant less power. In 2023, I built an early version of Querydown, partly as a means to learn Rust. Then, with the help of Claude, I fleshed it out in 2026 to serve as a user-facing query language in my high performance music manager app, [RadioCrate](https://github.com/seancolsen/radiocrate).
 
-### Why would end users ever want to learn a new query language?
+### Why would end users ever want to learn a query language?
 
 Many certainly would not! I get it. Querydown is aimed at the kind of user who wants more power than a GUI and more convenience than SQL.
 
@@ -316,7 +316,7 @@ Many certainly would not! I get it. Querydown is aimed at the kind of user who w
 
 - The search syntax for [GitHub issues](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests).
 - The search syntax within [Amarok](https://amarok.kde.org/), a desktop music player.
-- Regular expressions (on a more conceptual level, in that the language is designed without keywords)
+- Regular expressions — insofar as Querydown is also a language designed without keywords
 
 ### How is this different from other projects?
 
