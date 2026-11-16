@@ -360,6 +360,14 @@ Many certainly would not! I get it. Querydown is aimed at the kind of user who w
 
     </details>
 
+- <details><summary>GraphQL</summary>
+
+    **[GraphQL](https://graphql.org/)** queries also follow relationships without joins, by nesting one record's fields inside another's. Servers such as **[Hasura](https://hasura.io/)** and **[PostGraphile](https://www.graphile.org/postgraphile/)** generate a GraphQL API from your database's tables and foreign keys, and compile each query into SQL.
+
+    But GraphQL is a language for application code to fetch data from an API, not for people to search with. GraphQL itself has no syntax for filtering, sorting or aggregating: each server adds its own arguments and fields for those. In Hasura, a query for open issues, with each one's author and number of comments, is `issues(where: {status: {_eq: "open"}}) { title author { username } comments_aggregate { aggregate { count } } }`. The results come back as nested JSON, in the shape of the query, from a server that runs it against your database. Querydown doesn't run anything or serve an API: the same query is `#issues status:open $title $author.username $#comments`, and it gives you SQL that returns rows and columns.
+
+    </details>
+
 - <details><summary>HTSQL, Rabbit, DataKnots.jl</summary>
 
     **[HTSQL](https://www.htsql.org/)** is also a schema-aware query language that follows the relationships between your tables for you. You can reach a related record's columns without writing a join, and anything pulled from a to-many relationship has to be aggregated.
