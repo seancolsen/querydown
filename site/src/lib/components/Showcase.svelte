@@ -2,8 +2,9 @@
   An example of Querydown beside the SQL that it compiles to, to show at a glance how much SQL a
   little Querydown stands for. The SQL is small, and isn't meant to be read so much as seen.
 
-  On a wide screen the two sit side by side, and the Querydown decides how tall the box is: the SQL
-  fills the height beside it, and scrolls. On a narrow screen the SQL sits below, at a fixed height.
+  On a wide screen the two sit side by side, as wide as each other, so that the arrow between them
+  is in the middle of the page. The Querydown decides how tall the boxes are: the SQL fills the
+  height beside it, and scrolls. On a narrow screen the SQL sits below, at a fixed height.
 -->
 <script lang="ts">
   let {
@@ -45,7 +46,7 @@
     --dots: color-mix(in srgb, var(--text-muted) 18%, transparent);
     --label-height: 1.6rem;
     /* How far above and below the example its backdrop reaches. */
-    --reach: 6rem;
+    --reach: 8rem;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -54,9 +55,11 @@
   }
 
   /* The backdrop: a soft wash of color, faintly blue in the middle, that fades out in every
-     direction, reaching the edges of the window at the sides. A border image's outset is painted,
-     but takes no room, so the backdrop doesn't make the page scroll sideways. The gradient is as
-     wide as the outset, so its width is set from the middle of the window.
+     direction, flowing out past the edges of the window at the sides. A border image's outset is
+     painted, but takes no room, so the backdrop doesn't make the page scroll sideways. The gradient
+     is as wide as the outset, so its width is set from the middle of the window. The showcase spans
+     the page's centered column, with the example centered within it, so the backdrop is centered in
+     the window.
 
      It sits behind everything else on the page (so isn't isolated with the example), lest it tint
      the text above and below. */
@@ -71,7 +74,7 @@
   .showcase::before {
     inset: 0;
     border-image: radial-gradient(
-        50vw 50% at 50% 50%,
+        60vw 50% at 50% 50%,
         color-mix(in srgb, var(--accent) 10%, var(--wash)),
         var(--wash) 38%,
         color-mix(in srgb, var(--wash) 80%, transparent) 56%,
@@ -154,8 +157,8 @@
     height: 100%;
     padding: 0.6rem 0.75rem 1.75rem;
     overflow-y: auto;
-    font-size: 0.625rem;
-    line-height: 1.5;
+    font-size: 0.6rem;
+    line-height: 1.2;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     scrollbar-width: thin;
@@ -190,8 +193,10 @@
   @media (min-width: 48rem) {
     .showcase {
       display: grid;
-      /* The Querydown is never narrower than its longest line. */
-      grid-template-columns: minmax(max-content, 2fr) auto minmax(0, 3fr);
+      /* The two panes are the same width, and the Querydown is never narrower than its longest
+         line. Centered, they put the arrow in the middle of the page. */
+      grid-template-columns: minmax(max-content, 18rem) auto minmax(0, 18rem);
+      justify-content: center;
       align-items: stretch;
       gap: 1.1rem;
     }
