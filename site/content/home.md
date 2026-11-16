@@ -278,7 +278,7 @@ Specifically:
 - A result can't have more rows than its base table, since [related data is always aggregated](../../docs/language.md#mandatory-aggregation).
 - It implements some [functions](../../docs/functions.md), but many that you might want are still missing.
 - Queries that dynamically traverse graphs and hierarchies (which require recursive CTEs) are not yet possible.
-- Data series generation is not yet possible. For example, you can't count the issues opened each month with a row for each month in which none were.
+- Data series generation is not yet possible.
 - It has no module system.
 
 Querydown is _not_:
