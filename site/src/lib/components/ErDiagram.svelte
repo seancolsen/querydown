@@ -15,30 +15,38 @@
   const INSET = 3;
   /** The narrowest that the gap between two columns of tables can be. */
   const MIN_GAP = 48;
-  /** The distance between the vertical lanes that links run along. */
-  const LANE_SPACING = 12;
+  /**
+   * The distance between a table and the nearest lane to it, so that the arrow and the round corner
+   * on a link's end both fit, with room between them.
+   */
+  const LANE_MARGIN = 24;
+  /** The distance between neighboring lanes in a gap. */
+  const LANE_SPACING = 16;
   const CORNER_RADIUS = 5;
   /** The radius of a corner where a link merges into another. It must be less than LANE_SPACING. */
   const MERGE_RADIUS = 10;
 
   /**
    * Where each table goes: which column of the grid, and which row its heading sits in. A row is the
-   * height of one line of a table, so a table with n columns takes up n + 1 rows.
+   * height of one line of a table, so a table with n columns takes up n + 1 rows. A table can sit
+   * between rows, where it needs to be clear of a link in the next column.
    *
    * Links can only join tables in the same column or in neighboring columns.
    */
   const PLACEMENT: Record<string, { column: number; row: number }> = {
-    assignments: { column: 0, row: 0 },
-    comments: { column: 0, row: 5 },
-    users: { column: 0, row: 13 },
-    teams: { column: 0, row: 21 },
-    blocks: { column: 1, row: 1 },
-    issues: { column: 1, row: 6 },
-    projects: { column: 1, row: 17 },
-    labels: { column: 2, row: 6 },
-    issue_labels: { column: 2, row: 10 },
-    products: { column: 2, row: 15 },
-    clients: { column: 2, row: 21 },
+    issue_labels: { column: 0, row: 0 },
+    blocks: { column: 0, row: 5 },
+    issues: { column: 0, row: 10 },
+    projects: { column: 0, row: 21 },
+    products: { column: 0, row: 28 },
+    labels: { column: 1, row: 0 },
+    assignments: { column: 1, row: 4 },
+    comments: { column: 1, row: 9 },
+    // Half a row lower than the others, so that `users.id` isn't level with `issues.project`. Then
+    // the two links there don't look like one line.
+    users: { column: 1, row: 16.5 },
+    teams: { column: 1, row: 24.5 },
+    clients: { column: 1, row: 28.5 },
   };
 
   /**
@@ -60,23 +68,22 @@
    */
   const ROUTES: Record<string, { side?: 'left' | 'right'; lane?: number }> = {
     // Left of the first column
-    'assignments.user': { side: 'left', lane: 0 },
-    // Between the first and second columns
-    'comments.user': { side: 'right', lane: 0 },
-    'users.team': { side: 'right', lane: 1 },
+    'issues.duplicate_of': { side: 'left', lane: 0 },
+    'issue_labels.issue': { side: 'left', lane: 1 },
+    // Between the two columns
+    'blocks.blocking': { side: 'right', lane: 0 },
+    'issues.project': { side: 'right', lane: 0 },
+    'projects.product': { side: 'right', lane: 0 },
+    'blocks.blocker': { side: 'right', lane: 1 },
+    'issues.author': { lane: 1 },
+    'issue_labels.label': { lane: 2 },
     'assignments.issue': { lane: 2 },
     'comments.issue': {},
-    'issues.author': { lane: 3 },
-    'issues.project': { side: 'left', lane: 4 },
-    // Between the second and third columns
-    'issues.duplicate_of': { side: 'right', lane: 0 },
-    'blocks.blocking': { side: 'right', lane: 1 },
-    'blocks.blocker': { side: 'right', lane: 2 },
-    'projects.product': { lane: 2 },
-    'issue_labels.issue': { lane: 3 },
-    'products.client': { side: 'left', lane: 4 },
-    // Right of the third column
-    'issue_labels.label': { side: 'right', lane: 0 },
+    'products.client': { lane: 2 },
+    // Right of the second column
+    'comments.user': { side: 'right', lane: 0 },
+    'users.team': { side: 'right', lane: 0 },
+    'assignments.user': { side: 'right', lane: 1 },
   };
 
   interface Box {
@@ -237,10 +244,14 @@
     Math.max(0, ...links.filter((l) => l.gap === gap).map((l) => (l.lane ?? -1) + 1)),
   );
 
+  /** How wide a gap's lanes are, from the first to the last. */
+  const lanesWidth = (lanes: number) => Math.max(0, lanes - 1) * LANE_SPACING;
+
   const gapWidths = laneCounts.map((lanes, gap) => {
-    const outer = gap === 0 || gap === columnCount;
-    if (outer) return INSET + lanes * LANE_SPACING;
-    return Math.max(MIN_GAP, (lanes + 1) * LANE_SPACING);
+    if (lanes === 0) return gap === 0 || gap === columnCount ? INSET : MIN_GAP;
+    // The lanes outside the first and last columns keep close to them.
+    if (gap === 0 || gap === columnCount) return INSET + lanesWidth(lanes) + LANE_MARGIN;
+    return Math.max(MIN_GAP, LANE_MARGIN * 2 + lanesWidth(lanes));
   });
   const gapStarts = gapWidths.map((_, gap) => {
     let x = 0;
@@ -250,12 +261,11 @@
 
   function laneX(gap: number, lane: number): number {
     const start = gapStarts[gap];
-    const width = gapWidths[gap];
     const lanes = laneCounts[gap];
-    // Keep the lanes outside the first and last columns close to them.
-    if (gap === 0) return start + width - (lanes - lane) * LANE_SPACING;
-    if (gap === columnCount) return start + (lane + 1) * LANE_SPACING;
-    return start + (width * (lane + 1)) / (lanes + 1);
+    if (gap === 0) return start + INSET + lane * LANE_SPACING;
+    if (gap === columnCount) return start + LANE_MARGIN + lane * LANE_SPACING;
+    // Center the lanes in a gap that's wider than they need.
+    return start + (gapWidths[gap] - lanesWidth(lanes)) / 2 + lane * LANE_SPACING;
   }
 
   const boxX = (box: Box) => gapStarts[box.column] + gapWidths[box.column];
@@ -426,7 +436,8 @@
     display: block;
     max-width: 100%;
     height: auto;
-    min-width: 34rem;
+    /* Narrow enough to fit the smallest phones, but no narrower, so that the text stays legible. */
+    min-width: 18rem;
     margin: 0 auto;
     font-family: var(--font-mono);
     font-size: 12px;
