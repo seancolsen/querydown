@@ -1,0 +1,7 @@
+# Response headers for Netlify, which serves the site (https://docs.netlify.com/manage/routing/headers/).
+
+# The whole documentation in one file, for AI agents. Keep it out of search results, where it would
+# compete with the docs' own pages. (Don't disallow it in robots.txt instead: a crawler that can't
+# fetch the file never sees this header.)
+/llms-full.txt
+  X-Robots-Tag: noindex
