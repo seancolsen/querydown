@@ -2,7 +2,7 @@ pub mod build;
 
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct SqlExpr {
     pub content: String,
     pub precedence: SqlExprPrecedence,

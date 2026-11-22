@@ -2,7 +2,7 @@ use querydown_parser::ast::{NullsSort, SortDirection, TableName};
 
 pub use super::expr::SqlExpr;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Select {
     /// The table (or CTE) the query reads from. A table in another schema is addressed by its
     /// qualified name, and its rows by its unqualified name (unless `base_table_alias` says
@@ -25,7 +25,7 @@ pub struct Select {
     pub unions: Vec<Select>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Column {
     pub expr: SqlExpr,
     pub alias: Option<String>,
@@ -37,7 +37,7 @@ impl Column {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Cte {
     pub alias: String,
     pub select: Select,
@@ -61,7 +61,7 @@ pub enum CtePurpose {
     AggregateValue,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Join {
     /// The table (or CTE) joined, which is addressed by `alias`.
     pub table: TableName,
@@ -70,13 +70,13 @@ pub struct Join {
     pub join_type: JoinType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum JoinType {
     Inner,
     LeftOuter,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SortEntry {
     pub expr: SqlExpr,
     pub direction: SortDirection,

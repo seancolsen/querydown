@@ -7,7 +7,7 @@ use crate::{
     },
     sql::{
         expr::build::*,
-        tree::{Cte, Join, JoinType},
+        tree::{Cte, Join, JoinType, Select},
     },
 };
 
@@ -47,6 +47,30 @@ impl JoinTree {
 
     pub fn take_ctes(&mut self) -> Vec<Cte> {
         std::mem::take(&mut self.ctes)
+    }
+
+    /// The alias of a CTE already joined to the table that `chain_to_one_opt` leads to (this tree's
+    /// own table when it's `None`) that selects `select` and is joined by `join_column_name`, if
+    /// there is one. Such a CTE has the same rows as one built from `select` would, so it can be
+    /// used in its place.
+    pub fn find_cte(
+        &self,
+        chain_to_one_opt: Option<&Chain<LinkToOne>>,
+        select: &Select,
+        join_column_name: &str,
+    ) -> Option<&str> {
+        let mut tree = self;
+        for link in chain_to_one_opt.map_or(&[][..], |chain| chain.get_links()) {
+            tree = tree
+                .dependents
+                .iter()
+                .find(|(dependent_link, _)| dependent_link == link)
+                .map(|(_, subtree)| subtree)?;
+        }
+        tree.ctes
+            .iter()
+            .find(|cte| cte.join_column_name == join_column_name && cte.select == *select)
+            .map(|cte| cte.alias.as_str())
     }
 
     pub fn integrate_chain(

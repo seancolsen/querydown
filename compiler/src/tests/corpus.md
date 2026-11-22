@@ -7658,24 +7658,15 @@ WITH
       count(*) AS "v1"
     FROM "comments"
     GROUP BY "comments"."issue"
-  ),
-  "cte1" AS (
-    SELECT
-      "comments"."issue" AS "pk",
-      count(*) AS "v1"
-    FROM "comments"
-    GROUP BY "comments"."issue"
   )
 SELECT
   "issues"."id"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
-LEFT JOIN "cte1" ON
-  "issues"."id" = "cte1"."pk"
 WHERE
   COALESCE("cte0"."v1", 0) >= 1 AND
-  COALESCE("cte1"."v1", 0) <= 5;
+  COALESCE("cte0"."v1", 0) <= 5;
 ```
 
 ### Range of durations
@@ -8368,32 +8359,14 @@ WITH
       count(*) AS "v1"
     FROM "assignments"
     GROUP BY "assignments"."issue"
-  ),
-  "cte2" AS (
-    SELECT
-      "comments"."issue" AS "pk",
-      count(*) AS "v1"
-    FROM "comments"
-    GROUP BY "comments"."issue"
-  ),
-  "cte3" AS (
-    SELECT
-      "assignments"."issue" AS "pk",
-      count(*) AS "v1"
-    FROM "assignments"
-    GROUP BY "assignments"."issue"
   )
 SELECT
-  COALESCE("cte2"."v1", 0) + COALESCE("cte3"."v1", 0) AS "activity"
+  COALESCE("cte0"."v1", 0) + COALESCE("cte1"."v1", 0) AS "activity"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
 LEFT JOIN "cte1" ON
   "issues"."id" = "cte1"."pk"
-LEFT JOIN "cte2" ON
-  "issues"."id" = "cte2"."pk"
-LEFT JOIN "cte3" ON
-  "issues"."id" = "cte3"."pk"
 WHERE
   COALESCE("cte0"."v1", 0) + COALESCE("cte1"."v1", 0) > 5
 ORDER BY
@@ -10154,25 +10127,16 @@ WITH
       min("issues"."created_at") AS "v1"
     FROM "issues"
     GROUP BY "issues"."project"
-  ),
-  "cte2" AS (
-    SELECT
-      "issues"."project" AS "pk",
-      min("issues"."created_at") AS "v1"
-    FROM "issues"
-    GROUP BY "issues"."project"
   )
 SELECT
   "projects"."name",
   "cte0"."v1" - "cte1"."v1" AS "span",
-  FLOOR(EXTRACT(epoch FROM NOW() - "cte2"."v1") / 86400)
+  FLOOR(EXTRACT(epoch FROM NOW() - "cte1"."v1") / 86400)
 FROM "projects"
 LEFT JOIN "cte0" ON
   "projects"."id" = "cte0"."pk"
 LEFT JOIN "cte1" ON
-  "projects"."id" = "cte1"."pk"
-LEFT JOIN "cte2" ON
-  "projects"."id" = "cte2"."pk";
+  "projects"."id" = "cte1"."pk";
 ```
 
 ### Several aggregate functions over differently filtered paths
@@ -10292,27 +10256,14 @@ WITH
     JOIN "issues" ON
       "projects"."id" = "issues"."project"
     GROUP BY "products"."client"
-  ),
-  "cte1" AS (
-    SELECT
-      "products"."client" AS "pk",
-      count(*) AS "v1"
-    FROM "products"
-    JOIN "projects" ON
-      "products"."id" = "projects"."product"
-    JOIN "issues" ON
-      "projects"."id" = "issues"."project"
-    GROUP BY "products"."client"
   )
 SELECT
   "clients"."name",
   COALESCE("cte0"."v1", 0),
-  COALESCE("cte1"."v1", 0)
+  COALESCE("cte0"."v1", 0)
 FROM "clients"
 LEFT JOIN "cte0" ON
-  "clients"."id" = "cte0"."pk"
-LEFT JOIN "cte1" ON
-  "clients"."id" = "cte1"."pk";
+  "clients"."id" = "cte0"."pk";
 ```
 
 ### List through a to-many path and two to-one hops, sorted by its value
@@ -11297,6 +11248,78 @@ LEFT JOIN "cte0" ON
 GROUP BY "issues"."status";
 ```
 
+### Computed count of related records used as a condition, a sort, and a result column
+
+> Issues with more than two comments, most commented first, showing how many each has
+
+```qd
+#issues.n_comments = #comments
+#issues n_comments:>2 \\n_comments \d $id $n_comments
+```
+
+Each use reads the same CTE, rather than each having one of its own.
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      count(*) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  COALESCE("cte0"."v1", 0)
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  COALESCE("cte0"."v1", 0) > 2
+ORDER BY
+  COALESCE("cte0"."v1", 0) DESC NULLS LAST;
+```
+
+### Range against a count of related records, within a filter of related records
+
+> Count each project's issues that have between one and three comments
+
+```qd
+#projects $name $#issues{#comments:1..3}
+```
+
+Both bounds read the same nested CTE.
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "cte0" AS (
+        SELECT
+          "comments"."issue" AS "pk",
+          count(*) AS "v1"
+        FROM "comments"
+        GROUP BY "comments"."issue"
+      )
+    SELECT
+      "issues"."project" AS "pk",
+      count(*) AS "v1"
+    FROM "issues"
+    LEFT JOIN "cte0" ON
+      "issues"."id" = "cte0"."pk"
+    WHERE
+      COALESCE("cte0"."v1", 0) >= 1 AND
+      COALESCE("cte0"."v1", 0) <= 3
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  COALESCE("cte0"."v1", 0)
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
 ### Computed boolean column as a filter of related records, plain and negated
 
 > A name containing an underscore isn't a search term, so it needs no backticks
@@ -11661,25 +11684,13 @@ WITH
     WHERE
       lower("labels"."name" COLLATE "C") = lower('triaged' COLLATE "C")
     GROUP BY "issue_labels"."issue"
-  ),
-  "cte1" AS (
-    SELECT
-      "issue_labels"."issue" AS "pk"
-    FROM "issue_labels"
-    JOIN "labels" ON
-      "issue_labels"."label" = "labels"."id"
-    WHERE
-      lower("labels"."name" COLLATE "C") = lower('triaged' COLLATE "C")
-    GROUP BY "issue_labels"."issue"
   )
 SELECT
-  "cte1"."pk" IS NOT NULL,
+  "cte0"."pk" IS NOT NULL,
   "issues"."id"
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
-LEFT JOIN "cte1" ON
-  "issues"."id" = "cte1"."pk"
 WHERE
   "cte0"."pk" IS NOT NULL;
 ```
@@ -11702,22 +11713,13 @@ WITH
       count(*) AS "v1"
     FROM "comments"
     GROUP BY "comments"."issue"
-  ),
-  "cte1" AS (
-    SELECT
-      "comments"."issue" AS "pk",
-      count(*) AS "v1"
-    FROM "comments"
-    GROUP BY "comments"."issue"
   )
 SELECT
   "issues"."id",
-  COALESCE("cte1"."v1", 0) > 5
+  COALESCE("cte0"."v1", 0) > 5
 FROM "issues"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
-LEFT JOIN "cte1" ON
-  "issues"."id" = "cte1"."pk"
 WHERE
   COALESCE("cte0"."v1", 0) > 5;
 ```
@@ -11780,24 +11782,15 @@ WITH
       count(*) AS "v1"
     FROM "issues"
     GROUP BY "issues"."project"
-  ),
-  "cte1" AS (
-    SELECT
-      "issues"."project" AS "pk",
-      count(*) AS "v1"
-    FROM "issues"
-    GROUP BY "issues"."project"
   )
 SELECT
   "projects"."name",
-  COALESCE("cte1"."v1", 0) / (SELECT
+  COALESCE("cte0"."v1", 0) / (SELECT
     count(*)
   FROM "issues")
 FROM "projects"
 LEFT JOIN "cte0" ON
   "projects"."id" = "cte0"."pk"
-LEFT JOIN "cte1" ON
-  "projects"."id" = "cte1"."pk"
 WHERE
   COALESCE("cte0"."v1", 0) > (SELECT
     count(*)
@@ -11888,14 +11881,6 @@ WITH
       "comments"."issue" AS "pk"
     FROM "comments"
     WHERE
-      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
-    GROUP BY "comments"."issue"
-  ),
-  "cte2" AS (
-    SELECT
-      "comments"."issue" AS "pk"
-    FROM "comments"
-    WHERE
       COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('bar' COLLATE "C")) > 0, FALSE)
     GROUP BY "comments"."issue"
   )
@@ -11906,11 +11891,9 @@ LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
 LEFT JOIN "cte1" ON
   "issues"."id" = "cte1"."pk"
-LEFT JOIN "cte2" ON
-  "issues"."id" = "cte2"."pk"
 WHERE
   NOT "cte0"."pk" IS NOT NULL AND
-  ("cte1"."pk" IS NOT NULL OR "cte2"."pk" IS NOT NULL);
+  ("cte0"."pk" IS NOT NULL OR "cte1"."pk" IS NOT NULL);
 ```
 
 ### Custom comparison with a flagged regex expansion, joined by a comma to a negated switched operator
@@ -12041,25 +12024,15 @@ WITH
     WHERE
       COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
     GROUP BY "comments"."issue"
-  ),
-  "cte1" AS (
-    SELECT
-      "comments"."issue" AS "pk"
-    FROM "comments"
-    WHERE
-      COALESCE(strpos(lower("comments"."body" COLLATE "C"), lower('foo' COLLATE "C")) > 0, FALSE)
-    GROUP BY "comments"."issue"
   )
 SELECT
   "comments"."id",
-  "cte1"."pk" IS NOT NULL AS "c"
+  "cte0"."pk" IS NOT NULL AS "c"
 FROM "comments"
 LEFT JOIN "issues" ON
   "comments"."issue" = "issues"."id"
 LEFT JOIN "cte0" ON
   "issues"."id" = "cte0"."pk"
-LEFT JOIN "cte1" ON
-  "issues"."id" = "cte1"."pk"
 WHERE
   "cte0"."pk" IS NOT NULL;
 ```

@@ -1108,13 +1108,25 @@ impl<'a, 'b> Scope<'a, 'b> {
             self,
             purpose,
         )?;
-        let cte_alias = self.get_cte_alias();
-        let cte = Cte {
-            select,
-            alias: cte_alias.clone(),
-            join_column_name: starting_column.name.clone(),
+        // When the query needs the same related records twice from the same record, as with the
+        // two bounds of `#comments:1..5`, or a computed column that aggregates them used in several
+        // places, the CTE that reaches them is already joined, so we use it again.
+        let existing = self
+            .join_tree
+            .find_cte(head.as_ref(), &select, &starting_column.name);
+        let cte_alias = match existing {
+            Some(alias) => alias.to_owned(),
+            None => {
+                let cte_alias = self.get_cte_alias();
+                let cte = Cte {
+                    select,
+                    alias: cte_alias.clone(),
+                    join_column_name: starting_column.name.clone(),
+                };
+                self.integrate_chain(head.as_ref(), Some(cte));
+                cte_alias
+            }
         };
-        self.integrate_chain(head.as_ref(), Some(cte));
         let reference = self.table_column_expr(&cte_alias, &value_alias);
         // The CTE is joined via a LEFT JOIN, so base rows with no related records yield NULL. For
         // counts we coalesce that NULL to zero.
