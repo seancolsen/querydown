@@ -239,6 +239,16 @@ The compiler doesn't connect to your database or run anything. What you do with 
   due_date|fiscal_year:2021
   ```
 
+- [Multiple schemas](../../docs/language.md#tables-in-other-schemas)
+
+  > This query shows each client's total of unpaid invoices, from the `invoices` table in the `billing` schema.
+
+  ```qd
+  #clients
+  $name
+  $#/billing/invoices{is_paid:@false}.amount%sum
+  ```
+
 - [Annotations](../../docs/language.md#annotations)
 
   > This query shows issues, along with display settings for the application that runs the query to use.

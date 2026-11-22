@@ -20,6 +20,7 @@ mod grouping;
 mod introspection;
 mod linked_record_comparison;
 mod result_column_nesting;
+mod schemas;
 mod scoped_comparison;
 mod scoped_sorting;
 mod string_literals;

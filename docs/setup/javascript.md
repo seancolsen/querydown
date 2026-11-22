@@ -125,7 +125,7 @@ type AnnotationValue =
 function compile_sections(
   schemaJson: string,
   dialect: string,
-  baseTable: string,
+  baseTable: string | string[],
   definitions: string,
   conditions: string,
   sorting: string,
@@ -138,7 +138,7 @@ Compiles a query that your application holds in parts, as a query builder with s
 
 | Parameter | Holds |
 | -- | -- |
-| `baseTable` | The name of the query's base table, without a `#` |
+| `baseTable` | The name of the query's base table, without a `#`. For a table in [another schema](../language.md#tables-in-other-schemas), a list of the schema's names and then the table's: `["billing", "invoices"]` for `#/billing/invoices`. |
 | `definitions` | [Definitions](../language.md#variables): constants, functions, computed columns, and so on |
 | `conditions` | The [conditions](../language.md#comparisons-and-conditions) |
 | `sorting` | [Sorting expressions](../language.md#sorting-outside-of-result-columns), each prefixed with `\\` |
@@ -209,7 +209,7 @@ The `options` are for completing one section of a query:
 | Option | Meaning |
 | -- | -- |
 | `grammar` | How to read `source`, as for [`tokenize`](#tokenize). The default is `"query"`. |
-| `baseTable` | The query's base table, whose columns are offered. For any section but `"definitions"`. |
+| `baseTable` | The query's base table, whose columns are offered, as for [`compile_sections`](#compile_sections). For any section but `"definitions"`. |
 | `definitions` | The text of the definitions section, so that what it defines is offered. For any section but `"definitions"`. |
 
 The result:

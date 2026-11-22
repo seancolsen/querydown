@@ -181,7 +181,7 @@ If your application edits a query in sections, as passed to [`compile_sections`]
 
 1. Tell each editor which section it holds, so that its text is read with that section's grammar: `"definitions"`, `"conditions"`, `"sorting"`, or `"display"`. The default, `"query"`, is for a whole query.
 
-1. Give the completion the query's base table and its definitions, which live elsewhere in your interface. Pass them as values, or as functions that read them when needed:
+1. Give the completion the query's base table and its definitions, which live elsewhere in your interface. Pass them as values, or as functions that read them when needed. The base table is a name, or for a table in [another schema](../language.md#tables-in-other-schemas), a list of names, as for [`compile_sections`](./javascript.md#compile_sections):
 
     ```ts
     querydown({

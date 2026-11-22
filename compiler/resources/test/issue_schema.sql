@@ -77,3 +77,14 @@ CREATE TABLE "clients" (
   "id" integer,
   "name" text
 );
+
+-- A table in another schema.
+CREATE SCHEMA "billing";
+
+CREATE TABLE "billing"."invoices" (
+  "id" integer,
+  "client" integer,
+  "issued_on" date,
+  "amount" numeric,
+  "is_paid" boolean
+);

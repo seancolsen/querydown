@@ -112,6 +112,9 @@ pub(crate) const STRING_ESCAPE: char = '\\';
 pub(crate) const STRING_QUOTE_DOUBLE: char = '"';
 pub(crate) const STRING_QUOTE_SINGLE: char = '\'';
 pub(crate) const TABLE_SIGIL: char = '#';
+/// Precedes each name of a table's schema, and then the table's own name, e.g. the `/`s in
+/// `#/sales/orders`.
+pub(crate) const TABLE_SCHEMA_SEPARATOR: char = '/';
 pub(crate) const TABLE_WITH_MANY_COLUMN_BRACE_L: char = '(';
 pub(crate) const TABLE_WITH_MANY_COLUMN_BRACE_R: char = ')';
 pub(crate) const TRANSFORMATION_DELIMITER: &str = "~~~";

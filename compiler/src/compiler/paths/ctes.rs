@@ -139,7 +139,7 @@ pub fn build_cte_select(
         base_table.name.clone(),
         base_column.name.clone(),
     ));
-    let mut select = Select::from(cte_scope.get_base_table().name.clone());
+    let mut select = Select::from(cte_scope.get_base_table().qualified_name());
     let pk_expr = cte_scope.table_column_expr(&base_table.name, &base_column.name);
     select.grouping.push(pk_expr.clone());
     let pr_expr_col = Column::new(pk_expr.clone(), Some(CTE_PK_COLUMN_ALIAS.to_owned()));
@@ -312,11 +312,11 @@ fn aggregated_value(
                 return Ok(cte_scope.table_column_expr(alias, &column.name));
             }
             let expr = cte_scope
-                .get_computed_column(&table.name, column_name)
+                .get_computed_column(table.id, column_name)
                 .cloned()
-                .ok_or_else(|| msg::col_not_in_table(column_name, &table.name))?;
+                .ok_or_else(|| msg::col_not_in_table(column_name, &table.written_name()))?;
             let guard = cte_scope.enter_expansion(Expansion::ComputedColumn {
-                table: table.name.clone(),
+                table: table.written_name(),
                 column: column_name.to_owned(),
             })?;
             // A definition sees the constants, but none of the variables of wherever it's used.

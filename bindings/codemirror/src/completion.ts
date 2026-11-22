@@ -66,6 +66,13 @@ export interface AnnotationPosition {
   keys: string[];
 }
 
+/**
+ * A table's name, mirroring `QuerydownTableName` in the bindings' TypeScript declarations: a string
+ * for a table in the current schema, or the names of a schema and then a table in it, for a table in
+ * another schema (`["sales", "orders"]` for `#/sales/orders`).
+ */
+export type TableName = string | string[];
+
 /** What the bindings' completer returns. Offsets are UTF-16, like CodeMirror's positions. */
 export interface Completions {
   from: number;
@@ -77,7 +84,7 @@ export interface Completions {
 /** The options accepted by the bindings' completer. */
 export interface CompleterOptions {
   grammar?: Grammar;
-  baseTable?: string;
+  baseTable?: TableName;
   definitions?: string;
 }
 
@@ -293,9 +300,10 @@ export interface QuerydownCompletionConfig {
   completer: Completer;
   /**
    * For an editor holding a section of a query (other than the definitions): the query's base
-   * table, whose columns are offered. Pass a function if it may change.
+   * table, whose columns are offered. For a table in another schema, give the names of the schema
+   * and then the table's, as in `["sales", "orders"]`. Pass a function if it may change.
    */
-  baseTable?: Dynamic<string | undefined>;
+  baseTable?: Dynamic<TableName | undefined>;
   /**
    * For an editor holding a section of a query (other than the definitions): the text of the
    * definitions section, so that what it defines is offered. Pass a function to read it from

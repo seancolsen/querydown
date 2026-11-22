@@ -174,12 +174,98 @@ impl Serialize for AnnotationValue {
     }
 }
 
+/// The name of a table as written after a `#` (or a `>>`): `issues` for a table in the current
+/// schema, or `/sales/orders` for the table `orders` in the schema `sales`.
+///
+/// The schema is a path, because a database may nest its schemas: in DuckDB, `/archive/main/orders`
+/// is the table `orders` in the schema `main` of the attached database `archive`.
+///
+/// A plain name converts into a `TableName` in the current schema, and a `TableName` compares equal
+/// to a string when it's in the current schema and has that name, so that a table can still be
+/// named (and checked) with a string where no schema is involved.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct TableName {
+    /// The names of the schema that the table is in, outermost first: `["sales"]` for
+    /// `/sales/orders`. Empty for a table in the current schema.
+    pub schema: Vec<String>,
+    pub name: String,
+}
+
+impl TableName {
+    /// The table `name` in the current schema.
+    pub fn new(name: impl Into<String>) -> Self {
+        TableName {
+            schema: vec![],
+            name: name.into(),
+        }
+    }
+
+    /// The table `name` in `schema` (outermost first). With an empty `schema`, this is the table in
+    /// the current schema.
+    pub fn in_schema(schema: Vec<String>, name: impl Into<String>) -> Self {
+        TableName {
+            schema,
+            name: name.into(),
+        }
+    }
+
+    /// Whether the name includes a schema, i.e. it was written as `/schema/table`.
+    pub fn has_schema(&self) -> bool {
+        !self.schema.is_empty()
+    }
+}
+
+impl From<String> for TableName {
+    fn from(name: String) -> Self {
+        TableName::new(name)
+    }
+}
+
+impl From<&str> for TableName {
+    fn from(name: &str) -> Self {
+        TableName::new(name)
+    }
+}
+
+impl PartialEq<str> for TableName {
+    /// Whether this is the table named `other` in the current schema.
+    fn eq(&self, other: &str) -> bool {
+        self.schema.is_empty() && self.name == other
+    }
+}
+
+impl PartialEq<&str> for TableName {
+    fn eq(&self, other: &&str) -> bool {
+        self == *other
+    }
+}
+
+impl PartialEq<String> for TableName {
+    fn eq(&self, other: &String) -> bool {
+        self == other.as_str()
+    }
+}
+
+impl fmt::Display for TableName {
+    /// The name as written in Querydown without its `#` and without any backticks: `issues`, or
+    /// `/sales/orders`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for schema in &self.schema {
+            write!(f, "/{schema}")?;
+        }
+        if self.has_schema() {
+            f.write_str("/")?;
+        }
+        f.write_str(&self.name)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Query {
     /// The definitions (constants, functions, custom comparisons, computed columns, and user-defined
     /// tables) written before the base table.
     pub definitions: Definitions,
-    pub base_table: String,
+    pub base_table: TableName,
     /// Where the base table was named (e.g. `#issues`).
     pub base_table_loc: Loc,
     /// The stages of the query's pipeline, separated by `~~~`. The first applies to the base table
@@ -215,7 +301,7 @@ impl Query {
     /// and an application that splits a query into sections can keep its own query-level data
     /// alongside them.
     pub fn from_parts(
-        base_table: String,
+        base_table: impl Into<TableName>,
         definitions: Definitions,
         conditions: ConditionSet,
         sorting: Vec<SortExpr>,
@@ -223,7 +309,7 @@ impl Query {
     ) -> Self {
         Query {
             definitions,
-            base_table,
+            base_table: base_table.into(),
             base_table_loc: Loc::NONE,
             transformations: vec![Transformation {
                 conditions,
@@ -272,7 +358,7 @@ pub struct TableDef {
 /// A computed column definition, written as `#table.name = expr` before the query's base table.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComputedColumn {
-    pub table: String,
+    pub table: TableName,
     /// Where the table was named (the `#table` before the `.`).
     pub table_loc: Loc,
     pub name: String,
@@ -321,7 +407,7 @@ pub struct Assignment {
 /// the value is bound to `param` and `body` is expanded in its place.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomComparisonDef {
-    pub table: String,
+    pub table: TableName,
     /// Where the table was named (the `#table` before the `.`).
     pub table_loc: Loc,
     pub name: String,
@@ -338,7 +424,7 @@ pub struct CustomComparisonDef {
 /// definitions.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionMember {
-    pub base_table: String,
+    pub base_table: TableName,
     /// Where the base table was named (e.g. `#issues`).
     pub base_table_loc: Loc,
     pub transformation: Transformation,
@@ -594,13 +680,13 @@ impl From<PathPartKind> for PathPart {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathPartKind {
     Column(String),
-    TableWithOne(String),
+    TableWithOne(TableName),
     TableWithMany(TableWithMany),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableWithMany {
-    pub table: String,
+    pub table: TableName,
     pub condition_set: ConditionSet,
     pub linking_column: Option<String>,
 }

@@ -67,7 +67,7 @@ fn query_body<'src>() -> impl Psr<'src, Query> {
     recursive(|query| {
         let base_table = with_loc(mark(
             TokenKind::BaseTable,
-            just(TABLE_SIGIL).ignore_then(db_identifier().labelled(labels::TABLE_NAME)),
+            just(TABLE_SIGIL).ignore_then(table_name()),
         ))
         .labelled(labels::BASE_TABLE);
         let union_delimiter = pad()
@@ -235,8 +235,8 @@ fn subquery<'src>(query: impl Psr<'src, Query> + 'src) -> impl Psr<'src, Expr> {
 
 /// Parses the `#table` that begins a computed column or custom comparison definition, along with
 /// its location.
-fn definition_table<'src>() -> impl Psr<'src, (String, Loc)> {
-    with_loc(just(TABLE_SIGIL).ignore_then(db_identifier()))
+fn definition_table<'src>() -> impl Psr<'src, (TableName, Loc)> {
+    with_loc(just(TABLE_SIGIL).ignore_then(table_name()))
 }
 
 /// Parses a variable reference's name, e.g. the `date` in `@date`.
@@ -381,7 +381,7 @@ mod tests {
             Ok(Query {
                 base_table_loc: Loc::NONE,
                 definitions: Definitions::default(),
-                base_table: "foo".to_string(),
+                base_table: "foo".into(),
                 transformations: vec![Transformation {
                     sorting: vec![],
                     conditions: ConditionSet {
@@ -518,6 +518,7 @@ mod tests {
         let query = query().parse(source).into_result().unwrap();
         let tables = std::iter::once(query.base_table)
             .chain(query.unions.into_iter().map(|member| member.base_table))
+            .map(|table| table.to_string())
             .collect();
         (tables, query.transformations.len())
     }
@@ -556,6 +557,62 @@ mod tests {
         let has = query().parse("#a x:1 ++#b").into_result().unwrap();
         assert!(has.unions.is_empty());
         assert_eq!(has.transformations[0].conditions.entries.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_tables_in_other_schemas() {
+        let schema = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        let parsed = query()
+            .parse(
+                "#/sales/orders.big = total:>100\n\
+                 #/sales/orders.x:@v = id:@v\n\
+                 #/sales/orders +++ #/archive/main/`old orders` ~~~ $#/a/b/c / 2",
+            )
+            .into_result()
+            .unwrap();
+        let orders = TableName::in_schema(schema(&["sales"]), "orders");
+        assert_eq!(parsed.base_table, orders);
+        assert_eq!(parsed.definitions.computed_columns[0].table, orders);
+        assert_eq!(parsed.definitions.custom_comparisons[0].table, orders);
+        assert_eq!(
+            parsed.unions[0].base_table,
+            TableName::in_schema(schema(&["archive", "main"]), "old orders")
+        );
+        assert_eq!(
+            parsed.unions[0].base_table.to_string(),
+            "/archive/main/old orders"
+        );
+        // A table in the current schema has no schema, and is equal to its name.
+        let parsed = query().parse("#issues").into_result().unwrap();
+        assert_eq!(parsed.base_table, TableName::new("issues"));
+        assert_eq!(parsed.base_table, "issues");
+        assert!(!parsed.base_table.has_schema());
+        // A `/` after a table in the current schema is a division.
+        let parsed = query().parse("#issues $#comments/2").into_result().unwrap();
+        assert_eq!(parsed.base_table, "issues");
+        assert!(matches!(
+            parsed.transformations[0].result_columns[0],
+            ResultColumnStatement::Spec(ColumnSpec {
+                expr: Expr {
+                    kind: ExprKind::Quotient(..),
+                    ..
+                },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_tables_in_other_schemas_need_a_schema() {
+        let errors = query().parse("#/orders").into_errors();
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].to_string().contains("names no schema"),
+            "{}",
+            errors[0]
+        );
+        // A user-defined table can't be put in a schema.
+        assert!(query().parse("#/s/t = #( #issues ) #/s/t").has_errors());
     }
 
     #[test]
@@ -754,7 +811,7 @@ mod tests {
             ExprKind::HasQuantity(HasQuantity {
                 quantity: Quantity::AtLeastOne,
                 path_parts: vec![PathPartKind::TableWithMany(TableWithMany {
-                    table: "comments".to_string(),
+                    table: "comments".into(),
                     condition_set: ConditionSet {
                         conjunction: Conjunction::And,
                         entries: vec![ExprKind::Comparison(Box::new(Comparison {

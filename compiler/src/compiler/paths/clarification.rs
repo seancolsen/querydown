@@ -177,12 +177,14 @@ fn build_linked_path(
                     // name is kept as written, and whatever consumes the path expands the definition
                     // (e.g. `convert_path`, or `build_cte_select` for an aggregated `#` path).
                     if scope
-                        .get_computed_column(&current_table.name, &column_name)
+                        .get_computed_column(current_table.id, &column_name)
                         .is_none()
                     {
-                        return Err(
-                            msg::col_not_in_table(&column_name, &current_table.name).at(loc)
-                        );
+                        return Err(msg::col_not_in_table(
+                            &column_name,
+                            &current_table.written_name(),
+                        )
+                        .at(loc));
                     }
                     current_table_opt = None;
                     final_column_name = Some(column_name);
@@ -216,7 +218,7 @@ fn build_linked_path(
                 }
             }
             PathPartKind::TableWithOne(table_name) => {
-                return Err(msg::table_with_one_path_unsupported(&table_name).at(loc));
+                return Err(msg::table_with_one_path_unsupported(&table_name.to_string()).at(loc));
             }
             PathPartKind::TableWithMany(mut table_with_many) => {
                 let condition_set = std::mem::take(&mut table_with_many.condition_set);
@@ -290,11 +292,13 @@ fn get_chain_to_table_with_many(
     // The result of an earlier pipeline stage, or a user-defined table, isn't part of the schema,
     // so nothing is related to it.
     if !schema.tables.contains_key(&start.id) {
-        return Err(msg::no_relationships_from_derived_table(&target.table));
+        return Err(msg::no_relationships_from_derived_table(
+            &target.table.to_string(),
+        ));
     }
-    let target_table = scope
-        .get_table_by_name(&target.table)
-        .ok_or_else(|| msg::table_not_found(&target.table))?;
+    let target_table = schema.find_table_or(scope.options, &target.table, || {
+        msg::table_not_found(&target.table.to_string())
+    })?;
     let uses_linking_column = |link: &MultiLink| -> bool {
         let Some(column_name) = &target.linking_column else {
             return true;
@@ -398,19 +402,21 @@ fn get_chain_to_table_with_many(
                 })
                 .collect();
             msg::path_to_table_reaches_one_record(
-                &start.name,
-                &target_table.name,
+                &start.written_name(),
+                &target_table.written_name(),
                 target.linking_column.as_deref(),
                 columns.as_deref(),
             )
         }
-        (Some(column), None) => {
-            msg::no_path_to_table_via_column(&start.name, &target_table.name, column)
-        }
+        (Some(column), None) => msg::no_path_to_table_via_column(
+            &start.written_name(),
+            &target_table.written_name(),
+            column,
+        ),
         (None, None) if start.id == target_table.id => {
-            msg::no_path_from_table_to_itself(&start.name)
+            msg::no_path_from_table_to_itself(&start.written_name())
         }
-        (None, None) => msg::no_path_to_table(&start.name, &target.table),
+        (None, None) => msg::no_path_to_table(&start.written_name(), &target.table.to_string()),
     })
 }
 
@@ -448,5 +454,9 @@ fn ambiguous_route_error(
     };
     // The routes are found in the order of the schema's hash maps, which varies from run to run.
     column_names.sort();
-    msg::ambiguous_path_to_table(&start.name, &target.table, &column_names)
+    msg::ambiguous_path_to_table(
+        &start.written_name(),
+        &target.table.to_string(),
+        &column_names,
+    )
 }

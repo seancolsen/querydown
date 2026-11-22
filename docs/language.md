@@ -66,6 +66,34 @@ If a table or column isn't found exactly as you wrote it, the compiler looks for
 
 The sample schema's names are all plain, so this matters most with a schema of your own. An application can turn it off by [compiling](./setup/rust.md#options) with strict identifier resolution.
 
+### Tables in other schemas
+
+A database can keep its tables in several schemas. A table in the current schema is written by its name alone, and a table in another schema is written with the name of its schema first, each name after a `/`.
+
+> Unpaid invoices, oldest first, with the names of their clients
+
+```qd
+#/billing/invoices is_paid:@false \\issued_on $client.name $amount
+```
+
+Here `#/billing/invoices` is the table `invoices` in the schema `billing`, and `client` leads to a record of `clients`, which is in the current schema. In the [sample schema](./sample-schema.md), `invoices` is the only table in another schema.
+
+A table in another schema can go anywhere a table can, such as among [many related records](#referencing-multiple-related-records):
+
+> Each client, with their total of unpaid invoices
+
+```qd
+#clients $name $#/billing/invoices{is_paid:@false}.amount%sum -> unpaid
+```
+
+- Which schema is the current one, and which tables are in it, is up to the [schema JSON](./setup/introspection.md#schemas). Introspection puts the tables of your database's current schema there (usually `public` in PostgreSQL, and `main` in DuckDB).
+- A schema can be inside another, so a table can have more than one name before its own. In DuckDB, a table of another attached database has the database's name, then the schema's, as in `#/archive/main/invoices`.
+- Tables in different schemas can have the same name. `#invoices` is a table in the current schema, not `#/billing/invoices`. If there's no `#invoices`, the error suggests the tables of that name in other schemas.
+- Relationships work across schemas, in both directions, just as they do within one.
+- Each name can be [quoted](#identifiers) with backticks, as in `` #/`Billing Dept`/invoices ``, and is resolved [flexibly](#flexible-identifiers).
+- A [user-defined table](#user-defined-tables) has no schema.
+- After the name of a table in another schema, a `/` followed by a name continues the table's name, so put a space after a `/` that divides: `#/billing/invoices / x` is a division, but `#/billing/invoices/x` is the table `x` in the schema `invoices`, inside `billing`. A `/` after a table in the current schema is always a division.
+
 ### Built-in constants
 
 Constants are written with a `@` sigil. These ones are built in:

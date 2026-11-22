@@ -17,7 +17,9 @@ pub mod tokens;
 pub use error::{Error, ErrorKind, Label, Position, Section, Span};
 
 use chumsky::prelude::*;
-use parser::{conditions, definitions, pad, query, result_columns, sorting, Psr, State};
+use parser::{
+    conditions, definitions, pad, query, result_columns, sorting, table_name, Psr, State,
+};
 
 /// Parses a complete Querydown query — definitions, base table, and transformations — into an
 /// [`ast::Query`].
@@ -62,6 +64,16 @@ pub fn parse_sorting(input: &str) -> Result<Vec<ast::SortExpr>, Error> {
 /// See [`parse_definitions`] for how the section parsers fit together.
 pub fn parse_display(input: &str) -> Result<Vec<ast::ResultColumnStatement>, Error> {
     run(result_columns(), input, Some(Section::Display))
+}
+
+/// Parses the name of a table as it's written after a `#`: `issues` for a table in the current
+/// schema, or `/sales/orders` for a table in another schema. A name may be quoted with backticks, as
+/// in `` /sales/`order lines` ``.
+///
+/// This is for an application that has the user choose a table on its own (e.g. the base table of
+/// a query assembled with [`ast::Query::from_parts`]) and keeps it as text.
+pub fn parse_table_name(input: &str) -> Result<ast::TableName, Error> {
+    run(table_name(), input, None)
 }
 
 /// Wraps a parser so that it reads the whole of its input, allowing surrounding whitespace/comments.
@@ -113,6 +125,28 @@ fn record_marks(input: &str, grammar: highlight::Grammar) -> Vec<highlight::Toke
 mod tests {
     use super::ast::*;
     use super::*;
+
+    #[test]
+    fn test_parse_table_name() {
+        assert_eq!(parse_table_name("issues"), Ok(TableName::new("issues")));
+        assert_eq!(
+            parse_table_name(" /sales/`order lines` "),
+            Ok(TableName::in_schema(
+                vec!["sales".to_string()],
+                "order lines"
+            ))
+        );
+        assert_eq!(
+            parse_table_name("/archive/main/orders"),
+            Ok(TableName::in_schema(
+                vec!["archive".to_string(), "main".to_string()],
+                "orders"
+            ))
+        );
+        assert!(parse_table_name("#issues").is_err());
+        assert!(parse_table_name("/orders").is_err());
+        assert!(parse_table_name("").is_err());
+    }
 
     #[test]
     fn test_parse_sections_reassemble_into_whole_query() {

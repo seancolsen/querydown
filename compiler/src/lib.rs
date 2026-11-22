@@ -56,7 +56,7 @@ pub use sql::{Dialect, DuckDB, Postgres};
 // dependency on `querydown-parser`.
 pub use querydown_parser::ast::AnnotationValue;
 pub use querydown_parser::{
-    ast, parse, parse_conditions, parse_definitions, parse_display, parse_sorting,
+    ast, parse, parse_conditions, parse_definitions, parse_display, parse_sorting, parse_table_name,
 };
 // Re-exported so that consumers can classify Querydown source for syntax highlighting.
 pub use querydown_parser::highlight;

@@ -117,6 +117,35 @@ fn test_tables() {
 }
 
 #[test]
+fn test_tables_in_other_schemas() {
+    // A schema's names are part of the table's token, wherever the table is named.
+    check(
+        Query,
+        "#/sales/orders ++#/crm/`old notes`/contacts $#/a/b/c/2 $>>/crm/x.y",
+        "#/sales/orders:base-table ++:has-quantity #/crm/`old notes`/contacts:table \
+         $:result-column #/a/b/c:table /:operator 2:number $:result-column >>:path-separator \
+         /crm/x:table .:path-separator y:column",
+    );
+    check(
+        Definitions,
+        "#/sales/orders.total = 1",
+        "#/sales/orders:table .:path-separator total:column =:definition 1:number",
+    );
+    // Without a schema, a `/` is still a division.
+    check(
+        Display,
+        "$#issues/2",
+        "$:result-column #issues:table /:operator 2:number",
+    );
+    // So is a `/` that doesn't continue a schema path, even in source that doesn't parse.
+    check(
+        Conditions,
+        "++#/sales/ x",
+        "++:has-quantity #/sales:table /:operator x:column",
+    );
+}
+
+#[test]
 fn test_definitions() {
     check(
         Definitions,
@@ -408,7 +437,8 @@ fn test_every_prefix_is_well_formed() {
                  ++#comments(author){x} due:@2024-01-01..<@now created:3d..1y6m \
                  \\\\created_at \\d $author.* $%count -> total \\s2d @{w:100 t:[a b] ok:@true} \
                  $? s:=1 ~ 'é' ~~ -1.5 $%%(a\\p d\\s)%sum(x) ~~~ $*(id\\h) $`naïve`.( $y ) \
-                 $^fe|a\\n{{{x|f(^'é')}}}|";
+                 $^fe|a\\n{{{x|f(^'é')}}}| \
+                 ~~~ ++#/s/`t u`/v $#/w/x/2 >>/y/z";
     for grammar in [Query, Definitions, Conditions, Sorting, Display] {
         for (end, _) in query.char_indices() {
             let source = &query[..end];

@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use querydown_parser::ast::{
     AnnotationValue, ConditionSet, Definitions, Expr, ExprKind, Loc, Query, ResultColumnStatement,
-    TableDef, Transformation, UnionMember,
+    TableDef, TableName, Transformation, UnionMember,
 };
 use querydown_parser::parse;
 use serde::Serialize;
@@ -469,7 +469,7 @@ fn compile_stage(
         windows,
     } = extract_window_conditions(transformation.conditions);
 
-    let mut select = Select::from(base_table.name.clone());
+    let mut select = Select::from(base_table.qualified_name());
     let mut window_source_cte = None;
     if windows.is_empty() {
         select.conditions = convert_conditions(inner_conditions, &mut scope)?;
@@ -480,7 +480,7 @@ fn compile_stage(
         source_scope.register_functions(functions.to_vec());
         source_scope.register_custom_comparisons(custom_comparisons.to_vec())?;
         source_scope.register_computed_columns(computed_columns.to_vec())?;
-        let mut source = Select::from(base_table.name.clone());
+        let mut source = Select::from(base_table.qualified_name());
         source.conditions = convert_conditions(inner_conditions, &mut source_scope)?;
         (source.columns, _, _) = expand_base_table_columns(base_table, &source_scope);
         for (index, (window, loc)) in windows.into_iter().enumerate() {
@@ -492,7 +492,7 @@ fn compile_stage(
             scope.add_window_substitution(window, reference);
         }
         (source.joins, source.ctes) = source_scope.decompose_join_tree();
-        select.base_table = source_alias.clone();
+        select.base_table = TableName::new(source_alias.clone());
         select.base_table_alias = Some(base_table.name.clone());
         window_source_cte = Some(Cte {
             alias: source_alias,
@@ -612,25 +612,27 @@ struct StageOutput {
 }
 
 /// Resolves the query's base table by name, checking the user-defined tables in `extra_tables` first
-/// and then the schema's tables.
+/// (unless the name includes a schema, which a user-defined table never has) and then the schema's
+/// tables.
 fn resolve_base_table<'a>(
     options: &Options,
     schema: &'a Schema,
-    name: &str,
+    name: &TableName,
     extra_tables: &'a [Table],
 ) -> Result<&'a Table, Error> {
-    let extra_lookup: HashMap<String, usize> = extra_tables
-        .iter()
-        .enumerate()
-        .map(|(i, table)| (table.name.clone(), i))
-        .collect();
-    if let Some(&i) = options.resolve_identifier(&extra_lookup, name) {
-        return Ok(&extra_tables[i]);
+    if !name.has_schema() {
+        let extra_lookup: HashMap<String, usize> = extra_tables
+            .iter()
+            .enumerate()
+            .map(|(i, table)| (table.name.clone(), i))
+            .collect();
+        if let Some(&i) = options.resolve_identifier(&extra_lookup, &name.name) {
+            return Ok(&extra_tables[i]);
+        }
     }
-    options
-        .resolve_identifier(&schema.table_lookup, name)
-        .map(|id| schema.tables.get(id).unwrap())
-        .ok_or_else(|| msg::base_table_not_found(name))
+    schema.find_table_or(options, name, || {
+        msg::base_table_not_found(&name.to_string())
+    })
 }
 
 /// Builds a synthetic [`Table`] representing the output of a pipeline stage. The table's name
@@ -670,6 +672,7 @@ fn build_pipeline_table(
         // distinct from real table ids for clarity.
         id: usize::MAX,
         name,
+        schema: vec![],
         columns,
         column_lookup,
         forward_links_to_one: HashMap::new(),

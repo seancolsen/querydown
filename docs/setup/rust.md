@@ -138,6 +138,8 @@ let query = Query::from_parts(
 let result = compiler.compile_query(query)?;
 ```
 
+The base table is anything that converts into an `ast::TableName`: a `String` or `&str` names a table in the current schema. For a table in [another schema](../language.md#tables-in-other-schemas), use `TableName::in_schema(vec!["billing".to_string()], "invoices")`, or parse what the user would write after the `#` with `querydown::parse_table_name("/billing/invoices")`.
+
 Each section has a parser of its own, so the syntax of one can't leak into another: a `$` typed into the sorting field is an error, not a result column. An error from a section [says which section it's in](../errors.md#rust), and locates the problem within that section's text.
 
 A query assembled this way has one stage and no [query annotation](../language.md#query-level-annotations).

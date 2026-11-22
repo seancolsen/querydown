@@ -1,10 +1,13 @@
-use querydown_parser::ast::{NullsSort, SortDirection};
+use querydown_parser::ast::{NullsSort, SortDirection, TableName};
 
 pub use super::expr::SqlExpr;
 
 #[derive(Debug)]
 pub struct Select {
-    pub base_table: String,
+    /// The table (or CTE) the query reads from. A table in another schema is addressed by its
+    /// qualified name, and its rows by its unqualified name (unless `base_table_alias` says
+    /// otherwise).
+    pub base_table: TableName,
     /// The alias under which `base_table` is addressed, when it differs from its name. A stage
     /// whose conditions reference window functions reads from a CTE in place of its base table,
     /// under the base table's own name (e.g. `FROM "qdwin_src" AS "issues"`).
@@ -60,7 +63,8 @@ pub enum CtePurpose {
 
 #[derive(Debug)]
 pub struct Join {
-    pub table: String,
+    /// The table (or CTE) joined, which is addressed by `alias`.
+    pub table: TableName,
     pub alias: String,
     pub conditions: SqlExpr,
     pub join_type: JoinType,
@@ -80,7 +84,14 @@ pub struct SortEntry {
 }
 
 impl From<String> for Select {
+    /// A select from the table or CTE with the given name, in the current schema.
     fn from(base_table: String) -> Self {
+        Self::from(TableName::new(base_table))
+    }
+}
+
+impl From<TableName> for Select {
+    fn from(base_table: TableName) -> Self {
         Self {
             base_table,
             base_table_alias: None,

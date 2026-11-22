@@ -494,7 +494,7 @@ mod tests {
             Ok(ExprKind::HasQuantity(HasQuantity {
                 quantity: Quantity::AtLeastOne,
                 path_parts: vec![PathPartKind::TableWithMany(TableWithMany {
-                    table: "foo".to_string(),
+                    table: "foo".into(),
                     condition_set: ConditionSet::default(),
                     linking_column: None
                 })
@@ -507,7 +507,7 @@ mod tests {
             Ok(ExprKind::HasQuantity(HasQuantity {
                 quantity: Quantity::AtLeastOne,
                 path_parts: vec![PathPartKind::TableWithMany(TableWithMany {
-                    table: "foo".to_string(),
+                    table: "foo".into(),
                     condition_set: ConditionSet {
                         conjunction: Conjunction::And,
                         entries: vec![ExprKind::Comparison(Box::new(Comparison {

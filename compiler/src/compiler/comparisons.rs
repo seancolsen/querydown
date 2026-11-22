@@ -414,7 +414,7 @@ fn resolve_custom_comparison(
         return Ok(None);
     }
     Ok(scope
-        .get_custom_comparison(&table.name, name)
+        .get_custom_comparison(table.id, name)
         .map(|def| (head_parts.to_vec(), def.clone())))
 }
 
@@ -442,7 +442,7 @@ fn resolve_linked_record_comparison(
         _ => return Ok(None),
     };
     Ok(scope
-        .get_custom_comparison(&table.name, LINKED_RECORD_COMPARISON_NAME)
+        .get_custom_comparison(table.id, LINKED_RECORD_COMPARISON_NAME)
         .map(|def| (parts.to_vec(), def.clone())))
 }
 
@@ -459,7 +459,7 @@ fn convert_custom_comparison(
     // is entered.
     let context = scope.context();
     let _guard = scope.enter_expansion(Expansion::CustomComparison {
-        table: def.table.clone(),
+        table: def.table.to_string(),
         name: def.name.clone(),
     })?;
     let body = switched_body(&def, call_operator)?;

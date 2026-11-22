@@ -18,6 +18,7 @@ export {
   type Completions,
   type Dynamic,
   type QuerydownCompletionConfig,
+  type TableName,
 } from "./completion.js";
 export {
   darkPalette,

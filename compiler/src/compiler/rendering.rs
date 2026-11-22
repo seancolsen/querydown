@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use querydown_parser::ast::{NullsSort, SortDirection};
+use querydown_parser::ast::{NullsSort, SortDirection, TableName};
 
 use crate::{compiler::scope::Scope, sql::tree::*};
 
@@ -17,8 +17,14 @@ impl Render for SqlExpr {
 
 impl Render for Select {
     fn render(&self, scope: &mut Scope) -> String {
-        let mut base_table_name = scope.options.dialect.quote_identifier(&self.base_table);
-        if let Some(alias) = &self.base_table_alias {
+        let mut base_table_name = render_table(&self.base_table, scope);
+        // A table in another schema is given its own name as an alias, which is how the rest of
+        // the query refers to it.
+        let alias = self.base_table_alias.as_ref().or(self
+            .base_table
+            .has_schema()
+            .then_some(&self.base_table.name));
+        if let Some(alias) = alias {
             let quoted_alias = scope.options.dialect.quote_identifier(alias);
             base_table_name = format!("{base_table_name} AS {quoted_alias}");
         }
@@ -120,8 +126,8 @@ impl Render for Vec<Join> {
 
 impl Render for Join {
     fn render(&self, scope: &mut Scope) -> String {
-        let quoted_table = scope.options.dialect.quote_identifier(&self.table);
-        let table_expr = if self.alias == self.table {
+        let quoted_table = render_table(&self.table, scope);
+        let table_expr = if self.alias == self.table.name && !self.table.has_schema() {
             quoted_table
         } else {
             let quoted_alias = scope.options.dialect.quote_identifier(&self.alias);
@@ -178,6 +184,17 @@ impl Render for SortEntry {
         };
         format!("{} {} {}", self.expr, direction, nulls_sort)
     }
+}
+
+/// The SQL that names `table`: its name, preceded by those of its schema, each quoted and separated
+/// by `.`s (e.g. `"sales"."orders"`).
+fn render_table(table: &TableName, scope: &Scope) -> String {
+    table
+        .schema
+        .iter()
+        .chain(std::iter::once(&table.name))
+        .map(|name| scope.options.dialect.quote_identifier(name))
+        .join(".")
 }
 
 /// Indents each line of `s`, dropping any trailing newline. A line that begins within a quoted

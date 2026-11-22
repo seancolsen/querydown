@@ -31,9 +31,9 @@ mod site;
 #[cfg(test)]
 mod tests;
 
-use querydown_parser::ast::Definitions;
+use querydown_parser::ast::{Definitions, TableName};
 use querydown_parser::highlight::{self, Grammar, TokenKind};
-use querydown_parser::parse_definitions;
+use querydown_parser::{parse_definitions, parse_table_name};
 use serde::Serialize;
 
 use crate::schema::links::Link;
@@ -56,7 +56,7 @@ pub struct CompletionRequest<'a> {
     pub grammar: Grammar,
     /// For a section other than the definitions: the query's base table, which a sectioned query
     /// supplies separately. Columns are offered from this table.
-    pub base_table: Option<&'a str>,
+    pub base_table: Option<&'a TableName>,
     /// For a section other than the definitions: the text of the definitions section, so that the
     /// constants, functions, computed columns and custom comparisons it defines can be offered.
     pub definitions: Option<&'a str>,
@@ -217,16 +217,15 @@ impl Compiler {
             .find(|token| token.kind == TokenKind::BaseTable);
         let (base_table, definitions) = match request.grammar {
             Grammar::Query => (
-                base_token.map(|token| unquote(source[token.span.clone()].trim_start_matches('#'))),
+                base_token.and_then(|token| {
+                    parse_table_name(source[token.span.clone()].trim_start_matches('#')).ok()
+                }),
                 base_token
                     .and_then(|token| parse_definitions(&source[..token.span.start]).ok())
                     .unwrap_or_default(),
             ),
             Grammar::Definitions => (None, Definitions::default()),
-            _ => (
-                request.base_table.map(str::to_string),
-                section_definitions(request),
-            ),
+            _ => (request.base_table.cloned(), section_definitions(request)),
         };
         // Past a `~~~`, the columns are those of the previous stage, which can't be known here.
         let in_later_stage = tokens
@@ -290,7 +289,8 @@ impl Compiler {
                 let mut items = self.column_items(table);
                 if let TableCtx::Schema(table_id) = table {
                     let table = &self.schema.tables[table_id];
-                    let hosted_by_table = |name: &str| self.resolve_table(name) == Some(table.id);
+                    let hosted_by_table =
+                        |name: &TableName| self.resolve_table(name) == Some(table.id);
                     items.extend(
                         definitions
                             .computed_columns
@@ -354,8 +354,9 @@ impl Compiler {
         }
     }
 
-    /// The schema's tables. When completing a table related to `from`, the tables it links to
-    /// directly come first.
+    /// The schema's tables: those of the current schema, and then those of other schemas, labeled
+    /// with their schemas (`/sales/orders`). When completing a table related to `from`, the tables
+    /// it links to directly come first.
     fn table_items(&self, from: Option<&TableCtx>) -> Vec<CompletionItem> {
         let related: Vec<TableId> = match from {
             Some(TableCtx::Schema(id)) => self.schema.tables[id]
@@ -365,12 +366,12 @@ impl Compiler {
             _ => vec![],
         };
         let mut tables: Vec<&Table> = self.schema.tables.values().collect();
-        tables.sort_by(|a, b| a.name.cmp(&b.name));
+        tables.sort_by(|a, b| (&a.schema, &a.name).cmp(&(&b.schema, &b.name)));
         tables
             .into_iter()
             .map(|table| CompletionItem {
                 boost: i32::from(related.contains(&table.id)),
-                ..item(&table.name, CompletionKind::Table)
+                ..table_item(&table.qualified_name())
             })
             .collect()
     }
@@ -390,10 +391,9 @@ impl Compiler {
                 columns
                     .into_iter()
                     .map(|column| {
-                        let link = table
-                            .forward_links_to_one
-                            .get(&column.id)
-                            .map(|link| &self.schema.tables[&link.get_end().table_id].name);
+                        let link = table.forward_links_to_one.get(&column.id).map(|link| {
+                            self.schema.tables[&link.get_end().table_id].written_name()
+                        });
                         let detail = match (&column.type_name, link) {
                             (Some(type_name), Some(target)) => format!("{type_name} → {target}"),
                             (None, Some(target)) => format!("→ {target}"),
@@ -423,7 +423,7 @@ impl Compiler {
             .into_iter()
             .map(|(column_id, link)| {
                 let target_id = link.get_end().table_id;
-                let target = &self.schema.tables[&target_id].name;
+                let target = self.schema.tables[&target_id].written_name();
                 CompletionItem {
                     detail: Some(format!("→ {target}")),
                     boost: i32::from(matches!(from, TableCtx::Schema(id) if *id == target_id)),
@@ -434,10 +434,10 @@ impl Compiler {
     }
 
     /// Finds a schema table by name, with the compiler's identifier resolution.
-    fn resolve_table(&self, name: &str) -> Option<TableId> {
-        self.options
-            .resolve_identifier(&self.schema.table_lookup, name)
-            .copied()
+    fn resolve_table(&self, name: &TableName) -> Option<TableId> {
+        self.schema
+            .find_table(&self.options, name)
+            .map(|table| table.id)
     }
 }
 
@@ -465,6 +465,28 @@ fn item(name: &str, kind: CompletionKind) -> CompletionItem {
         detail: None,
         info: None,
         boost: 0,
+    }
+}
+
+/// An item for a table of the schema. A table in another schema is labeled with its schema, as
+/// written after the `#` (`/sales/orders`), with backticks around any name that needs them for
+/// insertion.
+fn table_item(name: &TableName) -> CompletionItem {
+    if !name.has_schema() {
+        return item(&name.name, CompletionKind::Table);
+    }
+    let names = name.schema.iter().chain(std::iter::once(&name.name));
+    let written: String = names
+        .map(|name| match is_plain_identifier(name) {
+            true => format!("/{name}"),
+            false => format!("/{}", quote(name)),
+        })
+        .collect();
+    let label = name.to_string();
+    CompletionItem {
+        insert: (written != label).then_some(written),
+        label,
+        ..item("", CompletionKind::Table)
     }
 }
 

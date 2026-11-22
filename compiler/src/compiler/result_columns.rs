@@ -351,7 +351,7 @@ fn handle_glob(glob: ColumnGlob, output: &mut Output, scope: &mut Scope) -> Resu
                     .resolve_identifier(&table.column_lookup, column_name)
                     .copied()
                     .ok_or_else(|| {
-                        msg::col_not_in_table(column_name, &table.name).at(spec.expr.loc)
+                        msg::col_not_in_table(column_name, &table.written_name()).at(spec.expr.loc)
                     })?;
                 if spec.column_control.is_hidden {
                     hidden_columns.insert(column_id);

@@ -26,13 +26,12 @@ Introspection is how you get that document without writing it by hand. Querydown
 
 The query reads the database's catalog. It finds:
 
-- **Tables and their columns**, with the type of each column. In PostgreSQL, that includes views, materialized views, partitioned tables, and foreign tables.
-- **Links between tables**, from foreign key constraints.
+- **Tables and their columns**, with the type of each column, in every schema but the database's own system schemas. In PostgreSQL, that includes views, materialized views, partitioned tables, and foreign tables. In DuckDB, it includes the schemas of every attached database.
+- **Links between tables**, from foreign key constraints, including those between tables in different schemas.
 - **Whether each link is unique**, from unique constraints and primary keys (and, in PostgreSQL, unique indexes) on the foreign key column. This is what tells the compiler that a record has only [one related record](../language.md#related-tables-with-single-vs-multiple-records) rather than many.
 
 It leaves some things out, which you may need to [add by hand](#adjust-the-schema):
 
-- **Only one database schema is read**: `public` in PostgreSQL, and `main` in DuckDB. Querydown has a single, flat namespace of tables.
 - **Foreign keys of more than one column are skipped.** A link joins one column to one column.
 - **Relationships that the database doesn't enforce** aren't found, since there's no constraint to find. That includes any relationships of a view.
 
@@ -75,6 +74,7 @@ The schema is an object with two arrays: the tables, and the links between them.
 | Field | Meaning |
 | -- | -- |
 | `name` | The table's name, exactly as it is in the database |
+| `schema` | The [schema](#schemas) the table is in. Absent for a table in the current schema. |
 | `columns` | The table's columns, in the order that `$*` should output them |
 | `columns[].name` | The column's name, exactly as it is in the database |
 | `columns[].type` | The column's type. Optional. |
@@ -104,9 +104,48 @@ A column with any other type, or with no type, still works. Querydown passes its
 | -- | -- |
 | `from` | The column that refers to another table: the foreign key |
 | `to` | The column that it refers to, usually a primary key |
+| `from.schema` `to.schema` | The [schema](#schemas) of the column's table. Absent for a table in the current schema. |
 | `unique` | Whether each value of the `from` column occurs at most once |
 
 A link works in both directions. With the link above, an issue reaches its one author as `author`, and a user reaches their many issues as `#issues`. When `unique` is true, the second direction leads to one record too.
+
+### Schemas
+
+A table in the current schema has no `schema`. In Querydown, it's written by its name alone, as in `#users`. Any other table has a `schema`: a list of names, outermost first, as in `["billing"]`. In Querydown, it's written with those names first, as in `#/billing/invoices`. The compiler writes the same names into the SQL, as in `"billing"."invoices"`.
+
+```json
+{
+  "tables": [
+    {
+      "name": "clients",
+      "columns": [
+        { "name": "id", "type": "integer" },
+        { "name": "name", "type": "text" }
+      ]
+    },
+    {
+      "name": "invoices",
+      "schema": ["billing"],
+      "columns": [
+        { "name": "id", "type": "integer" },
+        { "name": "client", "type": "integer" }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": { "table": "invoices", "schema": ["billing"], "column": "client" },
+      "to": { "table": "clients", "column": "id" },
+      "unique": false
+    }
+  ]
+}
+```
+
+- Introspection makes the database's current schema the current schema here too. That's the first schema on the search path in PostgreSQL (usually `public`), and the current schema of the current database in DuckDB (usually `main`). A database with only one schema has no `schema` in its JSON at all.
+- A schema can be inside another. In DuckDB, a table in another schema of the current database has a `schema` of one name, as in `["billing"]`, and a table in another attached database has the database's name and then the schema's, as in `["archive", "main"]`.
+- A `schema` can also be written as a string, for a schema of one name: `"schema": "billing"` is the same as `"schema": ["billing"]`.
+- The SQL refers to a table in the current schema by its name alone, so the database finds it on its search path. You can leave out the `schema` of tables that are on the search path in some other schema, too, as long as no two tables then have the same name.
 
 ## Adjust the schema
 

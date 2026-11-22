@@ -66,7 +66,7 @@ test("tables after `#`, those related to the current table first", async ({ page
   await setup(page, { doc: "" });
   await page.keyboard.type("#");
   // At the start of the query, every table is a base table.
-  await expect(labels(page)).toHaveCount(11);
+  await expect(labels(page)).toHaveCount(12);
   await expect(labels(page).first()).toHaveText("assignments");
   await page.keyboard.type("iss");
   await expect(labels(page)).toHaveText(["issue_labels", "issues"]);
@@ -84,7 +84,23 @@ test("tables after `#`, those related to the current table first", async ({ page
     "labels",
     "products",
     "teams",
+    "/billing/invoices",
   ]);
+});
+
+test("tables in other schemas after `#/`, replacing the schema typed so far", async ({ page }) => {
+  await setup(page, { doc: "#clients ++" });
+  await page.keyboard.type("#/bi");
+  await expect(labels(page)).toHaveText(["/billing/invoices"]);
+  await page.keyboard.press("Enter");
+  expect(await doc(page)).toBe("#clients ++#/billing/invoices");
+  await page.keyboard.type("{");
+  await page.keyboard.press("Control+Space");
+  await expect(labels(page)).toHaveText(["id", "client", "issued_on", "amount", "is_paid"]);
+  // An editor for a section can have a base table in another schema.
+  await setup(page, { doc: "", grammar: "display", baseTable: ["billing", "invoices"] });
+  await page.keyboard.type("$client.");
+  await expect(labels(page)).toHaveText(["id", "name"]);
 });
 
 test("functions after `|` and `%`, with their usage and descriptions", async ({ page }) => {

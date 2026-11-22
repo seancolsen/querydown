@@ -80,7 +80,7 @@ export interface Setup {
   /** The document, with the cursor marked by `‸` (or at the end). */
   doc: string;
   grammar?: Grammar;
-  baseTable?: string;
+  baseTable?: string | string[];
   definitions?: string;
   /**
    * Complete column annotations with the schema above (the default), or by listing every key path.

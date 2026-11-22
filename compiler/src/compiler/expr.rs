@@ -202,9 +202,9 @@ pub(super) fn resolve_computed_column(
     {
         return Ok(None);
     }
-    Ok(scope.get_computed_column(&table.name, name).map(|expr| {
+    Ok(scope.get_computed_column(table.id, name).map(|expr| {
         let expansion = Expansion::ComputedColumn {
-            table: table.name.clone(),
+            table: table.written_name(),
             column: name.clone(),
         };
         (head_parts.to_vec(), expr.clone(), expansion)
@@ -358,11 +358,12 @@ fn convert_default_text_search(
     };
     let search_term = || ComparisonSide::Expr(Expr::new(term.clone(), loc));
     let table = get_prefix_table(scope)?;
-    let table_name = table.name.clone();
+    let table_id = table.id;
+    let table_name = table.written_name();
 
     // A custom comparison with the reserved name lets the schema author configure the search.
     if scope
-        .get_custom_comparison(&table_name, DEFAULT_TEXT_SEARCH_COMPARISON_NAME)
+        .get_custom_comparison(table_id, DEFAULT_TEXT_SEARCH_COMPARISON_NAME)
         .is_some()
     {
         let comparison = Comparison {

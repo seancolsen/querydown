@@ -1,8 +1,9 @@
 //! The lexical side of completion: the word being typed, what introduces it, and whether the cursor
 //! is somewhere completion doesn't apply.
 
-use querydown_parser::ast::{PathPart, PathPartKind, TableWithMany};
+use querydown_parser::ast::{PathPart, PathPartKind, TableName, TableWithMany};
 use querydown_parser::highlight::{self, Token, TokenKind};
+use querydown_parser::parse_table_name;
 
 use super::annotation::{self, AnnotationPosition};
 use super::unquote;
@@ -10,7 +11,8 @@ use super::unquote;
 /// Where the cursor is, lexically.
 pub(super) struct Site {
     /// The start of the word being typed (which ends at the cursor). Equal to the cursor when no
-    /// word has been typed yet, e.g. right after a `.`.
+    /// word has been typed yet, e.g. right after a `.`. For a table in another schema, the word
+    /// includes the schema written so far, from the `/` after the `#` (as in `#/sales/or`).
     pub word_start: usize,
     /// The end of the word around the cursor, which may continue past it.
     pub word_end: usize,
@@ -56,6 +58,7 @@ pub(super) fn analyze(source: &str, cursor: usize, tokens: &[Token]) -> Site {
         .take_while(|(_, c)| is_word_char(*c))
         .last()
         .map_or(cursor, |(i, _)| i);
+    let word_start = schema_start(source, word_start).unwrap_or(word_start);
     let word_end = source[cursor..]
         .char_indices()
         .find(|(_, c)| !is_word_char(*c))
@@ -65,6 +68,36 @@ pub(super) fn analyze(source: &str, cursor: usize, tokens: &[Token]) -> Site {
         word_start,
         word_end,
         kind,
+    }
+}
+
+/// Where the schema of a table name begins, when the word at `word_start` is preceded by one, i.e.
+/// by a `#` and then one or more names each after a `/` (`#/sales/`), the last of which may be
+/// still being typed. That is the position of the first `/`.
+fn schema_start(source: &str, word_start: usize) -> Option<usize> {
+    let mut start = word_start;
+    loop {
+        start = start.checked_sub(1)?;
+        if source.as_bytes()[start] != b'/' {
+            return None;
+        }
+        let before = &source[..start];
+        if before.ends_with('#') {
+            return Some(start);
+        }
+        // The schema's name before the `/`, which may be quoted with backticks.
+        let name_start = match before.strip_suffix('`') {
+            Some(quoted) => quoted.rfind('`')?,
+            None => {
+                before
+                    .char_indices()
+                    .rev()
+                    .take_while(|(_, c)| is_word_char(*c))
+                    .last()?
+                    .0
+            }
+        };
+        start = name_start;
     }
 }
 
@@ -259,7 +292,7 @@ pub(super) fn path_before(source: &str, word_start: usize, tokens: &[Token]) -> 
         let text = &source[part.span.clone()];
         let kind = match text.strip_prefix('#') {
             Some(table) => PathPartKind::TableWithMany(TableWithMany {
-                table: unquote(table),
+                table: parse_table_name(table).unwrap_or_else(|_| TableName::new(unquote(table))),
                 condition_set: Default::default(),
                 linking_column: None,
             }),

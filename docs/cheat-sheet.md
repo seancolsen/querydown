@@ -32,6 +32,7 @@ $title $author.username $#comments -> replies // result columns
 | Code | Meaning |
 | -- | -- |
 | `#issues` | [table](./language.md#identifiers). The first one in a query is its [base table](./language.md#query-anatomy). |
+| `#/billing/invoices` | [table in another schema](./language.md#tables-in-other-schemas) |
 | `title` | column |
 | `author.username` | column of a [single related record](./language.md#single-related-records-via-column-name-chains) |
 | `#comments` | count of [many related records](./language.md#aggregate-counts) |

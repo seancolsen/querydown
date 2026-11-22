@@ -2,7 +2,6 @@ use chumsky::prelude::*;
 
 use crate::ast::*;
 use crate::highlight::TokenKind;
-use crate::labels;
 use crate::parser::utils::*;
 use crate::tokens::*;
 
@@ -68,11 +67,8 @@ fn column<'src>() -> impl Psr<'src, String> {
     mark(TokenKind::Column, db_identifier())
 }
 
-fn table_with_one<'src>() -> impl Psr<'src, String> {
-    exactly(PATH_TO_TABLE_WITH_ONE_PREFIX).ignore_then(mark(
-        TokenKind::Table,
-        db_identifier().labelled(labels::TABLE_NAME),
-    ))
+fn table_with_one<'src>() -> impl Psr<'src, TableName> {
+    exactly(PATH_TO_TABLE_WITH_ONE_PREFIX).ignore_then(mark(TokenKind::Table, table_name()))
 }
 
 /// Parses a `#table` path part, along with the location of its head: the table name and any linking
@@ -84,7 +80,7 @@ fn table_with_many<'src>(expr: impl Psr<'src, Expr>) -> impl Psr<'src, (TableWit
     );
     let table = mark(
         TokenKind::Table,
-        just(TABLE_SIGIL).ignore_then(db_identifier().labelled(labels::TABLE_NAME)),
+        just(TABLE_SIGIL).ignore_then(table_name()),
     );
     with_loc(table.then(column.or_not()))
         .then(condition_set(expr).or_not())
@@ -132,7 +128,7 @@ mod tests {
         assert_eq!(
             p("#foo"),
             Ok(vec![PathPartKind::TableWithMany(TableWithMany {
-                table: "foo".to_string(),
+                table: "foo".into(),
                 linking_column: None,
                 condition_set: ConditionSet::default(),
             })
@@ -141,7 +137,7 @@ mod tests {
         assert_eq!(
             p("#foo(bar)"),
             Ok(vec![PathPartKind::TableWithMany(TableWithMany {
-                table: "foo".to_string(),
+                table: "foo".into(),
                 linking_column: Some("bar".to_string()),
                 condition_set: ConditionSet::default(),
             })
@@ -150,7 +146,7 @@ mod tests {
         assert_eq!(
             p(">>clients.start_date"),
             Ok(vec![
-                PathPartKind::TableWithOne("clients".to_string()).into(),
+                PathPartKind::TableWithOne("clients".into()).into(),
                 PathPartKind::Column("start_date".to_string()).into(),
             ])
         );
@@ -160,23 +156,46 @@ mod tests {
                 PathPartKind::Column("foo".to_string()).into(),
                 PathPartKind::Column("bar".to_string()).into(),
                 PathPartKind::TableWithMany(TableWithMany {
-                    table: "baz".to_string(),
+                    table: "baz".into(),
                     linking_column: Some("a".to_string()),
                     condition_set: ConditionSet::default(),
                 })
                 .into(),
                 PathPartKind::TableWithMany(TableWithMany {
-                    table: "bat".to_string(),
+                    table: "bat".into(),
                     linking_column: None,
                     condition_set: ConditionSet::default(),
                 })
                 .into(),
-                PathPartKind::TableWithOne("spam".to_string()).into(),
+                PathPartKind::TableWithOne("spam".into()).into(),
                 PathPartKind::Column("eggs".to_string()).into(),
             ])
         );
 
+        // Tables in other schemas.
+        assert_eq!(
+            p("#/sales/orders(customer).>>/crm/`old notes`/profiles.name"),
+            Ok(vec![
+                PathPartKind::TableWithMany(TableWithMany {
+                    table: TableName::in_schema(vec!["sales".to_string()], "orders"),
+                    linking_column: Some("customer".to_string()),
+                    condition_set: ConditionSet::default(),
+                })
+                .into(),
+                PathPartKind::TableWithOne(TableName::in_schema(
+                    vec!["crm".to_string(), "old notes".to_string()],
+                    "profiles"
+                ))
+                .into(),
+                PathPartKind::Column("name".to_string()).into(),
+            ])
+        );
+
         assert!(p(".foo").is_err(),);
+        assert!(p("#/foo").is_err(),);
+        assert!(p("#/sales/").is_err(),);
+        assert!(p("#/sales /orders").is_err(),);
+        assert!(p("#sales/orders").is_err(),);
         assert!(p(".foo#bar").is_err(),);
         assert!(p(".foo>>bar").is_err(),);
         assert!(p(".foo..bar").is_err(),);

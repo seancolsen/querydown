@@ -7,7 +7,7 @@ use chumsky::{
     text::*,
 };
 
-use crate::ast::{Expr, ExprKind, Loc};
+use crate::ast::{Expr, ExprKind, Loc, TableName};
 use crate::error::{Position, Section, Span};
 use crate::highlight::{Token, TokenKind};
 use crate::tokens::*;
@@ -252,6 +252,38 @@ pub fn db_identifier<'src>() -> impl Psr<'src, String> {
         .map(|s: &str| s.to_string())
         .or(quoted(DB_IDENTIFIER_QUOTE))
         .labelled(crate::labels::NAME)
+}
+
+/// Parses a table's name as written after its `#` (or `>>`): a name for a table in the current
+/// schema (`issues`), or, for a table in another schema, each name of the schema and then the
+/// table's, each after a `/` (`/sales/orders`).
+///
+/// A plain name never continues past a `/`, so `#issues/2` is still a division.
+pub fn table_name<'src>() -> impl Psr<'src, TableName> {
+    let segment = just(TABLE_SCHEMA_SEPARATOR).ignore_then(db_identifier());
+    let qualified = segment
+        .repeated()
+        .at_least(1)
+        .collect::<Vec<String>>()
+        .validate(|mut names, extra, emitter| {
+            // The unwrap is safe because there is at least one name.
+            let name = names.pop().unwrap();
+            if names.is_empty() {
+                emitter.emit(Rich::custom(
+                    extra.span(),
+                    format!(
+                        "`/{name}` names no schema. A table in the current schema is written \
+                         without a `/`, as in `#{name}`, and a table in another schema is written \
+                         after the schema's name, as in `#/schema/{name}`."
+                    ),
+                ));
+            }
+            TableName::in_schema(names, name)
+        });
+    choice((qualified, db_identifier().map(TableName::from)))
+        .labelled(crate::labels::TABLE_NAME)
+        // Boxed to keep the types of the many parsers that use it small (see `pad`).
+        .boxed()
 }
 
 /// Text within `quote` characters, taken literally: there are no escape sequences, so the text

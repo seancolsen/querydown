@@ -223,12 +223,12 @@ impl Walker<'_> {
         if let Some(found) = self.definitions(&query.definitions, outer_tables) {
             return Some(found);
         }
-        if is_sentinel(&query.base_table) {
+        if is_sentinel(&query.base_table.name) {
             return found(Target::BaseTable);
         }
         // Each query of a union reads from its own base table.
         for member in &query.unions {
-            if is_sentinel(&member.base_table) {
+            if is_sentinel(&member.base_table.name) {
                 return found(Target::BaseTable);
             }
             if contains_sentinel(&member.transformation) {
@@ -295,7 +295,7 @@ impl Walker<'_> {
             }
         }
         for comparison in custom_comparisons {
-            if is_sentinel(&comparison.table) {
+            if is_sentinel(&comparison.table.name) {
                 return found(Target::DefinitionTable);
             }
             if is_sentinel(&comparison.name) || is_sentinel(&comparison.param) {
@@ -308,7 +308,7 @@ impl Walker<'_> {
             }
         }
         for computed_column in computed_columns {
-            if is_sentinel(&computed_column.table) {
+            if is_sentinel(&computed_column.table.name) {
                 return found(Target::DefinitionTable);
             }
             if is_sentinel(&computed_column.name) {
@@ -591,10 +591,10 @@ impl Walker<'_> {
                 PathPartKind::Column(name) if is_sentinel(name) => {
                     return env.found(Target::Column { table, condition });
                 }
-                PathPartKind::TableWithOne(name) if is_sentinel(name) => {
+                PathPartKind::TableWithOne(name) if is_sentinel(&name.name) => {
                     return env.found(Target::Table { from: table });
                 }
-                PathPartKind::TableWithMany(many) if is_sentinel(&many.table) => {
+                PathPartKind::TableWithMany(many) if is_sentinel(&many.table.name) => {
                     return env.found(Target::Table { from: table });
                 }
                 PathPartKind::TableWithMany(many) => {
@@ -621,7 +621,7 @@ impl Walker<'_> {
         follow_path(self.compiler, table.clone(), parts)
     }
 
-    fn schema_table(&self, name: &str) -> TableCtx {
+    fn schema_table(&self, name: &TableName) -> TableCtx {
         self.compiler
             .resolve_table(name)
             .map_or(TableCtx::Unknown, TableCtx::Schema)
@@ -631,7 +631,7 @@ impl Walker<'_> {
 /// The table reached by following `parts` from `table`. Columns lead along their foreign keys, and
 /// `#table` parts to the named table.
 pub(super) fn follow_path(compiler: &Compiler, table: TableCtx, parts: &[PathPart]) -> TableCtx {
-    let schema_table = |name: &str| {
+    let schema_table = |name: &TableName| {
         compiler
             .resolve_table(name)
             .map_or(TableCtx::Unknown, TableCtx::Schema)
@@ -668,20 +668,25 @@ fn scoped_definitions(query: &Query, outer_tables: &[TableDef]) -> Definitions {
 /// The table a query is based on: a user-defined table from `definitions`, or one in the schema.
 pub(super) fn base_table_ctx(
     compiler: &Compiler,
-    name: &str,
+    name: &TableName,
     definitions: &Definitions,
 ) -> TableCtx {
-    let is_user_table = definitions.tables.iter().any(|table| {
-        let lookup = std::collections::HashMap::from([(table.name.clone(), ())]);
-        compiler.options.resolve_identifier(&lookup, name).is_some()
-    });
+    // A user-defined table is never in a schema.
+    let is_user_table = !name.has_schema()
+        && definitions.tables.iter().any(|table| {
+            let lookup = std::collections::HashMap::from([(table.name.clone(), ())]);
+            compiler
+                .options
+                .resolve_identifier(&lookup, &name.name)
+                .is_some()
+        });
     if is_user_table {
         // The user-defined table's columns are the output of a query that reads all of them.
         return virtual_table(
             compiler,
             Query {
                 definitions: definitions.clone(),
-                base_table: name.to_string(),
+                base_table: name.clone(),
                 base_table_loc: Loc::NONE,
                 transformations: vec![],
                 unions: vec![],

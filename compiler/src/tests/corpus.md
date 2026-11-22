@@ -6639,6 +6639,123 @@ LIMIT 10
 OFFSET 20;
 ```
 
+## Tables in other schemas
+
+### Base table in another schema, with a link to the current schema
+
+> Unpaid invoices, oldest first, with their clients
+
+```qd
+#/billing/invoices is_paid:@false \\issued_on $client.name $amount
+```
+
+```sql
+SELECT
+  "clients"."name",
+  "invoices"."amount"
+FROM "billing"."invoices" AS "invoices"
+LEFT JOIN "clients" ON
+  "invoices"."client" = "clients"."id"
+WHERE
+  "invoices"."is_paid" = FALSE
+ORDER BY
+  "invoices"."issued_on" ASC NULLS LAST;
+```
+
+### Aggregate of related records in another schema
+
+> Each client's total of unpaid invoices
+
+```qd
+#clients $name $#/billing/invoices{is_paid:@false}.amount%sum -> unpaid
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "invoices"."client" AS "pk",
+      sum("invoices"."amount") AS "v1"
+    FROM "billing"."invoices" AS "invoices"
+    WHERE
+      "invoices"."is_paid" = FALSE
+    GROUP BY "invoices"."client"
+  )
+SELECT
+  "clients"."name",
+  "cte0"."v1" AS "unpaid"
+FROM "clients"
+LEFT JOIN "cte0" ON
+  "clients"."id" = "cte0"."pk";
+```
+
+### Related records in another schema, reached through the current schema
+
+> Issues of clients with a large invoice
+
+```qd
+#issues ++#/billing/invoices{amount:>1000} $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "invoices"."client" AS "pk"
+    FROM "billing"."invoices" AS "invoices"
+    WHERE
+      "invoices"."amount" > 1000
+    GROUP BY "invoices"."client"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "projects" ON
+  "issues"."project" = "projects"."id"
+LEFT JOIN "products" ON
+  "projects"."product" = "products"."id"
+LEFT JOIN "clients" ON
+  "products"."client" = "clients"."id"
+LEFT JOIN "cte0" ON
+  "clients"."id" = "cte0"."pk"
+WHERE
+  "cte0"."pk" IS NOT NULL;
+```
+
+### Window condition on a table in another schema (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each client's latest invoice
+
+```qd
+#/billing/invoices %%(client\p issued_on\sd)%row_number:1 $client.name $amount
+```
+
+```sql
+WITH
+  "qdwin_src" AS (
+    SELECT
+      "invoices"."id",
+      "invoices"."client",
+      "invoices"."issued_on",
+      "invoices"."amount",
+      "invoices"."is_paid",
+      row_number() OVER (PARTITION BY "invoices"."client" ORDER BY "invoices"."issued_on" DESC NULLS LAST) AS "qdwin0"
+    FROM "billing"."invoices" AS "invoices"
+  )
+SELECT
+  "clients"."name",
+  "invoices"."amount"
+FROM "qdwin_src" AS "invoices"
+LEFT JOIN "clients" ON
+  "invoices"."client" = "clients"."id"
+WHERE
+  "invoices"."qdwin0" = 1;
+```
+
 ## Combinations: values and computations
 
 These cases combine literals, arithmetic, functions, and case expressions with one another.

@@ -17,36 +17,110 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::{Compiler, Dialect, DuckDB, IdentifierResolution, Options, Postgres};
 
 /// DDL accepted by both Postgres and DuckDB, with a non-unique FK (`users.team`) and a unique FK
-/// (`profiles.user`) so we can assert both the link wiring and the `unique` flag.
+/// (`profiles.user`) so we can assert both the link wiring and the `unique` flag. The `billing`
+/// schema has tables too, one of which has the same name as a table in the current schema, and a
+/// link between them.
 const DDL: &str = "\
 CREATE TABLE teams (id integer PRIMARY KEY, name text);
 CREATE TABLE users (id integer PRIMARY KEY, name text, team integer REFERENCES teams(id));
 CREATE TABLE profiles (id integer PRIMARY KEY, \"user\" integer UNIQUE REFERENCES users(id));
+CREATE SCHEMA billing;
+CREATE TABLE billing.users (id integer PRIMARY KEY, email text);
+CREATE TABLE billing.invoices (id integer PRIMARY KEY, \"user\" integer REFERENCES billing.users(id));
+";
+
+/// A link from a table in another schema to one in the current schema, which Postgres allows.
+const POSTGRES_DDL: &str = "\
+CREATE TABLE billing.payments (id integer PRIMARY KEY, team integer REFERENCES public.teams(id));
+";
+
+/// Another database, attached to the current one, with tables in two schemas.
+const DUCKDB_DDL: &str = "\
+ATTACH ':memory:' AS archive;
+CREATE TABLE archive.main.orders (id integer PRIMARY KEY, total integer);
+USE archive;
+CREATE TABLE lines (id integer, \"order\" integer REFERENCES orders(id));
+USE memory;
+CREATE SCHEMA archive.old;
+CREATE TABLE archive.old.orders (id integer);
 ";
 
 #[test]
 fn test_postgres_introspection() {
-    let env = PgEnv::setup("introspect", DDL);
+    let env = PgEnv::setup("introspect", &format!("{DDL}{POSTGRES_DDL}"));
     let json = env.run_query(Postgres().introspection_sql());
-    drop(env);
-    assert_introspection(&json, Box::new(Postgres()));
+    let compiler = assert_introspection(&json, Box::new(Postgres()));
+    let link = link_from(&json, "payments", &["billing"], "team");
+    assert_eq!(link["to"], json!({ "table": "teams", "column": "id" }));
+    assert_eq!(link["unique"], Value::Bool(false));
+    let sql = compiler
+        .compile("#teams $name $#/billing/payments".to_string())
+        .expect("a link to another schema should compile")
+        .sql;
+    assert!(sql.contains("\"billing\".\"payments\""), "{sql}");
+    env.run_query(&format!("EXPLAIN {sql}"));
 }
 
 #[test]
 fn test_duckdb_introspection() {
-    let env = DuckEnv::setup(DDL);
+    let env = DuckEnv::setup(&format!("{DDL}{DUCKDB_DDL}"));
     let json = env.run_query(DuckDB().introspection_sql());
-    drop(env);
-    assert_introspection(&json, Box::new(DuckDB()));
+    let compiler = assert_introspection(&json, Box::new(DuckDB()));
+    // The tables of an attached database are within its schemas.
+    let value: Value = serde_json::from_str(&json).unwrap();
+    let schemas_of = |name: &str| -> Vec<Value> {
+        let mut schemas: Vec<Value> = value["tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["name"] == name)
+            .map(|t| t["schema"].clone())
+            .collect();
+        schemas.sort_by_key(|schema| schema.to_string());
+        schemas
+    };
+    assert_eq!(
+        schemas_of("orders"),
+        [json!(["archive", "main"]), json!(["archive", "old"])]
+    );
+    let link = link_from(&json, "lines", &["archive", "main"], "order");
+    assert_eq!(
+        link["to"],
+        json!({ "table": "orders", "schema": ["archive", "main"], "column": "id" })
+    );
+    for query in [
+        "#/archive/main/orders $total $#/archive/main/lines",
+        "#/archive/old/orders $id",
+    ] {
+        let sql = compiler.compile(query.to_string()).unwrap().sql;
+        env.prepare(&sql);
+    }
+}
+
+/// The link from `table` (in `schema`, empty for the current schema) via `column`.
+fn link_from(json: &str, table: &str, schema: &[&str], column: &str) -> Value {
+    let value: Value = serde_json::from_str(json).unwrap();
+    let schema_matches = |link: &Value| match &link["from"]["schema"] {
+        Value::Null => schema.is_empty(),
+        written => *written == json!(schema),
+    };
+    value["links"]
+        .as_array()
+        .expect("`links` should be an array")
+        .iter()
+        .find(|l| l["from"]["table"] == table && l["from"]["column"] == column && schema_matches(l))
+        .unwrap_or_else(|| panic!("missing link {schema:?} {table}.{column} in {json}"))
+        .clone()
 }
 
 /// Shared assertions over the introspection JSON, independent of which engine produced it.
-fn assert_introspection(json: &str, dialect: Box<dyn Dialect>) {
+/// Returns a compiler for the introspected schema.
+fn assert_introspection(json: &str, dialect: Box<dyn Dialect>) -> Compiler {
     let value: Value =
         serde_json::from_str(json).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{json}"));
 
@@ -94,6 +168,45 @@ fn assert_introspection(json: &str, dialect: Box<dyn Dialect>) {
         .compile("#users $team.name".to_string())
         .expect("query against introspected schema should compile");
     assert!(result.sql.contains("teams"));
+
+    // A table in the current schema has no `schema`, and one in another schema has one. Only the
+    // tables in the current schema are written without a schema.
+    let tables = value["tables"].as_array().unwrap();
+    let table = |name: &str, schema: Value| {
+        tables
+            .iter()
+            .find(|t| t["name"] == name && t["schema"] == schema)
+            .unwrap_or_else(|| panic!("missing table {schema} {name} in {json}"))
+    };
+    table("users", Value::Null);
+    assert_eq!(
+        table("users", json!(["billing"]))["columns"][1]["name"],
+        "email"
+    );
+    let link = link_from(json, "invoices", &["billing"], "user");
+    assert_eq!(
+        link["to"],
+        json!({ "table": "users", "schema": ["billing"], "column": "id" })
+    );
+    assert_eq!(link["unique"], Value::Bool(false));
+    // The system's own schemas aren't included.
+    for t in tables {
+        let schema = t["schema"].to_string();
+        assert!(
+            !schema.contains("pg_") && !schema.contains("information_schema"),
+            "unexpected table {schema} {} in {json}",
+            t["name"]
+        );
+    }
+    let sql = compiler
+        .compile("#/billing/users $email $#/billing/invoices".to_string())
+        .expect("a query of another schema should compile")
+        .sql;
+    assert!(
+        sql.contains("FROM \"billing\".\"users\" AS \"users\""),
+        "{sql}"
+    );
+    compiler
 }
 
 // --- Postgres ---------------------------------------------------------------------------------
@@ -197,6 +310,13 @@ impl DuckEnv {
         let conn = duckdb::Connection::open_in_memory().expect("open in-memory DuckDB");
         conn.execute_batch(ddl).expect("load DDL into duckdb");
         DuckEnv { conn }
+    }
+
+    /// Prepares `sql` (parsing, binding, and planning it), panicking on any error.
+    pub(super) fn prepare(&self, sql: &str) {
+        self.conn
+            .prepare(sql)
+            .unwrap_or_else(|e| panic!("duckdb couldn't prepare the query: {e}\n{sql}"));
     }
 
     /// Runs `sql`, which must yield a single row with a single text column, returning that text and

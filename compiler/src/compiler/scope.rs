@@ -12,7 +12,7 @@ use crate::{
     schema::{
         chain::Chain,
         links::{FilteredLink, Link, LinkToOne},
-        Schema, Table,
+        Schema, Table, TableId,
     },
     sql::expr::build,
     sql::tree::{Cte, CtePurpose, Join, JoinType, SqlExpr},
@@ -273,9 +273,9 @@ pub struct Scope<'a, 'b> {
     cte_naming_index: usize,
     scalar_functions: ScalarFuncMap,
     aggregate_functions: AggregateFuncMap,
-    /// Computed columns, defined before the query and keyed by `(canonical table name, column name
-    /// as written in the definition)`. The column name is looked up using identifier resolution.
-    computed_columns: HashMap<String, HashMap<String, Expr>>,
+    /// Computed columns, defined before the query and keyed by `(table id, column name as written in
+    /// the definition)`. The column name is looked up using identifier resolution.
+    computed_columns: HashMap<TableId, HashMap<String, Expr>>,
     /// The variables visible to the expression being compiled: the user-defined constants, plus
     /// (while a function or custom comparison is being applied) its parameters and local
     /// assignments. Each maps to an AST expression which is inlined wherever the variable is
@@ -286,9 +286,9 @@ pub struct Scope<'a, 'b> {
     expansion_state: Rc<RefCell<ExpansionState>>,
     /// User-defined scalar functions, keyed by name, registered before the query.
     user_functions: HashMap<String, FunctionDef>,
-    /// Custom comparisons, defined before the query and keyed by `(canonical table name, comparison
-    /// name as written in the definition)`. The name is looked up using identifier resolution.
-    custom_comparisons: HashMap<String, HashMap<String, CustomComparisonDef>>,
+    /// Custom comparisons, defined before the query and keyed by `(table id, comparison name as
+    /// written in the definition)`. The name is looked up using identifier resolution.
+    custom_comparisons: HashMap<TableId, HashMap<String, CustomComparisonDef>>,
     /// When set, compiling a window function is an error (see [`WindowBan`]). Inherited by spawned
     /// scopes, since anything they compile is folded into the same part of the query.
     window_ban: Option<WindowBan>,
@@ -761,13 +761,14 @@ impl<'a, 'b> Scope<'a, 'b> {
         computed_columns: Vec<ComputedColumn>,
     ) -> Result<(), Error> {
         for computed_column in computed_columns {
-            let table = get_table_by_name(self.options, self.schema, &computed_column.table)
-                .ok_or_else(|| {
-                    msg::computed_column_unknown_table(&computed_column.table)
-                        .at(computed_column.table_loc)
-                })?;
+            let table = self
+                .schema
+                .find_table_or(self.options, &computed_column.table, || {
+                    msg::computed_column_unknown_table(&computed_column.table.to_string())
+                })
+                .map_err(|err| err.at(computed_column.table_loc))?;
             self.computed_columns
-                .entry(table.name.clone())
+                .entry(table.id)
                 .or_default()
                 .insert(computed_column.name, computed_column.expr);
         }
@@ -776,13 +777,13 @@ impl<'a, 'b> Scope<'a, 'b> {
 
     /// Looks up a computed column's expression by table and column name, using identifier
     /// resolution for the column name. Falls back to parent scopes.
-    pub fn get_computed_column(&self, table_name: &str, column_name: &str) -> Option<&Expr> {
+    pub fn get_computed_column(&self, table_id: TableId, column_name: &str) -> Option<&Expr> {
         self.computed_columns
-            .get(table_name)
+            .get(&table_id)
             .and_then(|columns| self.options.resolve_identifier(columns, column_name))
             .or_else(|| {
                 self.parent
-                    .and_then(|parent| parent.get_computed_column(table_name, column_name))
+                    .and_then(|parent| parent.get_computed_column(table_id, column_name))
             })
     }
 
@@ -794,12 +795,14 @@ impl<'a, 'b> Scope<'a, 'b> {
         custom_comparisons: Vec<CustomComparisonDef>,
     ) -> Result<(), Error> {
         for def in custom_comparisons {
-            let table =
-                get_table_by_name(self.options, self.schema, &def.table).ok_or_else(|| {
-                    msg::custom_comparison_unknown_table(&def.table).at(def.table_loc)
-                })?;
+            let table = self
+                .schema
+                .find_table_or(self.options, &def.table, || {
+                    msg::custom_comparison_unknown_table(&def.table.to_string())
+                })
+                .map_err(|err| err.at(def.table_loc))?;
             self.custom_comparisons
-                .entry(table.name.clone())
+                .entry(table.id)
                 .or_default()
                 .insert(def.name.clone(), def);
         }
@@ -820,15 +823,15 @@ impl<'a, 'b> Scope<'a, 'b> {
     /// Falls back to parent scopes.
     pub fn get_custom_comparison(
         &self,
-        table_name: &str,
+        table_id: TableId,
         name: &str,
     ) -> Option<&CustomComparisonDef> {
         self.custom_comparisons
-            .get(table_name)
+            .get(&table_id)
             .and_then(|comparisons| self.options.resolve_identifier(comparisons, name))
             .or_else(|| {
                 self.parent
-                    .and_then(|parent| parent.get_custom_comparison(table_name, name))
+                    .and_then(|parent| parent.get_custom_comparison(table_id, name))
             })
     }
 
@@ -852,7 +855,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             // The unwrap is safe because a stand-in is only ever made for the outer record.
             let outer = self.outer_record().cloned().unwrap();
             joins.push(Join {
-                table: outer.table.name.clone(),
+                table: outer.table.qualified_name(),
                 alias: stand_in.alias.clone(),
                 conditions: build::cmp::eq(
                     self.table_column_expr(&outer.referrer_alias, &outer.referrer_column),
@@ -1133,10 +1136,6 @@ impl<'a, 'b> Scope<'a, 'b> {
         }
     }
 
-    pub fn get_table_by_name(&self, name: &str) -> Option<&Table> {
-        get_table_by_name(self.options, self.schema, name)
-    }
-
     pub fn get_scalar_function(&self, name: &str) -> Option<&ScalarFunction> {
         self.scalar_functions.get(name).or_else(|| {
             self.parent
@@ -1155,10 +1154,4 @@ impl<'a, 'b> Scope<'a, 'b> {
 /// Whether `name` (without the `@` sigil) is one of the built-in constants, like `@now`.
 pub fn is_builtin_constant(name: &str) -> bool {
     [VAR_INFINITY, VAR_NOW, VAR_TRUE, VAR_FALSE, VAR_NULL].contains(&name)
-}
-
-fn get_table_by_name<'a>(options: &Options, schema: &'a Schema, name: &str) -> Option<&'a Table> {
-    options
-        .resolve_identifier(&schema.table_lookup, name)
-        .map(|id| schema.tables.get(id).unwrap())
 }

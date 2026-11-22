@@ -7,14 +7,16 @@ use std::collections::{
     HashMap,
 };
 
-use crate::{errors::msg, Error};
+use querydown_parser::ast;
+
+use crate::{errors::msg, Error, Options};
 
 use self::{
     links::{
         ForeignKey, ForwardLinkToOne, Link, LinkToOne, MultiLink, Reference, ReverseLinkToMany,
         ReverseLinkToOne,
     },
-    primitive_schema::{PrimitiveSchema, PrimitiveTable},
+    primitive_schema::{PrimitiveReference, PrimitiveSchema, PrimitiveTable},
 };
 
 pub type TableName = String;
@@ -25,10 +27,81 @@ pub type ColumnId = usize;
 #[derive(Debug)]
 pub struct Schema {
     pub tables: HashMap<TableId, Table>,
-    pub table_lookup: HashMap<TableName, TableId>,
+    /// The tables by name: those of the current schema, and those of the other schemas within it.
+    pub namespace: Namespace,
+}
+
+/// The tables of a schema, by name, along with the schemas nested within it. The root namespace
+/// holds the tables of the current schema (written `#table`), and every other schema is nested
+/// within it by its path (written `#/schema/table`).
+#[derive(Debug, Default)]
+pub struct Namespace {
+    pub tables: HashMap<TableName, TableId>,
+    pub schemas: HashMap<String, Namespace>,
+}
+
+impl Namespace {
+    /// The namespace of the schema at `path` (relative to this one), creating it if need be.
+    fn schema_mut(&mut self, path: &[String]) -> &mut Namespace {
+        path.iter().fold(self, |namespace, name| {
+            namespace.schemas.entry(name.clone()).or_default()
+        })
+    }
+
+    /// The namespace of the schema at `path` (relative to this one), matching names exactly.
+    fn schema(&self, path: &[String]) -> Option<&Namespace> {
+        path.iter()
+            .try_fold(self, |namespace, name| namespace.schemas.get(name))
+    }
 }
 
 impl Schema {
+    /// Finds the table that `name` refers to, matching each of its names (the schema's and the
+    /// table's) with the identifier resolution of `options`.
+    pub fn find_table(&self, options: &Options, name: &ast::TableName) -> Option<&Table> {
+        let namespace = name
+            .schema
+            .iter()
+            .try_fold(&self.namespace, |namespace, schema| {
+                options.resolve_identifier(&namespace.schemas, schema)
+            })?;
+        options
+            .resolve_identifier(&namespace.tables, &name.name)
+            .map(|id| &self.tables[id])
+    }
+
+    /// Like [`Schema::find_table`], but when there's no such table, the error is `not_found` with a
+    /// hint naming any tables of the same name in other schemas, which may be what was meant.
+    pub fn find_table_or(
+        &self,
+        options: &Options,
+        name: &ast::TableName,
+        not_found: impl FnOnce() -> Error,
+    ) -> Result<&Table, Error> {
+        if let Some(table) = self.find_table(options, name) {
+            return Ok(table);
+        }
+        let mut namesakes: Vec<String> = self
+            .tables
+            .values()
+            .filter(|table| table.schema != name.schema)
+            .filter(|table| {
+                let lookup = HashMap::from([(table.name.clone(), ())]);
+                options.resolve_identifier(&lookup, &name.name).is_some()
+            })
+            .map(|table| format!("`#{}`", table.written_name()))
+            .collect();
+        namesakes.sort();
+        let error = not_found();
+        if namesakes.is_empty() {
+            return Err(error);
+        }
+        Err(error.with_hint(format!(
+            "A table of that name is in another schema, which you can name before it, as in {}.",
+            namesakes.join(" or ")
+        )))
+    }
+
     pub fn get_ideal_alias_for_link_to_one(&self, link: &LinkToOne) -> &str {
         // The `unwrap` calls within this fn are safe because we know all links within the schema
         // are valid.
@@ -73,6 +146,9 @@ impl Schema {
 pub struct Table {
     pub id: TableId,
     pub name: TableName,
+    /// The names of the schema the table is in, outermost first. Empty for a table in the current
+    /// schema, and for a table that isn't in the database (e.g. the result of a pipeline stage).
+    pub schema: Vec<String>,
     pub columns: HashMap<ColumnId, Column>,
     pub column_lookup: HashMap<ColumnName, ColumnId>,
     /// Keys are starting column ids in this table
@@ -84,6 +160,18 @@ pub struct Table {
 }
 
 impl Table {
+    /// The table's name, including its schema: what the SQL refers to it by, and how it's written
+    /// in Querydown (after a `#`).
+    pub fn qualified_name(&self) -> ast::TableName {
+        ast::TableName::in_schema(self.schema.clone(), self.name.clone())
+    }
+
+    /// The table's name as written in Querydown (without a `#`), for messages: `issues`, or
+    /// `/sales/orders` for a table in another schema.
+    pub fn written_name(&self) -> String {
+        self.qualified_name().to_string()
+    }
+
     pub fn get_links(&self) -> impl Iterator<Item = MultiLink> + '_ {
         let forward_links_to_one = self
             .forward_links_to_one
@@ -215,6 +303,7 @@ fn make_table(id: TableId, primitive_table: PrimitiveTable) -> Table {
     Table {
         id,
         name: primitive_table.name,
+        schema: primitive_table.schema.0,
         columns,
         column_lookup,
         forward_links_to_one: HashMap::new(),
@@ -235,19 +324,34 @@ impl TryFrom<PrimitiveSchema> for Schema {
             tables.insert(max_table_id, table);
         }
 
-        let table_lookup: HashMap<TableName, TableId> = tables
-            .iter()
-            .map(|(id, table)| (table.name.clone(), *id))
-            .collect();
+        let mut namespace = Namespace::default();
+        // In the order of the ids, so that of two tables with the same name, the last one listed
+        // wins, whatever the order of the map.
+        let mut ids: Vec<&TableId> = tables.keys().collect();
+        ids.sort();
+        for id in ids {
+            let table = &tables[id];
+            namespace
+                .schema_mut(&table.schema)
+                .tables
+                .insert(table.name.clone(), *id);
+        }
 
         let foreign_keys: Vec<ForeignKey> = {
-            let get_table_by_name = |name: &String| -> Result<&Table, Error> {
-                let table_id = table_lookup.get(name).ok_or_else(|| {
-                    Error::schema(format!(
-                        "The schema has a link involving the table `{name}`, which is not \
+            let get_table_by_name = |reference: &PrimitiveReference| -> Result<&Table, Error> {
+                let table_id = namespace
+                    .schema(&reference.schema.0)
+                    .and_then(|schema| schema.tables.get(&reference.table))
+                    .ok_or_else(|| {
+                        let name = ast::TableName::in_schema(
+                            reference.schema.0.clone(),
+                            reference.table.clone(),
+                        );
+                        Error::schema(format!(
+                            "The schema has a link involving the table `{name}`, which is not \
                              among the schema's tables."
-                    ))
-                })?;
+                        ))
+                    })?;
                 let table = tables
                     .get(table_id)
                     .ok_or_else(|| Error::schema(format!("Table not found by id: {}", table_id)))?;
@@ -258,17 +362,17 @@ impl TryFrom<PrimitiveSchema> for Schema {
                     Error::schema(format!(
                         "The schema has a link involving the column `{name}`, which is not \
                                  among the columns of the table `{}`.",
-                        table.name
+                        table.written_name()
                     ))
                 })?;
                 Ok(*column_id)
             };
             let mut foreign_keys: Vec<ForeignKey> = vec![];
             for primitive_link in primitive_schema.links {
-                let base_table = get_table_by_name(&primitive_link.from.table)?;
+                let base_table = get_table_by_name(&primitive_link.from)?;
                 let base_column_id =
                     get_column_id_by_name(base_table, &primitive_link.from.column)?;
-                let target_table = get_table_by_name(&primitive_link.to.table)?;
+                let target_table = get_table_by_name(&primitive_link.to)?;
                 let target_column_id =
                     get_column_id_by_name(target_table, &primitive_link.to.column)?;
                 foreign_keys.push(ForeignKey {
@@ -316,10 +420,7 @@ impl TryFrom<PrimitiveSchema> for Schema {
             }
         }
 
-        Ok(Schema {
-            tables,
-            table_lookup,
-        })
+        Ok(Schema { tables, namespace })
     }
 }
 

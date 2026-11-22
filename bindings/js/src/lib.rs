@@ -1,4 +1,4 @@
-use querydown::ast::Query;
+use querydown::ast::{Query, TableName};
 use querydown::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -246,6 +246,13 @@ export interface QuerydownToken {
  */
 export function tokenize(source: string, grammar: QuerydownGrammar): QuerydownToken[];
 
+/**
+ * The name of a table, as passed to `compile_sections`: a string for a table in the current schema
+ * (`"issues"`), or a list of names for a table in another schema, giving the names of the schema and
+ * then the table's (`["sales", "orders"]` for the table written `#/sales/orders` in Querydown).
+ */
+export type QuerydownTableName = string | string[];
+
 /** Options for {@link QuerydownCompleter.complete}. */
 export interface QuerydownCompletionOptions {
   /**
@@ -255,9 +262,9 @@ export interface QuerydownCompletionOptions {
   grammar?: QuerydownGrammar;
   /**
    * For a section other than `"definitions"`: the query's base table (which a sectioned query
-   * supplies separately). Columns are offered from it.
+   * supplies separately), as for `compile_sections`. Columns are offered from it.
    */
-  baseTable?: string;
+  baseTable?: QuerydownTableName;
   /**
    * For a section other than `"definitions"`: the text of the definitions section, so that the
    * constants, functions, computed columns and custom comparisons it defines are offered.
@@ -610,13 +617,17 @@ pub fn compile(
 /// that section's text, and its `message` is prefixed with the section's name. This applies to
 /// compile errors as well as syntax errors; only an error with no location (e.g. about the
 /// `base_table`) has no section. The optional `options` are as for [`compile`].
+///
+/// The `base_table` is a `QuerydownTableName`: a string for a table in the current schema, or a list
+/// of the names of a schema and a table in it. An invalid one throws a `QuerydownError` of kind
+/// `"argument"`.
 // The parameters are the function's positional JS arguments, so they can't be bundled into a struct.
 #[allow(clippy::too_many_arguments)]
 #[wasm_bindgen]
 pub fn compile_sections(
     schema_json: &str,
     dialect: &str,
-    base_table: String,
+    #[wasm_bindgen(unchecked_param_type = "QuerydownTableName")] base_table: JsValue,
     definitions: &str,
     conditions: &str,
     sorting: &str,
@@ -624,6 +635,16 @@ pub fn compile_sections(
     options: Option<JsCompileOptionsObject>,
 ) -> Result<JsCompileResult, JsValue> {
     let options = read_options(options.map(JsValue::from), "compile")?;
+    let base_table = serde_wasm_bindgen::from_value::<JsTableName>(base_table)
+        .ok()
+        .and_then(JsTableName::into_table_name)
+        .ok_or_else(|| {
+            argument_error(
+                "Invalid base table. Expected a table's name, or a list of the names of a schema \
+                 and a table in it."
+                    .to_string(),
+            )
+        })?;
     let sources = SectionSources {
         definitions,
         conditions,
@@ -645,6 +666,28 @@ pub fn compile_sections(
     let compiler = make_compiler(schema_json, dialect, options)?;
     let result = compiler.compile_query(query).map_err(to_js_error)?;
     to_js_result(&result)
+}
+
+/// A table's name as JavaScript gives it; see `QuerydownTableName` in the TypeScript declarations
+/// above.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum JsTableName {
+    Name(String),
+    Path(Vec<String>),
+}
+
+impl JsTableName {
+    /// The table named, or `None` for an empty list.
+    fn into_table_name(self) -> Option<TableName> {
+        match self {
+            JsTableName::Name(name) => Some(TableName::new(name)),
+            JsTableName::Path(mut names) => {
+                let name = names.pop()?;
+                Some(TableName::in_schema(names, name))
+            }
+        }
+    }
 }
 
 /// One token returned by [`tokenize`]; see `QuerydownToken` in the TypeScript declarations above.
@@ -713,7 +756,7 @@ pub struct Completer {
 #[serde(rename_all = "camelCase")]
 struct JsCompletionOptions {
     grammar: Option<String>,
-    base_table: Option<String>,
+    base_table: Option<JsTableName>,
     definitions: Option<String>,
 }
 
@@ -752,11 +795,17 @@ impl Completer {
     ) -> Result<JsValue, JsValue> {
         let options: JsCompletionOptions = read_options(options.map(JsValue::from), "completion")?;
         let grammar = parse_grammar(options.grammar.as_deref().unwrap_or("query"))?;
+        let base_table = match options.base_table {
+            None => None,
+            Some(name) => Some(name.into_table_name().ok_or_else(|| {
+                argument_error("Invalid completion options: `baseTable` is empty.".to_string())
+            })?),
+        };
         let completions = self.compiler.complete(&completion::CompletionRequest {
             source,
             cursor: utf16_to_byte_offset(source, cursor),
             grammar,
-            base_table: options.base_table.as_deref(),
+            base_table: base_table.as_ref(),
             definitions: options.definitions.as_deref(),
         });
         let utf16 = |byte: usize| source[..byte].encode_utf16().count();

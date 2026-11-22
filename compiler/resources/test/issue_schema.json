@@ -97,6 +97,17 @@
         { "name": "id", "type": "integer" },
         { "name": "name", "type": "text" }
       ]
+    },
+    {
+      "name": "invoices",
+      "schema": ["billing"],
+      "columns": [
+        { "name": "id", "type": "integer" },
+        { "name": "client", "type": "integer" },
+        { "name": "issued_on", "type": "date" },
+        { "name": "amount", "type": "numeric" },
+        { "name": "is_paid", "type": "boolean" }
+      ]
     }
   ],
   "links": [
@@ -167,6 +178,11 @@
     },
     {
       "from": { "table": "products", "column": "client" },
+      "to": { "table": "clients", "column": "id" },
+      "unique": false
+    },
+    {
+      "from": { "table": "invoices", "schema": ["billing"], "column": "client" },
       "to": { "table": "clients", "column": "id" },
       "unique": false
     }

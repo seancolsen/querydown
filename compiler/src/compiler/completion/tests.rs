@@ -34,11 +34,12 @@ fn complete_with(
         .find(CURSOR)
         .expect("the source should mark the cursor");
     let source = marked.replacen(CURSOR, "", 1);
+    let base_table = base_table.map(|name| parse_table_name(name).unwrap());
     compiler().complete(&CompletionRequest {
         source: &source,
         cursor,
         grammar,
-        base_table,
+        base_table: base_table.as_ref(),
         definitions,
     })
 }
@@ -102,10 +103,101 @@ fn base_table_offers_every_table() {
     assert_eq!(completions.from, 1);
     assert_eq!(completions.to, 1);
     let tables = labels_of(&completions, CompletionKind::Table);
-    assert_eq!(tables.len(), 11);
+    assert_eq!(tables.len(), 12);
     assert!(tables.contains(&"issues") && tables.contains(&"issue_labels"));
-    // Sorted by name.
+    // Sorted by name, with the tables of other schemas after those of the current one.
     assert_eq!(tables[0], "assignments");
+    assert_eq!(tables[11], "/billing/invoices");
+}
+
+#[test]
+fn tables_in_other_schemas() {
+    const INVOICES: [&str; 5] = ["id", "client", "issued_on", "amount", "is_paid"];
+    // What's typed of a table in another schema is replaced from its first `/`, wherever the table
+    // is named.
+    for marked in [
+        "#/‸",
+        "#/bil‸",
+        "#/billing/‸",
+        "#/billing/inv‸",
+        "#issues ++#/billing/inv‸",
+        "#clients $#/billing/‸.amount%sum",
+    ] {
+        let completions = complete(marked);
+        let hash = marked.rfind('#').unwrap();
+        assert_eq!(completions.from, hash + 1, "completing {marked:?}");
+        let invoices = find(&completions, "/billing/invoices");
+        assert_eq!(invoices.kind, CompletionKind::Table);
+        assert_eq!(invoices.insert, None);
+    }
+    // Tables in other schemas are related like any other.
+    let completions = complete("#clients $#‸");
+    assert_eq!(find(&completions, "/billing/invoices").boost, 1);
+    assert_eq!(find(&completions, "products").boost, 1);
+    assert_columns("#/billing/invoices $‸", &INVOICES);
+    assert_columns("#/billing/invoices $client.‸", &["id", "name"]);
+    assert_columns("#clients ++#/billing/invoices{‸", &INVOICES);
+    assert_columns("#/billing/invoices title::: $‸", &INVOICES);
+    assert_columns("#/billing/invoices title::: $client.‸", &["id", "name"]);
+    assert_eq!(
+        find(&complete("#/billing/invoices $‸"), "client")
+            .detail
+            .as_deref(),
+        Some("integer → clients")
+    );
+    assert_eq!(
+        find(&complete("#clients $#/billing/invoices(‸"), "client")
+            .detail
+            .as_deref(),
+        Some("→ clients")
+    );
+    // Definitions for tables in other schemas.
+    let source = "#/billing/invoices.late = is_paid:@false\n#/billing/invoices $‸";
+    assert_eq!(
+        find(&complete(source), "late").kind,
+        CompletionKind::ComputedColumn
+    );
+    let completions = complete("#/billing/inv‸.late = is_paid:@false\n#issues");
+    assert_eq!(completions.from, 1);
+    assert!(labels(&completions).contains(&"/billing/invoices"));
+    assert_eq!(
+        labels(&complete("#/billing/invoices.late = ‸\n#issues")),
+        INVOICES
+    );
+    // A section whose base table is in another schema.
+    let completions = complete_with("$‸", Grammar::Display, Some("/billing/invoices"), None);
+    assert_eq!(labels(&completions), INVOICES);
+    let completions = complete_with(
+        "x::: ‸",
+        Grammar::Conditions,
+        Some("/billing/invoices"),
+        None,
+    );
+    assert_eq!(labels(&completions), INVOICES);
+    // A `/` that doesn't follow a table's `#` is a division, before a column.
+    assert!(complete("#issues $id/‸")
+        .items
+        .iter()
+        .all(|i| i.kind != CompletionKind::Table));
+}
+
+#[test]
+fn tables_in_other_schemas_are_quoted_for_insertion() {
+    let compiler = compiler_for(
+        r#"{
+          "tables": [{ "name": "t x", "schema": ["a b", "c"], "columns": [{ "name": "id" }] }],
+          "links": []
+        }"#,
+    );
+    let completions = compiler.complete(&CompletionRequest::query("#/a", 3));
+    assert_eq!(completions.from, 1);
+    let item = find(&completions, "/a b/c/t x");
+    assert_eq!(item.insert.as_deref(), Some("/`a b`/c/`t x`"));
+    // A quoted name typed so far is part of what's replaced.
+    let completions = compiler.complete(&CompletionRequest::query("#/`a b`/", 8));
+    assert_eq!(completions.from, 1);
+    let completions = compiler.complete(&CompletionRequest::query("#/`a b`/c/`t x` $", 17));
+    assert_eq!(labels(&completions), ["id"]);
 }
 
 #[test]

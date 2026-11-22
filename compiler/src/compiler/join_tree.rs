@@ -1,3 +1,5 @@
+use querydown_parser::ast::TableName;
+
 use crate::{
     schema::{
         chain::Chain,
@@ -150,7 +152,7 @@ impl JoinTree {
 
 fn build_join_for_cte(cte: &Cte, table: String, scope: &Scope) -> Join {
     Join {
-        table: cte.alias.clone(),
+        table: TableName::new(cte.alias.clone()),
         alias: cte.alias.clone(),
         conditions: cmp::eq(
             scope.table_column_expr(&table, &cte.join_column_name),
@@ -179,13 +181,7 @@ pub fn make_join_from_link(
     let ending_column = ending_table.columns.get(&ending_column_id).unwrap();
 
     Join {
-        table: scope
-            .schema
-            .tables
-            .get(&ending_table_id)
-            .unwrap()
-            .name
-            .clone(),
+        table: ending_table.qualified_name(),
         alias: ending_alias.to_owned(),
         conditions: cmp::eq(
             scope.table_column_expr(starting_alias, &starting_column.name),

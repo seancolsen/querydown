@@ -230,14 +230,14 @@ impl Lexer<'_> {
             }
             CONST_SIGIL => self.at_sign(),
             TABLE_SIGIL => {
-                let len = 1 + self.name_len(1);
+                let len = 1 + self.table_name_len(1);
                 self.emit(K::Table, len, Context::None);
             }
             _ if self.starts_with(PATH_TO_TABLE_WITH_ONE_PREFIX) => {
                 let len = PATH_TO_TABLE_WITH_ONE_PREFIX.len();
                 self.emit(K::PathSeparator, len, Context::None);
-                if self.peek().is_some_and(|c| is_ident_start(c) || c == '`') {
-                    let len = self.name_len(0);
+                let len = self.table_name_len(0);
+                if len > 0 {
                     self.push(K::Table, len);
                 }
             }
@@ -449,6 +449,24 @@ impl Lexer<'_> {
 
     /// The length of the bare word or backtick-quoted identifier starting `offset` bytes into
     /// `rest()`, or 0 if there is none.
+    /// The length of the table name at `offset` past `pos`, as written after a `#`: a name, or a
+    /// schema's names and then the table's, each after a `/` (`/sales/orders`).
+    fn table_name_len(&self, offset: usize) -> usize {
+        let mut len = 0;
+        while self.rest()[offset + len..].starts_with(TABLE_SCHEMA_SEPARATOR) {
+            let name = self.name_len(offset + len + 1);
+            if name == 0 {
+                break;
+            }
+            len += 1 + name;
+        }
+        if len > 0 {
+            len
+        } else {
+            self.name_len(offset)
+        }
+    }
+
     fn name_len(&self, offset: usize) -> usize {
         let rest = &self.rest()[offset..];
         if rest.starts_with(DB_IDENTIFIER_QUOTE) {

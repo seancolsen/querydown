@@ -172,15 +172,12 @@ fn infer_path(parts: &[PathPart], scope: &mut Scope) -> ValueType {
                 .options
                 .resolve_identifier(&table.column_lookup, &column_name)
                 .is_some();
-            match scope
-                .get_computed_column(&table.name, &column_name)
-                .cloned()
-            {
+            match scope.get_computed_column(table.id, &column_name).cloned() {
                 // A computed column at the end of a to-many chain (e.g. `#issues.stage`) has the type
                 // of its definition, evaluated in the context of the table hosting it.
                 Some(expr) if !is_real_column => {
                     let expansion = Expansion::ComputedColumn {
-                        table: table.name.clone(),
+                        table: table.written_name(),
                         column: column_name,
                     };
                     let Ok(_guard) = scope.enter_expansion(expansion) else {

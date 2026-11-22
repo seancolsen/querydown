@@ -69,7 +69,7 @@ fn compile_returns_annotations() {
 fn compile_sections_matches_whole_query() {
     // A sectioned query compiles to the same SQL as the equivalent whole-query source.
     let whole = compile(SCHEMA, "postgres", "#t $id".to_string(), None).expect("whole compiles");
-    let sectioned = compile_sections(SCHEMA, "postgres", "t".to_string(), "", "", "", "$id", None)
+    let sectioned = compile_sections(SCHEMA, "postgres", "t".into(), "", "", "", "$id", None)
         .expect("sections compile");
 
     let whole_sql = read_sql(&whole.unchecked_into());
@@ -84,7 +84,7 @@ fn compile_sections_isolates_sections() {
     let err = thrown(compile_sections(
         SCHEMA,
         "postgres",
-        "t".to_string(),
+        "t".into(),
         "",
         "",
         "$id",
@@ -122,7 +122,7 @@ fn compile_applies_limit_and_offset() {
     let result = compile_sections(
         SCHEMA,
         "postgres",
-        "t".to_string(),
+        "t".into(),
         "",
         "",
         "",
@@ -261,7 +261,7 @@ fn section_syntax_error_is_attributed_to_its_section() {
     let err = thrown(compile_sections(
         SCHEMA,
         "postgres",
-        "t".to_string(),
+        "t".into(),
         "",
         "name:1",
         r"\\id $id",
@@ -307,7 +307,7 @@ fn section_compile_error_is_attributed_to_its_section() {
     let err = thrown(compile_sections(
         SCHEMA,
         "postgres",
-        "t".to_string(),
+        "t".into(),
         "",
         "name:x",
         "",
@@ -330,7 +330,7 @@ fn compile_error_about_the_base_table_of_sections_has_no_section() {
     let err = thrown(compile_sections(
         SCHEMA,
         "postgres",
-        "nope".to_string(),
+        "nope".into(),
         "",
         "",
         "",
@@ -485,4 +485,99 @@ fn completer_errors() {
     assert_eq!(get_str(&err, "kind"), "schema");
     let err = thrown(completer().complete("", 0, Some(object(&[("grammar", "nope")]))));
     assert_eq!(get_str(&err, "kind"), "argument");
+}
+
+/// A schema with a table in another schema, `s`.
+const SCHEMA_WITH_SCHEMAS: &str = r#"{
+  "tables": [
+    { "name": "t", "columns": [{ "name": "id", "type": "integer" }] },
+    {
+      "name": "u",
+      "schema": ["s"],
+      "columns": [{ "name": "id", "type": "integer" }, { "name": "t", "type": "integer" }]
+    }
+  ],
+  "links": [
+    {
+      "from": { "table": "u", "schema": ["s"], "column": "t" },
+      "to": { "table": "t", "column": "id" },
+      "unique": false
+    }
+  ]
+}"#;
+
+/// A JS array of the given strings.
+fn names(names: &[&str]) -> JsValue {
+    names
+        .iter()
+        .map(|name| JsValue::from_str(name))
+        .collect::<js_sys::Array>()
+        .into()
+}
+
+#[wasm_bindgen_test]
+fn tables_in_other_schemas() {
+    let whole = compile(
+        SCHEMA_WITH_SCHEMAS,
+        "postgres",
+        "#/s/u $t.id".to_string(),
+        None,
+    )
+    .expect("whole compiles");
+    let whole_sql = read_sql(&whole.unchecked_into());
+    assert!(
+        whole_sql.contains("FROM \"s\".\"u\" AS \"u\""),
+        "got: {whole_sql}"
+    );
+    // A sectioned query's base table in another schema is given as a list of names.
+    let sectioned = compile_sections(
+        SCHEMA_WITH_SCHEMAS,
+        "postgres",
+        names(&["s", "u"]),
+        "",
+        "",
+        "",
+        "$t.id",
+        None,
+    )
+    .expect("sections compile");
+    assert_eq!(read_sql(&sectioned.unchecked_into()), whole_sql);
+    // A list of one name is a table in the current schema, like a string.
+    let sectioned = compile_sections(
+        SCHEMA_WITH_SCHEMAS,
+        "postgres",
+        names(&["t"]),
+        "",
+        "",
+        "",
+        "$id",
+        None,
+    )
+    .expect("sections compile");
+    assert!(read_sql(&sectioned.unchecked_into()).ends_with("FROM \"t\";"));
+    for invalid in [names(&[]), JsValue::from(5)] {
+        let err = thrown(compile_sections(
+            SCHEMA_WITH_SCHEMAS,
+            "postgres",
+            invalid,
+            "",
+            "",
+            "",
+            "",
+            None,
+        ));
+        assert_eq!(get_str(&err, "kind"), "argument");
+    }
+
+    let completer = QuerydownCompleter::new(SCHEMA_WITH_SCHEMAS).expect("the schema is valid");
+    let completions = completer.complete("#/s/", 4, None).expect("completes");
+    assert_eq!(get_num(&completions, "from"), 1.0);
+    assert!(item_labels(&completions).contains(&"/s/u".to_string()));
+    let options = js_sys::Object::new();
+    js_sys::Reflect::set(&options, &"grammar".into(), &"display".into()).unwrap();
+    js_sys::Reflect::set(&options, &"baseTable".into(), &names(&["s", "u"])).unwrap();
+    let completions = completer
+        .complete("$", 1, Some(JsValue::from(options).unchecked_into()))
+        .expect("completes");
+    assert_eq!(item_labels(&completions), ["id", "t"]);
 }

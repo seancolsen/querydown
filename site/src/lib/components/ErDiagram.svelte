@@ -33,12 +33,22 @@
    *
    * Links can only join tables in the same column or in neighboring columns.
    */
+  /**
+   * A table's name as Querydown writes it (without the `#`): `issues`, or `/billing/invoices` for a
+   * table in another schema. The diagram shows this, and the constants below are keyed by it.
+   */
+  function tableName(table: { name?: string; table?: string; schema?: string[] }): string {
+    const name = table.name ?? table.table ?? '';
+    return table.schema?.length ? `/${table.schema.join('/')}/${name}` : name;
+  }
+
   const PLACEMENT: Record<string, { column: number; row: number }> = {
     issue_labels: { column: 0, row: 0 },
     blocks: { column: 0, row: 5 },
     issues: { column: 0, row: 10 },
     projects: { column: 0, row: 21 },
     products: { column: 0, row: 28 },
+    '/billing/invoices': { column: 0, row: 33 },
     labels: { column: 1, row: 0 },
     assignments: { column: 1, row: 4 },
     comments: { column: 1, row: 9 },
@@ -80,6 +90,7 @@
     'assignments.issue': { lane: 2 },
     'comments.issue': {},
     'products.client': { lane: 2 },
+    '/billing/invoices.client': { lane: 2 },
     // Right of the second column
     'comments.user': { side: 'right', lane: 0 },
     'users.team': { side: 'right', lane: 0 },
@@ -94,7 +105,7 @@
     columns: { name: string; type: string; y: number; links: boolean }[];
   }
 
-  const linked = new Set(schema.links.map((link) => `${link.from.table}.${link.from.column}`));
+  const linked = new Set(schema.links.map((link) => `${tableName(link.from)}.${link.from.column}`));
 
   for (const key of Object.keys(ROUTES)) {
     if (!linked.has(key)) {
@@ -106,16 +117,17 @@
   }
 
   const boxes: Box[] = schema.tables.map((table) => {
-    const placement = PLACEMENT[table.name];
+    const name = tableName(table);
+    const placement = PLACEMENT[name];
     if (!placement) {
       throw new Error(
-        `The sample schema has a table (${table.name}) that the ER diagram doesn't place. ` +
+        `The sample schema has a table (${name}) that the ER diagram doesn't place. ` +
           'Add it to PLACEMENT in ErDiagram.svelte.',
       );
     }
     const y = INSET + placement.row * ROW_HEIGHT;
     return {
-      name: table.name,
+      name,
       column: placement.column,
       y,
       height: (table.columns.length + 1) * ROW_HEIGHT,
@@ -123,7 +135,7 @@
         name: column.name,
         type: column.type,
         y: y + (index + 1.5) * ROW_HEIGHT,
-        links: linked.has(`${table.name}.${column.name}`),
+        links: linked.has(`${name}.${column.name}`),
       })),
     };
   });
@@ -171,7 +183,9 @@
   }
 
   const links: Link[] = schema.links.map((link) => {
-    const key = `${link.from.table}.${link.from.column}`;
+    const from = tableName(link.from);
+    const to = tableName(link.to);
+    const key = `${from}.${link.from.column}`;
     const route = ROUTES[key];
     if (!route) {
       throw new Error(
@@ -179,8 +193,8 @@
           'Add it to ROUTES in ErDiagram.svelte.',
       );
     }
-    const fromColumn = PLACEMENT[link.from.table].column;
-    const toColumn = PLACEMENT[link.to.table].column;
+    const fromColumn = PLACEMENT[from].column;
+    const toColumn = PLACEMENT[to].column;
     let gap: number;
     if (fromColumn === toColumn) {
       if (!route.side) {
@@ -204,8 +218,8 @@
           'Change PLACEMENT in ErDiagram.svelte so that the two tables are closer.',
       );
     }
-    const source = end(link.from.table, link.from.column, gap);
-    const target = end(link.to.table, link.to.column, gap);
+    const source = end(from, link.from.column, gap);
+    const target = end(to, link.to.column, gap);
     if (source.y === target.y && route.lane !== undefined) {
       throw new Error(
         `In the ER diagram, ${key} runs straight across to the column it refers to, so its ` +
@@ -217,9 +231,9 @@
     }
     return {
       key,
-      label: `${key} refers to ${link.to.table}.${link.to.column}`,
+      label: `${key} refers to ${to}.${link.to.column}`,
       gap,
-      group: `${gap}:${link.to.table}.${link.to.column}`,
+      group: `${gap}:${to}.${link.to.column}`,
       source,
       target,
       lane: route.lane,
