@@ -428,6 +428,13 @@ fn test_non_ascii() {
         "title:column ::comparison-operator \"café\":string `naïve`:column \
          ::comparison-operator 1:number",
     );
+    // A multi-byte character right after a number, where a duration's unit could be.
+    check(
+        Query,
+        "#issues $ ? #comments:>0~'✅' ~~'❌'",
+        "#issues:base-table $:result-column ?:case #comments:table :>:comparison-operator \
+         0:number ~:case '✅':string ~~:case '❌':string",
+    );
 }
 
 /// Tokenizing never panics and always upholds its guarantees, even midway through typing.
@@ -443,6 +450,20 @@ fn test_every_prefix_is_well_formed() {
         for (end, _) in query.char_indices() {
             let source = &query[..end];
             assert_well_formed(source, &tokenize(source, grammar));
+        }
+    }
+}
+
+/// Tokenizing never panics with a multi-byte character anywhere in the source, e.g. where the lexer
+/// looks a few bytes ahead. (A 4-byte character catches a lookahead of any length.)
+#[test]
+fn test_non_ascii_anywhere_is_well_formed() {
+    let query =
+        "#issues $id $ ? #comments:>0~'é' 90min ~~'❌' due:@2024-01-01 1y6m \\d x|f $@a ++#c";
+    for (at, _) in query.char_indices().chain([(query.len(), ' ')]) {
+        let source = format!("{}😀{}", &query[..at], &query[at..]);
+        for grammar in [Query, Definitions, Conditions, Sorting, Display] {
+            assert_well_formed(&source, &tokenize(&source, grammar));
         }
     }
 }

@@ -539,7 +539,12 @@ impl Lexer<'_> {
         };
         let unit_len = |lexer: &Self, offset: usize| {
             let rest = &lexer.rest()[offset..];
-            if rest.len() >= 3 && rest[..3].eq_ignore_ascii_case("min") {
+            // Bytes, not `str`, so that a character after the number can't be split.
+            if rest
+                .as_bytes()
+                .get(..3)
+                .is_some_and(|b| b.eq_ignore_ascii_case(b"min"))
+            {
                 3
             } else if rest.starts_with(|c: char| "ymwdhsYMWDHS".contains(c)) {
                 1
