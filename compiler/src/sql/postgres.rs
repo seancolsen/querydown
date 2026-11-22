@@ -11,16 +11,15 @@ use super::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Postgres();
 
-// TODO: `quote_identifier` still backslash-escapes embedded quotes/backslashes, whereas standard
-// Postgres escapes a `"` inside a quoted identifier by doubling it. No current input exercises an
-// identifier containing those characters, so this is left for later.
 impl Dialect for Postgres {
     fn introspection_sql(&self) -> &'static str {
         include_str!("../../resources/introspection/postgres.sql")
     }
 
     fn quote_identifier(&self, ident: &str) -> String {
-        format!(r#""{}""#, ident.replace(r"\", r"\\").replace('"', r#"\""#))
+        // A quoted identifier has no backslash escapes: an embedded double-quote is doubled, and a
+        // backslash is a literal character.
+        format!(r#""{}""#, ident.replace('"', r#""""#))
     }
 
     fn quote_string(&self, string: &str) -> String {
@@ -139,5 +138,18 @@ impl Dialect for Postgres {
 
     fn year_month(&self, arg: SqlExpr) -> SqlExpr {
         sql_func("to_char", [arg, SqlExpr::atom("'YYYY-MM'".to_string())])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quote_identifier() {
+        let quote = |ident: &str| Postgres().quote_identifier(ident);
+        assert_eq!(quote("issues"), r#""issues""#);
+        assert_eq!(quote(r#"say "hi""#), r#""say ""hi""""#);
+        assert_eq!(quote(r"a\b"), r#""a\b""#);
     }
 }
