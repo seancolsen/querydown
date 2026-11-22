@@ -2,204 +2,220 @@
 
 **Status:** planned. Nothing here is implemented.
 
-Querydown has 38 scalar functions, 12 aggregate functions, and 11 window functions
-(see [docs/functions.md](../../docs/functions.md)). Common needs such as rounding a number,
-replacing text, grouping by week, or joining a list into a string have no function yet. This spec
-lists the functions to add, 54 in all.
+This spec adds 15 functions to Querydown and widens one. Each is here because something is
+impossible without it. None is here for convenience.
+
+## Design rules
+
+1. **A function must make something possible.** If a query can already be written with the
+   functions, operators, and syntax that exist, it gets no function, however long that query is.
+   Anyone who wants a shorter name can [define a function](../../docs/language.md#user-defined-functions).
+2. **One general function beats several special ones.** `at(0)` and `at(-1)` replace `first` and
+   `last`. `percentile(0.5)` replaces `median`.
+3. **Functions compose.** Each takes and returns plain values (text, numbers, dates, durations,
+   arrays), so that a few of them cover many needs. [What composes](#what-composes) shows how.
 
 ## Conventions
 
-Every function below follows these, unless its row says otherwise.
-
-- **Names** are whole words in snake_case, like the existing `lowercase` and `if_null`.
 - **Arguments:** the piped value is the first argument, and the rest go in parentheses. A `?` marks
-  an optional argument.
+  an optional argument, and `…` one that can repeat.
 - **NULL:** a NULL argument gives NULL.
-- **Positions** in text and arrays count from 1.
-- **Dialects:** the function gives the same result in PostgreSQL and DuckDB. Where one SQL
-  expression can't do that, the "Compiles to" column names both, and the function gets a method on
-  `Dialect`.
-- **Text is compared exactly** (case-sensitively), as SQL does. The exceptions are `starts_with`,
-  `ends_with`, and the regex functions, which match the way the `:` and `:~` operators do.
+- **Positions count from 0**, in arrays and in JSON arrays. A negative position counts from the end,
+  so `-1` is the last element.
+- **Dialects:** a function gives the same result in PostgreSQL and DuckDB.
 
-The PostgreSQL column was checked against PostgreSQL 15. The DuckDB SQL hasn't been run yet. The
-`db-tests` corpus will confirm it during implementation.
+The PostgreSQL SQL below was run on PostgreSQL 15. The DuckDB SQL wasn't run, so treat it as a
+starting point. The `db-tests` corpus will confirm it.
 
-The **Phase** column says when to build each function. See [Order of work](#order-of-work).
+## Text
 
-## Text functions
+| Function | Description | Compiles to |
+| -- | -- | -- |
+| `regex_replace(pattern replacement flags?)` | Replaces every match of a regular expression. In the replacement, `\1` is the first capture group. | `regexp_replace(x, p, r, 'g')` |
+| `regex_extract(pattern group? flags?)` | The first match of a regular expression, or NULL if there is none. With `group`, the text of that capture group, where 1 is the first. | PostgreSQL: `(regexp_match(x, '(' \|\| p \|\| ')'))[group + 1]`. DuckDB: `regexp_extract(x, p, group)`, guarded by `regexp_matches` to give NULL |
+| `split(separator)` | The parts of a string split at `separator`, as an array of text. | `string_to_array` |
 
-| Function | Description | Compiles to | Phase |
-| -- | -- | -- | -- |
-| `trim_start`, `trim_end` | Removes whitespace from one end of a string. | `ltrim`, `rtrim` | 1 |
-| `replace(from to)` | Replaces every occurrence of `from` with `to`. | `replace` | 1 |
-| `slice(start length?)` | The part of a string that begins at character `start`. It's `length` characters long, or runs to the end. | `substr` | 1 |
-| `left(n)`, `right(n)` | The first or last `n` characters. | `left`, `right` | 1 |
-| `position(text)` | Where `text` first occurs in the string, or 0 if it doesn't. | `strpos` | 1 |
-| `split_part(separator n)` | The `n`th part of a string split at `separator`, as in `email\|split_part("@" 2)`. An empty string when there is no `n`th part. | `split_part` | 1 |
-| `split(separator)` | The parts of a string split at `separator`, as an array. | `string_to_array` | 1 |
-| `pad_start(length fill?)`, `pad_end(length fill?)` | Pads a value to `length` characters with `fill` (a space by default), as in `id\|pad_start(5 "0")`. Longer values are cut to `length`. | `lpad`, `rpad` of `CAST(x AS TEXT)`. PostgreSQL rejects a number here without the cast. | 1 |
-| `starts_with(text)`, `ends_with(text)` | Whether the string begins or ends with `text`, ignoring case like `:`. | `Dialect` method that reuses the normalization of `text_eq` | 2 |
-| `regex_replace(pattern replacement)` | Replaces every match of a regular expression. `\1` in the replacement is the first capture group. | `regexp_replace(x, p, r, 'g')` | 2 |
-| `regex_extract(pattern)` | The first match of a regular expression, or NULL if there is none. | PostgreSQL: `(regexp_match(x, '(' \|\| p \|\| ')'))[1]`. DuckDB: `NULLIF(regexp_extract(x, p), '')` | 2 |
+The regex functions match as `:~` does: ignoring case, with the same `c`, `m`, and `s`
+[flags](../../docs/language.md#regex-flags). The flags are a string, as in
+`title|regex_replace('^fix' "Fix" "c")`. `flags` and `group` must be literals. Each dialect writes
+the flags into the SQL as its `match_regex` does.
 
-The regex functions ignore case by default, as `:~` does, and take no flags. They prefix the pattern
-with `Dialect::prefixed_regex_pattern`, as `match_regex` does.
+## Math
 
-## Math functions
+| Function | Description | Compiles to |
+| -- | -- | -- |
+| `ln` | The natural logarithm. With `exp` and `pow` already there, it completes logarithms to any base. | `LN` |
 
-| Function | Description | Compiles to | Phase |
-| -- | -- | -- | -- |
-| `round(digits?)` | Rounds to the nearest integer, or to `digits` decimal places. | `ROUND(x)`, or `ROUND(CAST(x AS numeric), digits)`. PostgreSQL has no two-argument `ROUND` for floats. | 1 |
-| `sign` | -1, 0, or 1, by the sign of a number. | `SIGN` | 1 |
-| `ln` | The natural logarithm. | `LN` | 1 |
-| `log(base?)` | The logarithm to base 10, or to `base`. | `LOG10(x)`, or `LN(x) / LN(base)` | 1 |
-| `percent_of(total)` | The value as a percentage of `total`, as in `#issues{status:closed}\|percent_of(#issues)`. NULL when `total` is 0. | `x * 100.0 / NULLIF(total, 0)` | 1 |
+## Dates and durations
 
-`percent_of` exists because plain division trips people up: `/` between two integers drops the
-remainder in PostgreSQL, and dividing by zero is an error.
+| Function | Description | Compiles to |
+| -- | -- | -- |
+| `start_of(unit)` | The start of the `"year"`, `"quarter"`, `"month"`, `"week"`, `"day"`, `"hour"`, or `"minute"` that a date or timestamp falls in. Weeks begin on Monday. The result has the type of the input. | `date_trunc('…', x)`, cast back to `DATE` when the input is a date |
+| `to_duration` | Converts a number of seconds to a duration. The opposite of `seconds`. | PostgreSQL: `make_interval(secs => x)`. DuckDB: `to_seconds(x)` |
 
-## Date and time functions
+`unit` must be a literal, so the compiler can reject an unknown one. `start_of` reads a zoned
+timestamp the way `year` does, through `temporal_arg`.
 
-| Function | Description | Compiles to | Phase |
-| -- | -- | -- | -- |
-| `hour`, `minute`, `second` | The hour (0–23), minute (0–59), or whole second (0–59) of a timestamp. | `calendar_field`, as `year` does. `second` needs `FLOOR`, because `CAST(59.9 AS INTEGER)` is 60. | 1 |
-| `quarter` | The quarter of the year (1–4). | `EXTRACT(quarter …)` | 1 |
-| `week` | The ISO week of the year (1–53). | `EXTRACT(week …)` | 1 |
-| `weekday` | The ISO day of the week: 1 for Monday to 7 for Sunday. | `EXTRACT(isodow …)` | 1 |
-| `day_of_year` | The day of the year (1–366). | `EXTRACT(doy …)` | 1 |
-| `weeks`, `months` | Converts an interval into a number of weeks or months, like `days` and `years`. A month is a twelfth of a 365.25-day year. | `EXTRACT(epoch FROM x) / 604800`, `/ 2629800` | 1 |
-| `to_epoch` | The number of seconds from 1970-01-01 UTC to a timestamp. | `EXTRACT(epoch FROM x)` | 1 |
-| `start_of_week`, `start_of_month`, `start_of_quarter`, `start_of_year` | The first day of the period that a date or timestamp falls in, as a date. Weeks begin on Monday. | `CAST(date_trunc('…', x) AS DATE)` | 1 |
-| `start_of_hour` | A timestamp with its minutes and seconds set to zero. | `date_trunc('hour', x)` | 1 |
-| `from_epoch` | The timestamp that many seconds after 1970-01-01 UTC. For columns that store Unix time. | `to_timestamp(x)`, made naive where `coerces_timestamptz` | 2 |
-| `weekday_name`, `month_name` | The English name of the day or month, such as "Monday" or "March". | PostgreSQL: `to_char(x, 'FMDay')`, `'FMMonth'`. DuckDB: `dayname`, `monthname` | 2 |
+`start_of` is the one new calendar function. Grouping by week, quarter, or hour needs it, and every
+calendar part that Querydown lacks follows from it by subtraction (see
+[What composes](#what-composes)).
 
-All of these read a zoned timestamp the way `year` does, through `temporal_arg`. The `start_of_…`
-functions suit grouping better than `year_month`, since their results are dates, which sort and
-compare as dates.
+## Conversions
 
-## Conversion functions
+| Function | Description | Compiles to |
+| -- | -- | -- |
+| `to_number` | Converts text to a number. | `CAST(x AS DOUBLE PRECISION)` |
+| `to_date` | Converts ISO 8601 text to a date, or a timestamp to its date. | `CAST(x AS DATE)`, through `temporal_arg` |
+| `to_timestamp` | Converts ISO 8601 text to a timestamp without a time zone. | `CAST(x AS TIMESTAMP)` |
+| `to_array` | Converts a JSON array to an array of text. An element that is an object or array becomes its JSON text. | PostgreSQL: `ARRAY(SELECT jsonb_array_elements_text(CAST(x AS jsonb)))`. DuckDB: `from_json(x, '["VARCHAR"]')` |
 
-| Function | Description | Compiles to | Phase |
-| -- | -- | -- | -- |
-| `null_if(value)` | NULL when the piped value equals `value`, and the piped value otherwise. The opposite of `if_null`. | `NULLIF` | 1 |
-| `to_text` | Converts any value to text. | `CAST(x AS TEXT)` | 1 |
-| `to_number` | Converts text or a boolean to a number. | `CAST(x AS DOUBLE PRECISION)` | 1 |
-| `to_date` | Converts a timestamp to its date, dropping the time, or converts ISO 8601 text to a date. | `CAST(x AS DATE)`, through `temporal_arg` | 1 |
+Text that can't be converted is an error from the database (see [Open questions](#open-questions)).
+There is no `to_text`, because a formatted string already converts: `^f"{id}"`.
 
-Text that can't be converted is an error from the database (see [open questions](#open-questions)).
+## Arrays
 
-## Array functions
+These work on array columns, on the arrays that `list`, `list_all`, and `top` produce, and on the
+results of `split` and `to_array`.
 
-These are scalar functions for array columns and for the arrays that `list`, `list_all`, and `top`
-produce.
+| Function | Description | Compiles to |
+| -- | -- | -- |
+| `at(index)` | The element at a position, or NULL if there is none. | PostgreSQL: `x[index + 1]`, or `x[cardinality(x) + index + 1]` for a negative index. DuckDB: `x[index + 1]`, or `x[index]` for a negative one |
+| `slice(start end?)` | The elements from `start` up to, but not including, `end`. Without `end`, the rest of the array. | `x[a:b]`, with the bounds converted as for `at` |
+| `join(separator)` | Joins the elements into one string, skipping NULLs. The opposite of `split`. | `array_to_string` |
+| `has(value)` | Whether the array contains `value`. | `value = ANY(x)` |
+| `length` (widened) | Already counts the characters of text. Given an array, it counts the elements. | PostgreSQL: `cardinality`. DuckDB: `len` |
 
-| Function | Description | Compiles to | Phase |
-| -- | -- | -- | -- |
-| `join(separator)` | Joins the elements of an array into one string, skipping NULLs. | `array_to_string` | 1 |
-| `has(value)` | Whether an array contains `value`. | `value = ANY(x)` | 1 |
-| `size` | The number of elements in an array. | PostgreSQL: `cardinality`. DuckDB: `len` | 2 |
-| `first`, `last` | The first or last element of an array, or NULL if it's empty. | `x[1]`. Last: `x[cardinality(x)]` in PostgreSQL, `x[-1]` in DuckDB | 2 |
+## JSON
 
-They make two common requests possible without new aggregate functions:
+JSON needs no functions of its own. `at` reads into it, and its values come out as text, for the
+conversions above to turn into numbers, dates, and arrays.
+
+| Function | Description | Compiles to |
+| -- | -- | -- |
+| `at(key…)` | The value at a path into JSON. Each argument is an object's key or an array's position. A text or number comes back as text without quotes, and an object or array as JSON text. NULL when the path leads nowhere, or to a JSON null. | PostgreSQL: `CAST(x AS jsonb) #>> ARRAY['a', '0']`. DuckDB: `json_extract_string(x, '$."a"[0]')` |
+
+- `at` reads JSON unless its input is an array, as inferred by the compiler. So it works on `json`
+  and `jsonb` columns, and on text that holds JSON, including what an earlier `at` returned.
+- A key needn't be a literal: `translations|at(locale)` reads the key named by a column. In DuckDB,
+  such a key is concatenated into the path at run time.
 
 ```
-// each issue's labels as one string, like SQL's string_agg
-#issues $title $#labels.name%list(\s)|join(", ")
+// users over 30, by a number inside a JSON column
+#users profile|at("age")|to_number:>30
 
-// the body of each issue's latest comment
-#issues $title $#comments.body%list_all(\\created_at \d)|first
+// events tagged "urgent"
+#events payload|at("tags")|to_array|has("urgent")
+
+// the SKU of each order's last item
+#orders $id $details|at("items" -1 "sku")
 ```
 
-## Aggregate functions
+(These tables aren't in the sample schema, which has no JSON column yet. Add one for the docs and the
+corpus.)
 
-| Function | Description | Compiles to | Phase |
-| -- | -- | -- | -- |
-| `median` | The middle value of a numeric column. | `percentile_cont(0.5) WITHIN GROUP (ORDER BY x)` | 1 |
-| `stddev`, `variance` | The sample standard deviation and variance of a numeric column. | `stddev_samp`, `var_samp` | 1 |
-| `mode` | The most common value of a column. When several tie, one of them. | `mode() WITHIN GROUP (ORDER BY x)` | 1 |
-| `count_true` | The number of true values in a boolean column. Zero when there are no rows, like `count`. | `count(*) FILTER (WHERE x)` | 1 |
-| `fraction_true` | The share of a boolean column's non-null values that are true, from 0 to 1. | `avg(CAST(x AS INTEGER))` | 1 |
-| `percentile(p)` | The value below which the fraction `p` of a numeric column falls, as in `%percentile(0.9)`. | `percentile_cont(p) WITHIN GROUP (ORDER BY x)` | 3 |
+## Aggregates
 
-`count_true` and `fraction_true` matter most in grouped queries, where a `{…}` filter isn't
-available. With a computed column `#issues.overdue = due_date:<@now`, the query
-`#issues $project \g $overdue%fraction_true` gives each project's share of overdue issues.
+| Function | Description | Compiles to |
+| -- | -- | -- |
+| `percentile(fraction)` | The value below which that fraction of a numeric column falls, interpolated. `%percentile(0.5)` is the median. | `percentile_cont(fraction) WITHIN GROUP (ORDER BY x)` |
 
-None of these take sorting entries. None become window functions in this round, since PostgreSQL
-can't use `percentile_cont` or `mode` over a window.
+`percentile` takes no sorting entries, and it isn't a window function, since PostgreSQL can't use
+`percentile_cont` over a window.
 
-## Compiler work beyond a registry row
+## What composes
 
-Most functions need only a row in `get_standard_scalar_functions` or
-`get_standard_aggregate_functions` in `compiler/src/compiler/functions.rs`. These need more:
+Everything below was in the earlier draft of this spec as a function of its own, or is a common
+request. None needs one.
 
-- **Optional arguments.** `round`, `slice`, `log`, `pad_start`, and `pad_end` take one argument or
-  two. The helpers `args_1`, `args_2`, and `args_v` don't cover that, so add one that does.
-- **`Dialect` methods** for `starts_with`, `ends_with`, `regex_replace`, `regex_extract`,
-  `weekday_name`, `month_name`, `size`, and `last`. `from_epoch` uses the existing
-  `coerce_temporal_to_naive`.
-- **A new `TypeRule`** for `first` and `last`: the element type of an array argument. `split`
-  returns `Array(Text)`, which `Fixed` covers.
+| To get | Write |
+| -- | -- |
+| The first or last element | `x\|at(0)`, `x\|at(-1)` |
+| One part of split text | `email\|split("@")\|at(1)` |
+| `string_agg` | `#labels.name%list(\s)\|join(", ")` |
+| A value from the latest related record | `#comments.body%list_all(\\created_at \d)\|at(0)` |
+| The latest three | `#comments.body%list_all(\\created_at \d)\|slice(0 3)` |
+| Trim one end | `x\|regex_replace('^\s+' "")`, `x\|regex_replace('\s+$' "")` |
+| Replace text | `x\|regex_replace('colour' "color")` |
+| Starts or ends with | `x:~'^Fix'`, `x:~'\.md$'` |
+| The position of text | `x\|regex_extract('^(.*?)needle' 1)\|length` |
+| The first or last 3 characters | `x\|regex_extract('^.{0,3}')`, `x\|regex_extract('.{0,3}$')` |
+| Pad with zeros to 5 digits | `^f"0000{id}"\|regex_extract('.{5}$')` |
+| Weeks or months in a duration | `x\|days\|divide(7)`, `x\|days\|divide(30.44)` |
+| Hour of the day | `t\|minus(t\|start_of("day"))\|hours\|floor` |
+| Day of the week (0 is Monday) | `t\|minus(t\|start_of("week"))\|days\|floor` |
+| Day of the year | `t\|minus(t\|start_of("year"))\|days\|floor\|plus(1)` |
+| Quarter | `t\|month\|plus(2)\|divide(3)\|floor` |
+| Seconds since 1970 | `t\|minus(@1970-01-01)\|seconds` |
+| A timestamp from seconds since 1970 | `@1970-01-01\|plus(n\|to_duration)` |
+| A duration from days | `n\|times(86400)\|to_duration` |
+| Round | `x\|plus(0.5)\|floor` |
+| Logarithm to base `b` | `x\|ln\|divide(b\|ln)` |
+| `null_if` | `? x:==v ~ @null ~~ x` |
+| Convert to text | `^f"{x}"` |
+| Median | `x%percentile(0.5)` |
+| Standard deviation | `x\|pow(2)%avg\|minus(x%avg\|pow(2))\|sqrt` |
+| Count or share of true values | `flag\|(@b => ? @b ~ 1 ~~ 0)%sum`, or `%avg` |
+| The most common value | `#comments.user%top(\\%count \d)` |
+| The number of elements | `x\|length` |
+
+The calendar rows are written for timestamps. Between two plain dates, `minus` already gives a
+number of days.
+
+## Compiler work
+
+Some of these are only a row in `get_standard_scalar_functions`
+(`compiler/src/compiler/functions.rs`). The rest need:
+
+- **Optional and literal arguments.** A helper for functions with optional arguments, and one that
+  reads an argument as a literal (`unit`, `flags`, `group`) and reports an error at it otherwise.
+- **Choosing SQL by type.** `at` and `length` compile differently for an array, and `start_of` for
+  a date. They call `infer_type` on the argument, as `arg_zone` already does for time zones.
+- **New `TypeRule`s.** `at` returns the element type of an array, and text otherwise.
+- **`Dialect` methods** for `regex_replace`, `regex_extract`, `to_duration`, `to_array`, array `at`,
+  `slice`, array `length`, and JSON `at`.
 - **Arguments to aggregate functions.** The parentheses after `%name` hold only sorting entries
-  today (`aggregate_order_by` in `parser/src/parser/expr/pipe.rs`). `percentile(p)` needs the
-  parser to accept value arguments there as well, and `Call.args` to carry them. This is the only
-  change to the parser.
+  today (`aggregate_order_by` in `parser/src/parser/expr/pipe.rs`). `percentile` needs the parser to
+  accept value arguments there, and `Call.args` to carry them. This is the only parser change.
+- **DuckDB's JSON extension.** The `db-tests` build uses the `duckdb` crate with only its `bundled`
+  feature. JSON needs its `json` feature too, which means rebuilding DuckDB. Applications need the
+  extension loaded, which official DuckDB builds do by themselves.
 
-## For each function
-
-1. Add it to the registry, with its `TypeRule`.
-2. Add its entry to `compiler/src/compiler/completion/catalog.rs`. Tests keep the two in step.
-3. Add corpus cases to `compiler/src/tests/corpus.md`, and pass `cargo test --features db-tests`
-   for both databases.
-4. Document it in `docs/functions.md` with a `qd` example. Add the common ones to
-   `docs/cheat-sheet.md`.
-5. Add it to the release notes under "What's new".
+For each function: add it to the registry and to `compiler/src/compiler/completion/catalog.rs`, add
+corpus cases that pass `cargo test --features db-tests`, document it in `docs/functions.md`, and add
+it to the release notes.
 
 ## Order of work
 
-- **Phase 1** (43 functions): the same SQL in both dialects, so each is a registry row plus
-  the optional-arguments helper.
-- **Phase 2** (10 functions): those whose SQL differs between the dialects, or that need the new
-  `TypeRule`.
-- **Phase 3** (1 function): `percentile`, after the parser change.
+1. **Same SQL in both dialects:** `ln`, `split`, `join`, `has`, `to_number`, `to_date`,
+   `to_timestamp`, `start_of`.
+2. **Dialect-specific or chosen by type:** `regex_replace`, `regex_extract`, `to_duration`, array
+   `at`, `slice`, `length` for arrays.
+3. **JSON:** `at` for JSON, `to_array`, and a JSON column in the sample schema.
+4. **`percentile`**, after the parser change.
 
-## Not planned
+## Left out
 
-These already have syntax, so they get no function:
+Nothing that exists can do these. They wait until someone needs them:
 
-| You might look for | Use instead |
-| -- | -- |
-| `if`, `case` | the case expression `? a ~ b ~~ c` |
-| `between` | a range, `x:1..5` |
-| `in` | comparison expansion, `status:[open reopened]` |
-| `contains`, `matches` | the `:` and `:~` operators |
-| `is_null` | `x:@null` |
-| `format` (text) | a formatted string, `^f"{a} {b}"` |
-| `string_agg` | `%list` and then `join` |
-| aggregate `first`, `last` | `%list_all( … )` and then `first` |
-
-Deferred until someone asks, or until what they depend on exists:
-
-- **`format_date(pattern)`.** PostgreSQL's `to_char` and DuckDB's `strftime` take different
-  patterns, so Querydown would need a pattern language of its own.
-- **Calendar differences**, such as the whole months between two dates. `months` is an
-  approximation.
+- **Trigonometry.** `sin`, `cos`, and `atan2` would cover all of it.
 - **`random`.** It takes no arguments, and nothing calls a function without arguments yet.
+  `unit_hash` already gives a stable shuffle or sample.
 - **Time zone conversion.** DuckDB can't do it without the ICU extension.
-- **Trigonometry, bitwise operations, and JSON access.**
+- **Formatting a date as text** in an arbitrary pattern. PostgreSQL's `to_char` and DuckDB's
+  `strftime` take different patterns, so Querydown would need a pattern language of its own.
+- **More of JSON:** an object's keys, and reading the same key from every element of an array.
 
 ## Open questions
 
-1. **Should `starts_with` and `ends_with` ignore case?** Recommended: yes, since `:` and `:=` do.
-   Anyone who needs an exact match has `:\c~'^…'`.
-2. **What should `to_number` and `to_date` do with text they can't convert?** DuckDB can give NULL
-   (`TRY_CAST`), but PostgreSQL 15 can only raise an error. Recommended: an error in both, so the
-   dialects agree.
-3. **How long is a month for `months`?** A twelfth of a year (30.4375 days) makes
-   `x|months` equal `x|years|times(12)`. But `EXTRACT(epoch …)` counts an interval of one month as
-   30 days, so `1m|months` would be 0.99. Recommended: a twelfth of a year, since `months` is mostly
-   applied to `age`, which has no month part.
-4. **Should `length` count an array's elements, in place of a separate `size`?** Recommended: no.
-   The compiler would have to choose by the argument's inferred type, which is sometimes unknown.
+1. **Should `round` be an exception to rule 1?** It's left out because `floor` can do it. But the
+   workaround is clumsy for decimal places (`x|times(100)|plus(0.5)|floor|divide(100)`), and
+   rounding is among the most common needs.
+2. **Should `at` read JSON, or should JSON get its own function?** One function for every kind of
+   indexing is simpler to learn. The cost: `at` on plain text is a database error rather than a
+   compile error, because text may hold JSON. Recommended: one function.
+3. **Should `length` count an array's elements, or should arrays get `size`?** Recommended:
+   `length`. The compiler always knows when a value is an array, which `at` relies on too.
+4. **What should a conversion do with text it can't convert?** DuckDB can give NULL (`TRY_CAST`),
+   but PostgreSQL 15 can only raise an error. Recommended: an error in both, so the dialects agree.
+5. **Is `to_duration` the right name?** It only takes seconds, so `from_seconds` would be more
+   literal. Recommended: `to_duration`, to sit with the other conversions.
