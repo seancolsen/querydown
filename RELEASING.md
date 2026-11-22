@@ -78,7 +78,9 @@ fast-forwards to the commit it publishes. (See [DEVELOPMENT.md](./DEVELOPMENT.md
     scripts/release.sh prepare 0.2.0
     ```
 
-1. **Write the release notes**, in `site/content/releases/0.2.0.md`. Follow the earlier releases:
+1. **Finish the release notes**, in `site/content/releases/0.2.0.md`. They're written on `main`
+    as the changes land (see [CLAUDE.md](./CLAUDE.md#release-notes)), so check them against the log
+    above for anything missing. Follow the earlier releases:
     - The paragraph after the title sums up the release. The site uses it as the page's
       description.
     - List what's new, with links to the docs.

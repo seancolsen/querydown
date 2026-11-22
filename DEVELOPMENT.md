@@ -195,7 +195,7 @@ it describes the latest release rather than what's in development.
 
 | Branch | Holds | Published |
 | -- | -- | -- |
-| `main` | Development: new features, bug fixes, and the changes to the docs that describe them. Releases are cut from it. | No |
+| `main` | Development: new features, bug fixes, the changes to the docs that describe them, and the next release's notes. Releases are cut from it. | No |
 | `stable` | The latest release, plus changes to the docs and the site that are true of that release. | On every push, to querydown.org (by Netlify) |
 
 Most work goes on `main`. Work on `stable` only to change what's published now, without a release:
