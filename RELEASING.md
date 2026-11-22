@@ -52,6 +52,18 @@ Never reuse a version number, even for a release that was yanked.
 
 ## Cutting a release
 
+A release is cut on `main`. The site is published from the `stable` branch, which a release
+fast-forwards to the commit it publishes. (See [DEVELOPMENT.md](./DEVELOPMENT.md#branches).)
+
+1. **Merge `stable` into `main`**, so that the release includes the fixes to the docs made there
+   since the last merge, and so that `stable` can be fast-forwarded to it later. The script checks
+   this.
+
+    ```sh
+    git switch main
+    git merge stable
+    ```
+
 1. **Pick the version**, as above, and look over what's changed since the last release:
 
     ```sh
@@ -112,11 +124,19 @@ Never reuse a version number, even for a release that was yanked.
     If it stops partway, fix the problem and run it again: it skips whatever is already
     published. Don't change the commit in between, since part of it is already out.
 
-1. **Push** the commit and the tag, from wherever you can push to GitHub:
+1. **Move `stable`** to the release, and **push** it with `main` and the tag, from wherever you can
+   push to GitHub. Pushing `stable` deploys the site, so that its docs and release notes match
+   what's published.
 
     ```sh
-    git push origin main v0.2.0
+    git switch stable
+    git merge --ff-only v0.2.0
+    git switch main
+    git push origin main stable v0.2.0
     ```
+
+    If the merge isn't a fast-forward, `stable` has commits that the release doesn't. Find out
+    what they are (`git log v0.2.0..stable`) before going further.
 
 1. **Create the GitHub release.** With the [GitHub CLI](https://cli.github.com/) installed, this
    creates it from the release notes. Without it, the script tells you what to paste where.
@@ -124,8 +144,6 @@ Never reuse a version number, even for a release that was yanked.
     ```sh
     scripts/release.sh github-release
     ```
-
-1. **Deploy the site**, so that its docs and release notes match what's published.
 
 ## After a release
 

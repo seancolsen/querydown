@@ -26,6 +26,26 @@ In short:
 - After changing documentation (or the site), build the site, which renders every page and checks
   every link: `cd site && npm install && npm run build`. This needs Node.js 22.17 or later.
 
+## Branches
+
+querydown.org is published from the `stable` branch, which holds the latest release plus changes to
+the docs and the site that are true of it. Development happens on `main`. The "Branches" section of
+[DEVELOPMENT.md](DEVELOPMENT.md#branches) explains the strategy.
+
+- Work on the branch you're on (`git branch --show-current`). Don't switch branches unless asked.
+- On `main`, anything goes. When you change the language, update its docs there, never on `stable`.
+- On `stable`, change only the docs, the site, and its content, and only in ways that are true of
+  the released version. Never change the parser, compiler, CLI, or bindings there, and never
+  document anything that isn't released yet.
+- After committing to `stable`, merge it into `main`, and return to `stable`
+  (`git switch main && git merge stable && git switch stable`). If `main` is checked out in another
+  worktree, so that you can't, say in your response that `stable` needs merging.
+- Never merge `main` into `stable`, or push either one. `stable` only moves to `main` when a release
+  is cut (see `RELEASING.md`).
+- If you're on `main` and asked for a change only to the docs or the site that's also true of the
+  released version, ask whether it should be published now (that is, made on `stable`) before
+  making it.
+
 ## Releases
 
 [RELEASING.md](RELEASING.md) describes how a release is cut and published to crates.io and npm, with

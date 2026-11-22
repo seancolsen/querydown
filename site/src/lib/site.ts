@@ -17,5 +17,10 @@ export const SOCIAL_CARD = {
 
 export const GITHUB_REPO = 'seancolsen/querydown';
 export const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
+/**
+ * The branch that the site is published from, which matches the latest release. Links to files on
+ * GitHub point at it, so that they show what the site describes rather than unreleased changes.
+ */
+export const GITHUB_BRANCH = 'stable';
 /** Where a file of the repository can be read on GitHub. */
-export const githubFileUrl = (path: string) => `${GITHUB_URL}/blob/main/${path}`;
+export const githubFileUrl = (path: string) => `${GITHUB_URL}/blob/${GITHUB_BRANCH}/${path}`;

@@ -188,6 +188,46 @@ add a `db_skip` to its ```` ```toml options ```` block: `db_skip = true` (all en
 This setup is also the foundation for future data-driven E2E tests: seed rows into the tables and assert
 on result sets instead of just running `EXPLAIN`.
 
+## Branches
+
+The website, [querydown.org](https://querydown.org), is published from the `stable` branch, so that
+it describes the latest release rather than what's in development.
+
+| Branch | Holds | Published |
+| -- | -- | -- |
+| `main` | Development: new features, bug fixes, and the changes to the docs that describe them. Releases are cut from it. | No |
+| `stable` | The latest release, plus changes to the docs and the site that are true of that release. | On every push, to querydown.org (by Netlify) |
+
+Most work goes on `main`. Work on `stable` only to change what's published now, without a release:
+
+- **What can go on `stable`:** corrections and clarifications to the docs, the home page and other
+  marketing, and the site's own code (as long as it works with the released compiler).
+- **What can't:** anything that changes Querydown itself (the parser, the compiler, the CLI, the
+  bindings), and any doc that describes something that isn't released yet. When you change the
+  language, update its docs on `main`, along with the change.
+- **Merge `stable` into `main`** soon after committing to it, so that `main` has the fix too, and
+  the two branches don't drift apart:
+
+    ```sh
+    git switch stable
+    # ...commit the change...
+    git push origin stable    # publishes it
+    git switch main
+    git merge stable
+    ```
+
+    If the merge conflicts, it's usually because `main` has changed the same docs for an unreleased
+    feature. Keep `main`'s version, and work the fix into it.
+
+- **Never merge `main` into `stable`.** `stable` moves to `main` only when a release is cut, by
+  fast-forwarding it to the release's tag. [RELEASING.md](RELEASING.md) describes that, and
+  `scripts/release.sh` refuses to release a `main` that's missing commits from `stable`.
+
+The docs' examples on each branch are compiled by that branch's compiler, so `cargo test` on
+`stable` checks the published docs against the released language. The site's links to files on
+GitHub (such as "Edit this page on GitHub") point at `stable` too. To see the docs as they are on
+`main`, run the site locally (see above).
+
 ## Releasing
 
 [RELEASING.md](RELEASING.md) describes how to cut a release, which publishes the crates to

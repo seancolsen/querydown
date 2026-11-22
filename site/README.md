@@ -38,6 +38,8 @@ To reach the dev server from outside the container, map its port in `docker-comp
 
 `npm run build` writes a static site to `build/`, which any static file host can serve. It expects to be served from the root of its domain, and to have `/docs/language` serve `build/docs/language.html` (as Netlify, Cloudflare Pages, and GitHub Pages do). `build/404.html` is the page for URLs that don't exist.
 
+querydown.org is built by Netlify from the `stable` branch, on every push to it, so that the site matches the latest release. [DEVELOPMENT.md](../DEVELOPMENT.md#branches) explains which changes go on `stable` and which on `main`.
+
 ## How it works
 
 ### Content

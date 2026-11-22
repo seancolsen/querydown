@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { GITHUB_URL } from '#lib/site.ts';
+  import { githubFileUrl } from '#lib/site.ts';
 </script>
 
 <footer>
   <p>
     Querydown is open source under the
-    <a href="{GITHUB_URL}/blob/main/LICENSE">MIT license</a>, and made by
+    <a href={githubFileUrl('LICENSE')}>MIT license</a>, and made by
     <a href="https://github.com/seancolsen/">Sean Colsen</a>.
   </p>
   <p>&copy; 2022&ndash;{new Date().getFullYear()} Sean Colsen.</p>

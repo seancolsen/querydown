@@ -108,16 +108,25 @@ require_tools() {
   done
 }
 
-# Checks the state of the repository: on `main`, with nothing uncommitted, and nothing on GitHub
-# that's missing here.
+# Checks the state of the repository: on `main`, with nothing uncommitted, nothing on GitHub
+# that's missing here, and everything from `stable` merged in (so that `stable` can be
+# fast-forwarded to the release).
 check_git() {
   local v=$1
   [[ $(git branch --show-current) == main ]] || fail "Release from the main branch."
   [[ -z $(git status --porcelain) ]] ||
     fail "The working tree has changes. Commit them first (the packages are built from HEAD)."
+  if git rev-parse -q --verify refs/heads/stable >/dev/null; then
+    git merge-base --is-ancestor stable HEAD ||
+      fail "stable has commits that HEAD doesn't. Merge stable into main first."
+  fi
   if git fetch --quiet origin main 2>/dev/null; then
     git merge-base --is-ancestor origin/main HEAD ||
       fail "origin/main has commits that HEAD doesn't. Pull them first."
+    if git fetch --quiet origin stable 2>/dev/null; then
+      git merge-base --is-ancestor origin/stable HEAD ||
+        fail "origin/stable has commits that HEAD doesn't. Merge it into main first."
+    fi
     if git ls-remote --exit-code --tags origin "v$v" >/dev/null 2>&1; then
       fail "The tag v$v is already on GitHub."
     fi
@@ -354,9 +363,10 @@ cmd_publish() {
   cat <<EOF
 
 $v is published. Next, from wherever you can push to GitHub:
-  1. git push origin main v$v
-  2. scripts/release.sh github-release
-  3. Deploy the site, and run the checks after a release (RELEASING.md).
+  1. git switch stable && git merge --ff-only v$v && git switch main
+  2. git push origin main stable v$v    (pushing stable deploys the site)
+  3. scripts/release.sh github-release
+  4. Run the checks after a release (RELEASING.md).
 EOF
 }
 

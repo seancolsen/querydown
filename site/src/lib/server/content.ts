@@ -22,7 +22,7 @@ import path from 'node:path';
 
 import type { Page } from '../content-types';
 import { DOCS, pagesOf, PLAYGROUND, RELEASES_PATH, type NavPage } from '../nav';
-import { GITHUB_URL } from '../site';
+import { GITHUB_BRANCH, GITHUB_URL } from '../site';
 import { headingIds, parseMarkdown, renderMarkdown } from './markdown';
 import { repoPath } from './paths';
 import { SAMPLE_SCHEMA_FILE } from './querydown';
@@ -150,7 +150,7 @@ function resolveLink(file: string, url: string, ids: Set<string>): string {
   const pageUrl = urlOfFile(targetFile);
   if (pageUrl === null) {
     const kind = statSync(repoPath(targetFile)).isDirectory() ? 'tree' : 'blob';
-    return `${GITHUB_URL}/${kind}/main/${targetFile}${fragment ? `#${fragment}` : ''}`;
+    return `${GITHUB_URL}/${kind}/${GITHUB_BRANCH}/${targetFile}${fragment ? `#${fragment}` : ''}`;
   }
   if (fragment === undefined) return pageUrl;
   if (!idsOfFile(targetFile).has(fragment)) {

@@ -6,6 +6,8 @@ To build and preview the site locally, see [site/README.md](../site/README.md).
 
 To read the docs, start at [language.md](./language.md), or visit the site.
 
+The site is published from the `stable` branch, so it describes the latest release. Document a change to the language on `main`, along with the change. Fix the docs of the released version on `stable`. [DEVELOPMENT.md](../DEVELOPMENT.md#branches) explains.
+
 ## Where things are
 
 | Content | Lives in | Becomes |
