@@ -261,6 +261,12 @@ fn test_literals() {
     );
     check(
         Conditions,
+        "a:@2024-01-31T11:33 b:>@2024-01-31T11:33:07.25 c:@2024-01-31T11",
+        "a:column ::comparison-operator @2024-01-31T11:33:date b:column :>:comparison-operator \
+         @2024-01-31T11:33:07.25:date c:column ::comparison-operator @2024-01-31:date T11:date",
+    );
+    check(
+        Conditions,
         "// line\na:1 /* block /* nested */ */",
         "// line:comment a:column ::comparison-operator 1:number \
          /* block /* nested */ */:comment",
@@ -464,7 +470,7 @@ fn test_non_ascii() {
 #[test]
 fn test_every_prefix_is_well_formed() {
     let query = "@@f = @a => @a + 1\n#t.c = x|f\n#issues /* c */ title:~[\"a\\n\" b] body:\\cms~x \
-                 ++#comments(author){x} due:@2024-01-01..<@now created:3d..1y6m \
+                 ++#comments(author){x} due:@2024-01-01..<@2024-02-01T10:30:00.5 created:3d..1y6m \
                  \\\\created_at \\d $author.* $%count -> total \\s2d @{w:100 t:[a b] ok:@true} \
                  $? s:=1 ~ 'é' ~~ -1.5 $%%(a\\p d\\s)%sum(x) $q%percentile(0.5 \\s) ~~~ $*(id\\h) $`naïve`.( $y ) \
                  $^fe|a\\n{{{x|f(^'é')}}}| \
@@ -482,7 +488,7 @@ fn test_every_prefix_is_well_formed() {
 #[test]
 fn test_non_ascii_anywhere_is_well_formed() {
     let query =
-        "#issues $id $ ? #comments:>0~'é' 90min ~~'❌' due:@2024-01-01 1y6m \\d x|f $@a ++#c";
+        "#issues $id $ ? #comments:>0~'é' 90min ~~'❌' due:@2024-01-01T10:30:00.5 1y6m \\d x|f $@a ++#c";
     for (at, _) in query.char_indices().chain([(query.len(), ' ')]) {
         let source = format!("{}😀{}", &query[..at], &query[at..]);
         for grammar in [Query, Definitions, Conditions, Sorting, Display] {

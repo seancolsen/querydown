@@ -110,7 +110,8 @@ pub fn convert_comparison(c: Comparison, scope: &mut Scope) -> Result<SqlExpr, E
     }
 }
 
-/// Whether `expr` is a literal that isn't a condition: text, a number, a date, or a duration.
+/// Whether `expr` is a literal that isn't a condition: text, a number, a date, a timestamp, or a
+/// duration.
 pub(super) fn is_literal_value(expr: &Expr) -> bool {
     matches!(
         expr.kind,
@@ -118,6 +119,7 @@ pub(super) fn is_literal_value(expr: &Expr) -> bool {
             | ExprKind::FormatString(_)
             | ExprKind::Number(_)
             | ExprKind::Date(_)
+            | ExprKind::Timestamp(_)
             | ExprKind::Duration(_)
     )
 }
@@ -574,6 +576,7 @@ fn expr_all_match(expr: &Expr) -> bool {
         ExprKind::Subquery(_) => true,
         ExprKind::Number(_)
         | ExprKind::Date(_)
+        | ExprKind::Timestamp(_)
         | ExprKind::Duration(_)
         | ExprKind::String(_)
         | ExprKind::Variable(_) => true,
@@ -681,6 +684,7 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
         ExprKind::Subquery(_) => {}
         ExprKind::Number(_)
         | ExprKind::Date(_)
+        | ExprKind::Timestamp(_)
         | ExprKind::Duration(_)
         | ExprKind::String(_)
         | ExprKind::Variable(_) => {}

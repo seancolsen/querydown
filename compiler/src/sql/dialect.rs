@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use querydown_parser::ast::{Date, Duration, RegexFlags};
+use querydown_parser::ast::{Date, Duration, RegexFlags, Timestamp};
 
 use super::expr::{build, SqlExpr, SqlExprPrecedence};
 
@@ -173,6 +173,9 @@ pub trait Dialect {
 
     /// Render a date literal
     fn date(&self, date: &Date) -> String;
+
+    /// Render a timestamp literal, which has no time zone
+    fn timestamp(&self, timestamp: &Timestamp) -> String;
 
     /// Render a duration literal
     fn duration(&self, duration: &Duration) -> String;

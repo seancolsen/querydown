@@ -636,6 +636,71 @@ WHERE
   CAST("users"."last_seen" AS TIMESTAMP) > DATE '2023-03-04';
 ```
 
+### Timestamp literal
+
+> Users last seen after half past eight on a given day. A timestamp literal is naive, like a date
+> literal.
+
+```qd
+#users last_seen:>@2023-03-04T08:30
+```
+
+```sql
+SELECT
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen",
+  "users"."preferences"
+FROM "users"
+WHERE
+  "users"."last_seen" > TIMESTAMP '2023-03-04 08:30:00';
+```
+
+### Timestamp literal (DuckDB)
+
+> The same query under DuckDB, where the zoned `last_seen` is cast down to a naive timestamp.
+
+```toml options
+dialect = "duckdb"
+```
+
+```qd
+#users last_seen:>@2023-03-04T08:30
+```
+
+```sql
+SELECT
+  "users"."id",
+  "users"."username",
+  "users"."email",
+  "users"."team",
+  "users"."birth_date",
+  "users"."last_seen",
+  "users"."preferences"
+FROM "users"
+WHERE
+  CAST("users"."last_seen" AS TIMESTAMP) > TIMESTAMP '2023-03-04 08:30:00';
+```
+
+### Timestamp literal with a fraction of a second
+
+> Issues created before a precise moment
+
+```qd
+#issues created_at:<@2024-01-31T23:59:59.999 $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."created_at" < TIMESTAMP '2024-01-31 23:59:59.999';
+```
+
 ### Negated comparison
 
 > Issues whose status is not "open", including issues with no status

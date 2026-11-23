@@ -27,7 +27,7 @@ use self::{
     case::case,
     comparison::{comparison, left_comparison_side, right_comparison_side},
     condition_set::condition_set,
-    date::date,
+    date::date_or_timestamp,
     duration::duration,
     flagged_string::flagged_string,
     has_quantity::has_quantity,
@@ -97,7 +97,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
             // requires a trailing unit (e.g. `6m`), so a unit-less number like `6` falls through.
             duration().map(ExprKind::Duration),
             number().map(ExprKind::Number),
-            date().map(ExprKind::Date),
+            date_or_timestamp(),
             string().map(ExprKind::String),
             flagged_string(id.clone()),
             // `function_call` is tried before `variable` because both begin with `@`; the `@@`
@@ -137,7 +137,7 @@ pub fn expr<'src>() -> impl Psr<'src, Expr> {
                 // See the ordering note on `id_atom` above: `duration` before `number`.
                 duration().map(ExprKind::Duration),
                 number().map(ExprKind::Number),
-                date().map(ExprKind::Date),
+                date_or_timestamp(),
                 string().map(ExprKind::String),
                 // An interpolation reads bare words as column references, so it is given the
                 // identifier-mode parser even here.

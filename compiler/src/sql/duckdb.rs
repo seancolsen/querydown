@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use querydown_parser::ast::{Date, Duration, RegexFlags};
+use querydown_parser::ast::{Date, Duration, RegexFlags, Timestamp};
 
 use super::{
     dialect::{
@@ -76,6 +76,10 @@ impl Dialect for DuckDB {
 
     fn date(&self, date: &Date) -> String {
         Postgres().date(date)
+    }
+
+    fn timestamp(&self, timestamp: &Timestamp) -> String {
+        Postgres().timestamp(timestamp)
     }
 
     fn duration(&self, duration: &Duration) -> String {

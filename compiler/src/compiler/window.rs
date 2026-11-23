@@ -216,6 +216,7 @@ fn collect_windows(expr: &Expr, windows: &mut Vec<(WindowFn, Loc)>) {
         | ExprKind::Subquery(_)
         | ExprKind::Number(_)
         | ExprKind::Date(_)
+        | ExprKind::Timestamp(_)
         | ExprKind::Duration(_)
         | ExprKind::String(_)
         | ExprKind::Variable(_)

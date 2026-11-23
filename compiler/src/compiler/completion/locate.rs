@@ -401,7 +401,10 @@ impl Walker<'_> {
     /// `condition` means that `expr` stands as a condition (or the left side of a comparison).
     fn expr(&self, expr: &Expr, env: &Env, condition: bool) -> Option<Found> {
         match &expr.kind {
-            ExprKind::Number(_) | ExprKind::Date(_) | ExprKind::Duration(_) => None,
+            ExprKind::Number(_)
+            | ExprKind::Date(_)
+            | ExprKind::Timestamp(_)
+            | ExprKind::Duration(_) => None,
             ExprKind::String(s) if is_sentinel(s) => match env.rhs {
                 true => env.found(Target::Nothing),
                 // A search term.

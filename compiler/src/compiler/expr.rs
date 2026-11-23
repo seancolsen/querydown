@@ -33,6 +33,7 @@ fn convert_expr_kind(kind: ExprKind, loc: Loc, scope: &mut Scope) -> Result<SqlE
     match kind {
         ExprKind::Number(n) => Ok(SqlExpr::atom(n)),
         ExprKind::Date(d) => Ok(SqlExpr::atom(scope.options.dialect.date(&d))),
+        ExprKind::Timestamp(t) => Ok(SqlExpr::atom(scope.options.dialect.timestamp(&t))),
         ExprKind::Duration(d) => Ok(SqlExpr::atom(scope.options.dialect.duration(&d))),
         ExprKind::String(s) => Ok(SqlExpr::atom(scope.options.dialect.quote_string(&s))),
         ExprKind::FormatString(parts) => convert_format_string(parts, scope),
@@ -305,8 +306,8 @@ pub fn convert_condition_set(
 /// expression such as a negated column or condition set — falls through to `convert_expr` unchanged.
 ///
 /// A variable bound to a string (e.g. a constant, `@term = "backend"`) is a search term too, since
-/// a variable stands for whatever it's bound to. Any other literal value — a number, a date, or a
-/// duration — isn't a condition at all, and is reported as an error rather than handed to the
+/// a variable stands for whatever it's bound to. Any other literal value — a number, a date, a
+/// timestamp, or a duration — isn't a condition at all, and is reported as an error rather than handed to the
 /// database to reject.
 fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr, Error> {
     let loc = entry.loc;
@@ -317,6 +318,7 @@ fn convert_condition_set_entry(entry: Expr, scope: &mut Scope) -> Result<SqlExpr
     let literal_kind = match form.as_ref().map_or(&entry.kind, |form| &form.kind) {
         ExprKind::Number(_) => Some("number"),
         ExprKind::Date(_) => Some("date"),
+        ExprKind::Timestamp(_) => Some("timestamp"),
         ExprKind::Duration(_) => Some("duration"),
         _ => None,
     };

@@ -512,16 +512,32 @@ impl Lexer<'_> {
         }
     }
 
-    /// The length of the `@YYYY-MM-DD` date at `pos`, if there is one.
+    /// The length of the `@YYYY-MM-DD` date at `pos`, if there is one, including any time of day
+    /// that follows it as in a timestamp (`T11:33`, `T11:33:00`, or `T11:33:00.25`).
     fn date_len(&self) -> Option<usize> {
         let bytes = self.rest().as_bytes();
-        let shape = b"@dddd-dd-dd";
-        let matches = bytes.len() >= shape.len()
-            && shape.iter().zip(bytes).all(|(s, b)| match s {
-                b'd' => b.is_ascii_digit(),
-                _ => s == b,
-            });
-        matches.then_some(shape.len())
+        let has_shape = |offset: usize, shape: &[u8]| {
+            bytes.len() >= offset + shape.len()
+                && shape.iter().zip(&bytes[offset..]).all(|(s, b)| match s {
+                    b'd' => b.is_ascii_digit(),
+                    _ => s == b,
+                })
+        };
+        let date = b"@dddd-dd-dd";
+        if !has_shape(0, date) {
+            return None;
+        }
+        let mut len = date.len();
+        if has_shape(len, b"Tdd:dd") {
+            len += 6;
+            if has_shape(len, b":dd") {
+                len += 3;
+                if has_shape(len, b".d") {
+                    len += 1 + self.run_len(len + 1, |c| c.is_ascii_digit());
+                }
+            }
+        }
+        Some(len)
     }
 
     /// Lexes a number or a duration (a number with unit suffixes, e.g. `1y6m` or `90min`).

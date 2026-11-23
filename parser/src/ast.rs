@@ -471,6 +471,8 @@ impl From<ExprKind> for Expr {
 pub enum ExprKind {
     Number(String),
     Date(Date),
+    /// A date with a time of day, e.g. `@2026-11-22T11:33:00`.
+    Timestamp(Timestamp),
     Duration(Duration),
     String(String),
     /// A string with interpolated expressions, written as a flagged string with the `f` flag, e.g.
@@ -620,6 +622,45 @@ pub struct Date {
 impl Date {
     pub fn to_iso(&self) -> String {
         format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+
+/// A time of day, as written in a [`Timestamp`] literal. It has no time zone.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TimeOfDay {
+    pub hour: u32,
+    pub minute: u32,
+    pub second: u32,
+    /// The fraction of a second, in microseconds.
+    pub microsecond: u32,
+}
+
+impl TimeOfDay {
+    /// The time as `HH:MM:SS`, followed by the fraction of a second when there is one, e.g.
+    /// `11:33:00` or `11:33:00.25`.
+    pub fn to_iso(&self) -> String {
+        let mut iso = format!("{:02}:{:02}:{:02}", self.hour, self.minute, self.second);
+        if self.microsecond != 0 {
+            let fraction = format!("{:06}", self.microsecond);
+            iso.push('.');
+            iso.push_str(fraction.trim_end_matches('0'));
+        }
+        iso
+    }
+}
+
+/// A date and a time of day, without a time zone, e.g. `@2026-11-22T11:33:00`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Timestamp {
+    pub date: Date,
+    pub time: TimeOfDay,
+}
+
+impl Timestamp {
+    /// The timestamp in ISO 8601 format, with a `T` between the date and the time, e.g.
+    /// `2026-11-22T11:33:00`.
+    pub fn to_iso(&self) -> String {
+        format!("{}T{}", self.date.to_iso(), self.time.to_iso())
     }
 }
 

@@ -44,6 +44,8 @@ pub fn infer_type(expr: &Expr, scope: &mut Scope) -> ValueType {
     match &expr.kind {
         ExprKind::Number(_) => ValueType::Number,
         ExprKind::Date(_) => ValueType::Date,
+        // A timestamp literal has no time zone.
+        ExprKind::Timestamp(_) => ValueType::Time { has_tz: false },
         ExprKind::String(_) | ExprKind::FormatString(_) => ValueType::Text,
         ExprKind::Duration(_) => ValueType::Duration,
         ExprKind::Variable(name) => infer_variable(name, scope),

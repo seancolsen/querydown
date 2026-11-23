@@ -484,7 +484,7 @@ A zoned timestamp (`timestamptz`) gives its date in the session time zone on Pos
 
 ### `to_timestamp`
 
-Converts ISO 8601 text, such as `"2024-03-01T09:30:00"`, to a timestamp without a time zone. Compiles to `CAST(value AS TIMESTAMP)`. Text that isn't a timestamp is an error from the database.
+Converts ISO 8601 text, such as `"2024-03-01T09:30:00"`, to a timestamp without a time zone. Compiles to `CAST(value AS TIMESTAMP)`. Text that isn't a timestamp is an error from the database. For a timestamp that you know as you write the query, a [timestamp literal](./language.md#timestamp-literals), such as `@2024-03-01T09:30`, is shorter.
 
 > Find issues created after 9:30 on 1 March 2024
 

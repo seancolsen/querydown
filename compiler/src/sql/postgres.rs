@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use querydown_parser::ast::{Date, Duration, RegexFlags};
+use querydown_parser::ast::{Date, Duration, RegexFlags, Timestamp};
 
 use super::{
     dialect::{
@@ -72,6 +72,14 @@ impl Dialect for Postgres {
 
     fn date(&self, date: &Date) -> String {
         format!("DATE '{}'", date.to_iso())
+    }
+
+    fn timestamp(&self, timestamp: &Timestamp) -> String {
+        format!(
+            "TIMESTAMP '{} {}'",
+            timestamp.date.to_iso(),
+            timestamp.time.to_iso()
+        )
     }
 
     fn duration(&self, duration: &Duration) -> String {

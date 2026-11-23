@@ -32,7 +32,7 @@ pub enum TokenKind {
     Number,
     /// A duration, e.g. `3d` or `1y6m`.
     Duration,
-    /// A date, e.g. `@2024-01-31`.
+    /// A date or a timestamp, e.g. `@2024-01-31` or `@2024-01-31T11:33`.
     Date,
     /// A built-in constant, e.g. `@true`, `@null`, or `@now`.
     Constant,

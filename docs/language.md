@@ -198,7 +198,39 @@ A date is written in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format a
 #issues created_at:>=@2024-01-01
 ```
 
-There is no literal syntax for a time of day yet, so a timestamp like `@2000-01-01T08:30:00` is a syntax error. A date literal compared against a timestamp column means midnight at the start of that date.
+- A date literal compared against a timestamp column means midnight at the start of that date. For a time of day, write a [timestamp](#timestamp-literals).
+- A date that doesn't exist, such as `@2023-02-29`, is an error.
+
+### Timestamp literals
+
+A timestamp is a date and a time of day, written as a date followed by `T` and the time, in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format.
+
+> Issues created before half past eight in the morning on the first day of 2024
+
+```qd
+#issues created_at:<@2024-01-01T08:30 $title $created_at
+```
+
+```sql output
+SELECT
+  "issues"."title",
+  "issues"."created_at"
+FROM "issues"
+WHERE
+  "issues"."created_at" < TIMESTAMP '2024-01-01 08:30:00';
+```
+
+| Example | Meaning |
+| -- | -- |
+| `@2024-01-01T08:30` | 8:30 in the morning |
+| `@2024-01-01T08:30:15` | 15 seconds later |
+| `@2024-01-01T08:30:15.25` | a quarter of a second later still |
+| `@2024-01-01T20:00` | 8 in the evening |
+
+- Hours, minutes, and seconds are written with two digits each, on a 24-hour clock, from `00:00` to `23:59:59`. The seconds are optional, and so is a fraction of a second, of up to 6 digits (microseconds, which is as precisely as PostgreSQL and DuckDB keep a timestamp).
+- A time that doesn't exist, such as `T24:00` or `T08:60`, is an error.
+- A timestamp has no time zone, and writing one, as in `@2024-01-01T08:30Z` or `@2024-01-01T08:30+05:00`, is an error. Compared with a column that has a time zone, such as `last_seen` in the [sample schema](./sample-schema.md), a timestamp is read in the session's time zone in PostgreSQL. On DuckDB, which can't compare the two without the ICU extension, the column's value is first cast to a timestamp without a time zone, so it's compared as its UTC value.
+- Like a date, a timestamp works with [arithmetic](#arithmetic), [ranges](#ranges), and [date functions](./functions.md#date-and-time-functions).
 
 ### Duration literals
 

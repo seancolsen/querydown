@@ -63,6 +63,24 @@ const CASES: &[(&str, &str)] = &[
         "10.5|10.5|10.5|10.5|10.5",
     ),
     (r#""2024-01-02"|to_date|minus(@2024-01-01)"#, "1|1|1|1|1"),
+    // Timestamp literals.
+    (
+        r#"@2024-01-02T10:30|minus(@2024-01-02)|hours"#,
+        "10.5|10.5|10.5|10.5|10.5",
+    ),
+    (
+        r#"@2024-01-02T10:30:15.25|minus(@2024-01-02T10:30)|seconds"#,
+        "15.25|15.25|15.25|15.25|15.25",
+    ),
+    (
+        r#"@2024-01-02T10:30:00.000001|minus(@2024-01-02T10:30)|seconds"#,
+        "0.000001|0.000001|0.000001|0.000001|0.000001",
+    ),
+    (
+        r#"@2024-02-28T23:00|plus(n|times(3600)|seconds_to_duration)|to_date"#,
+        "2024-03-03|2024-02-28|∅|2024-02-28|∅",
+    ),
+    (r#"@now:>@2024-01-02T10:30"#, "true|true|true|true|true"),
     // Positions count from 0, or from the end when negative. Outside the array, there's nothing.
     (r#"s|split(",")|at(0)"#, "Fix: one fix|a|∅|∅|x\ny"),
     (r#"s|split(",")|at(1)"#, "∅|b|∅|∅|∅"),

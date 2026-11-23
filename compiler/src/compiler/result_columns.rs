@@ -138,6 +138,7 @@ fn contains_related_aggregate(expr: &Expr) -> bool {
         | ExprKind::Subquery(_)
         | ExprKind::Number(_)
         | ExprKind::Date(_)
+        | ExprKind::Timestamp(_)
         | ExprKind::Duration(_)
         | ExprKind::String(_)
         | ExprKind::Variable(_) => false,

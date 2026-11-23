@@ -22,6 +22,7 @@ $title $author.username $#comments -> replies // result columns
 | `^/text/` | [flagged string](./language.md#flagged-strings) with another quote character: `"` `'` `^` `#` `/` or `\|` |
 | `42` `3.14` | number |
 | `@2000-01-01` | [date](./language.md#date-literals) |
+| `@2000-01-01T08:30` `@2000-01-01T08:30:15` | [timestamp](./language.md#timestamp-literals), without a time zone |
 | `1y` `2w3d` `90min` | [duration](./language.md#duration-literals), with the units `y` `m` `w` `d` `h` `min` `s` |
 | `@true` `@false` `@null` `@now` `@infinity` | [built-in constants](./language.md#built-in-constants) |
 | `` `Due Date` `` | [quoted identifier](./language.md#identifiers) |
