@@ -218,6 +218,10 @@ pub enum ValueType {
     Duration,
     Boolean,
     Array(Box<ValueType>),
+    /// JSON (PostgreSQL's `json` and `jsonb`, DuckDB's `JSON`): a column of one of those types, or
+    /// what `to_json`, `json_object`, and `json_array` give. Text that holds JSON is
+    /// [`ValueType::Text`].
+    Json,
     Unknown,
 }
 
@@ -251,6 +255,7 @@ impl ValueType {
             | "timestamp without time zone" => ValueType::Time { has_tz: false },
             "interval" => ValueType::Duration,
             "boolean" | "bool" => ValueType::Boolean,
+            "json" | "jsonb" => ValueType::Json,
             _ => ValueType::Unknown,
         }
     }
@@ -436,5 +441,17 @@ mod tests {
             serde_json::from_str(&get_test_resource("issue_schema.json")).unwrap();
         let schema = Schema::try_from(primitive_schema);
         assert!(schema.is_ok())
+    }
+
+    #[test]
+    fn test_json_types() {
+        // PostgreSQL's `json` and `jsonb`, and DuckDB's `JSON`.
+        for name in ["json", "jsonb", "JSON"] {
+            assert_eq!(ValueType::parse(name), ValueType::Json, "{name}");
+        }
+        assert_eq!(
+            ValueType::parse("jsonb[]"),
+            ValueType::Array(Box::new(ValueType::Json))
+        );
     }
 }

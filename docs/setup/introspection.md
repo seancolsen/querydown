@@ -81,7 +81,7 @@ The schema is an object with two arrays: the tables, and the links between them.
 
 ### Column types
 
-Querydown uses a column's type to decide what a comparison means. For example, the [match operator](../language.md#match-comparisons) searches within text but tests anything else for equality, and a date compared with a duration [measures from now](../language.md#comparing-dates-with-durations).
+Querydown uses a column's type to decide what a comparison means. For example, the [match operator](../language.md#match-comparisons) searches within text but tests anything else for equality, and a date compared with a duration [measures from now](../language.md#comparing-dates-with-durations). Some functions choose their SQL by type too: [`json_path`](../functions.md#json_path) reads a JSON column without converting it from text first.
 
 The type is the name that the database gives it, and Querydown recognizes these names, ignoring case:
 
@@ -94,6 +94,7 @@ The type is the name that the database gives it, and Querydown recognizes these 
 | Timestamp with a time zone | `timestamptz` `timestamp with time zone` |
 | Duration | `interval` |
 | Boolean | `boolean` `bool` |
+| JSON | `json` `jsonb` |
 | Array | any of the above, followed by `[]` |
 
 A column with any other type, or with no type, still works. Querydown passes its values to the database as they are, and compares them for plain equality. If one of your columns has a type that isn't listed but behaves like one that is (a `citext` column, say), you can change its type in the schema to a name from the table.

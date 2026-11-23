@@ -71,7 +71,15 @@ fn find<'a>(completions: &'a Completions, label: &str) -> &'a CompletionItem {
         .unwrap_or_else(|| panic!("no item `{label}` in {:?}", labels(completions)))
 }
 
-const USERS: [&str; 6] = ["id", "username", "email", "team", "birth_date", "last_seen"];
+const USERS: [&str; 7] = [
+    "id",
+    "username",
+    "email",
+    "team",
+    "birth_date",
+    "last_seen",
+    "preferences",
+];
 const ISSUES: [&str; 9] = [
     "id",
     "title",
@@ -406,6 +414,7 @@ fn definition_bodies_are_relative_to_their_table() {
             "team",
             "birth_date",
             "last_seen",
+            "preferences",
             "age",
         ],
     );
@@ -525,7 +534,7 @@ fn scalar_functions_after_a_pipe() {
     assert_eq!(upper.kind, CompletionKind::Function);
     assert_eq!(upper.detail.as_deref(), Some("x|uppercase"));
     assert!(upper.info.is_some());
-    assert_eq!(labels(&completions).len(), 58);
+    assert_eq!(labels(&completions).len(), 63);
     // Also within a chain, and when followed by arguments.
     assert!(labels(&complete("#issues $due_date|age|d‸")).contains(&"days"));
     assert!(labels(&complete("#issues $title|con‸(\"x\")")).contains(&"concat"));

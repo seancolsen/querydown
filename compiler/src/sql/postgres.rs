@@ -3,13 +3,14 @@ use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::{
     dialect::{
-        duration_part, ArrayIndex, Dialect, ElementNames, MaybeLiteral, NormalizedDuration,
-        ReduceNames, RegexPattern, Separator,
+        duration_part, ArrayIndex, Dialect, ElementNames, JsonStep, MaybeLiteral,
+        NormalizedDuration, ReduceNames, RegexPattern, Separator,
     },
     expr::{
         build::{
             cmp::{comparison, is_not_null, lt},
             cond::{case, not_true},
+            func,
             math::{add, subtract},
             sql_func,
             value::{null, one, zero},
@@ -244,6 +245,61 @@ impl Dialect for Postgres {
             Separator::Expr(e) => e,
         };
         sql_func("array_to_string", [a, separator])
+    }
+
+    fn json_path(&self, a: SqlExpr, is_json: bool, steps: Vec<JsonStep>) -> SqlExpr {
+        // `->` takes a step into JSON: by an object's key when it's given text, and by an array's
+        // position (from the end when negative) when it's given an integer, so that a key never
+        // indexes an array, as in DuckDB. `->>` takes the last step, and gives text. Both work on
+        // `json` as well as `jsonb`. But `jsonb` treats a string, number, or boolean as an array
+        // of one, at position 0 or -1, so for a path with a position, the value is read as `json`,
+        // which doesn't. (Text is read as `json` too, which only checks it.)
+        let has_position = steps.iter().any(|s| matches!(s, JsonStep::Position(_)));
+        let mut path = match is_json && !has_position {
+            true => a.for_precedence(SqlExprPrecedence::Atom).content,
+            false => func::cast(a, "json").content,
+        };
+        let last = steps.len().saturating_sub(1);
+        for (index, step) in steps.into_iter().enumerate() {
+            let operator = if index == last { "->>" } else { "->" };
+            let step = match step {
+                JsonStep::Key(MaybeLiteral::Literal(key)) => self.quote_string(&key),
+                JsonStep::Position(MaybeLiteral::Literal(position)) => position.to_string(),
+                JsonStep::Key(MaybeLiteral::Expr(e))
+                | JsonStep::Position(MaybeLiteral::Expr(e)) => {
+                    e.for_precedence(SqlExprPrecedence::Atom).content
+                }
+            };
+            path = format!("{path} {operator} {step}");
+        }
+        SqlExpr::atom(format!("({path})"))
+    }
+
+    fn to_json(&self, a: SqlExpr) -> SqlExpr {
+        func::cast(a, "jsonb")
+    }
+
+    fn to_array(&self, a: SqlExpr, name: &str) -> SqlExpr {
+        // A subquery over the elements of NULL finds none, and `jsonb_array_elements_text` fails
+        // on JSON that isn't an array, so the JSON is named in a subquery of its own, which gives
+        // NULL for either, as DuckDB's `from_json` does.
+        let json = self.quote_identifier(name);
+        let a = func::cast(a, "jsonb");
+        SqlExpr::atom(format!(
+            "(SELECT ARRAY(SELECT jsonb_array_elements_text({json})) \
+             FROM (SELECT {a}) AS {json}({json}) WHERE jsonb_typeof({json}) = 'array')"
+        ))
+    }
+
+    fn json_object(&self, pairs: Vec<(SqlExpr, SqlExpr)>) -> SqlExpr {
+        sql_func(
+            "jsonb_build_object",
+            pairs.into_iter().flat_map(|(key, value)| [key, value]),
+        )
+    }
+
+    fn json_array(&self, values: Vec<SqlExpr>) -> SqlExpr {
+        sql_func("jsonb_build_array", values)
     }
 
     fn array_map(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {

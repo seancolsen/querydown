@@ -25,7 +25,7 @@ use crate::{
     schema::ValueType,
     sql::expr::build::{self, agg::*, cond::*, date_time::*, func, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
-    sql::{Dialect, ElementNames, MaybeLiteral, ReduceNames, Separator},
+    sql::{Dialect, ElementNames, JsonStep, MaybeLiteral, ReduceNames, Separator},
     Error,
 };
 
@@ -485,6 +485,95 @@ fn length(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     })
 }
 
+/// `json_path(x step…)`: the value at a path into JSON, as text.
+fn json_path(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let mut args = args.into_iter();
+    let a = args.next().ok_or_else(msg::json_path_without_steps)?;
+    let steps: Vec<Expr> = args.collect();
+    if steps.is_empty() {
+        return Err(msg::json_path_without_steps());
+    }
+    let is_json = infer_type(&a, scope) == ValueType::Json;
+    let a = convert_expr(a, scope)?;
+    let steps = steps
+        .into_iter()
+        .map(|step| json_step(step, scope))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(scope.options.dialect.json_path(a, is_json, steps))
+}
+
+/// A step of the path that `json_path` follows: a key when it's text, and a position when it's a
+/// number. A step whose type isn't known is taken to be a key.
+fn json_step(step: Expr, scope: &mut Scope) -> Result<JsonStep, Error> {
+    if let Some(key) = string_literal(&step, scope) {
+        return Ok(JsonStep::Key(MaybeLiteral::Literal(key)));
+    }
+    if let Some(position) = integer_literal(&step, scope) {
+        return Ok(JsonStep::Position(MaybeLiteral::Literal(position)));
+    }
+    Ok(match infer_type(&step, scope) {
+        ValueType::Number => JsonStep::Position(integer_arg(step, scope)?),
+        ValueType::Text => JsonStep::Key(MaybeLiteral::Expr(convert_expr(step, scope)?)),
+        _ => JsonStep::Key(MaybeLiteral::Expr(func::cast(
+            convert_expr(step, scope)?,
+            "TEXT",
+        ))),
+    })
+}
+
+/// `to_json(x)`: text read as JSON. A value that's JSON already is left as it is.
+fn to_json(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
+    let is_json = infer_type(&arg, scope) == ValueType::Json;
+    let a = convert_expr(arg, scope)?;
+    Ok(match is_json {
+        true => a,
+        false => scope.options.dialect.to_json(a),
+    })
+}
+
+/// `to_array(x)`: the elements of a JSON array, as an array of text.
+fn to_array(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
+    let a = convert_expr(arg, scope)?;
+    let name = scope.get_alias("json");
+    Ok(scope.options.dialect.to_array(a, &name))
+}
+
+/// A value given to `json_object` or `json_array`, which becomes JSON by its type.
+fn json_value(value: Expr, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let is_timestamp = matches!(infer_type(&value, scope), ValueType::Time { .. });
+    let value = convert_expr(value, scope)?;
+    Ok(scope.options.dialect.json_value(value, is_timestamp))
+}
+
+/// `json_object(key value …)`: a JSON object of pairs of keys and values. A key that isn't text is
+/// converted to it.
+fn json_object(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    if let Some(last) = args.last().filter(|_| args.len() % 2 == 1) {
+        return Err(msg::json_object_key_without_value().at(last.loc));
+    }
+    let mut pairs = Vec::new();
+    let mut args = args.into_iter();
+    while let (Some(key), Some(value)) = (args.next(), args.next()) {
+        let key = match infer_type(&key, scope) {
+            ValueType::Text => convert_expr(key, scope)?,
+            _ => func::cast(convert_expr(key, scope)?, "TEXT"),
+        };
+        pairs.push((key, json_value(value, scope)?));
+    }
+    Ok(scope.options.dialect.json_object(pairs))
+}
+
+/// `json_array(value…)`: a JSON array of the values.
+fn json_array(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let values = args
+        .into_iter()
+        .map(|value| json_value(value, scope))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(scope.options.dialect.json_array(values))
+}
+
 /// The built-in functions that take a function as an argument (see [`FunctionArg`]).
 const TAKE_A_FUNCTION: [&str; 5] = ["every", "filter", "map", "reduce", "some"];
 
@@ -728,7 +817,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     // `countdown` produce durations, which `days`, `hours`, and so on turn into numbers. `plus` and
     // `minus` are typed like the operators they stand for, so that `date|plus(1w)` stays a date.
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc, TypeRule); 58] = [
+    let templates: [(&str, ScalarFunc, TypeRule); 63] = [
         ("abs",         |e, s| args_1(e, s, abs),                    SameAsArg(0)),
         ("age",         |e, s| temporal_age(e, s),                  Fixed(Duration)),
         ("and",         |e, s| args_v(e, s, build::cmp::and),        Fixed(Boolean)),
@@ -749,6 +838,9 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("if_null",     |e, s| args_v(e, s, coalesce),               UnifyArgs),
         ("is_nan",      |e, s| dialect_1(e, s, |d, a| d.is_nan(a)),  Fixed(Boolean)),
         ("join",        |e, s| with_separator(e, s, |d, a, b| d.join(a, b)), Fixed(Text)),
+        ("json_array",  |e, s| json_array(e, s),                     Fixed(Json)),
+        ("json_object", |e, s| json_object(e, s),                    Fixed(Json)),
+        ("json_path",   |e, s| json_path(e, s),                      Fixed(Text)),
         ("keep_above",  |e, s| args_v(e, s, greatest),               UnifyArgs),
         ("keep_below",  |e, s| args_v(e, s, least),                  UnifyArgs),
         ("lcm",         |e, s| args_2(e, s, lcm),                    Fixed(Number)),
@@ -778,6 +870,8 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("sqrt",        |e, s| args_1(e, s, sqrt),                   Fixed(Number)),
         ("times",       |e, s| args_2(e, s, multiply),               Fixed(Number)),
         ("to_date",     |e, s| to_date(e, s),                        Fixed(Date)),
+        ("to_array",    |e, s| to_array(e, s),                       Fixed(Array(Box::new(Text)))),
+        ("to_json",     |e, s| to_json(e, s),                        Fixed(Json)),
         ("to_number",   |e, s| args_1(e, s, |a| func::cast(a, "DOUBLE PRECISION")), Fixed(Number)),
         ("to_timestamp", |e, s| args_1(e, s, |a| func::cast(a, "TIMESTAMP")), Fixed(Time { has_tz: false })),
         ("trim",        |e, s| args_1(e, s, trim),                   Fixed(Text)),

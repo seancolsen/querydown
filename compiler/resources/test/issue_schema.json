@@ -8,7 +8,8 @@
         { "name": "email", "type": "text" },
         { "name": "team", "type": "integer" },
         { "name": "birth_date", "type": "date" },
-        { "name": "last_seen", "type": "timestamptz" }
+        { "name": "last_seen", "type": "timestamptz" },
+        { "name": "preferences", "type": "json" }
       ]
     },
     {

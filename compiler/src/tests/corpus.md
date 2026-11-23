@@ -550,7 +550,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "users"
 WHERE
   "users"."last_seen" < NOW();
@@ -577,7 +578,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "users"
 WHERE
   CAST("users"."last_seen" AS TIMESTAMP) < CAST(NOW() AS TIMESTAMP);
@@ -599,7 +601,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "users"
 WHERE
   "users"."last_seen" > DATE '2023-03-04';
@@ -626,7 +629,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "users"
 WHERE
   CAST("users"."last_seen" AS TIMESTAMP) > DATE '2023-03-04';
@@ -3295,7 +3299,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -3327,7 +3332,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -3359,7 +3365,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -3394,7 +3401,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "users"
 LEFT JOIN "cte0" ON
   "users"."id" = "cte0"."pk"
@@ -5595,6 +5603,539 @@ LEFT JOIN "cte0" ON
   "projects"."id" = "cte0"."pk";
 ```
 
+### JSON `json_path`
+
+> Users who chose the dark theme
+
+```qd
+#users preferences|json_path("theme"):="dark" $username
+```
+
+```sql
+SELECT
+  "users"."username"
+FROM "users"
+WHERE
+  lower(("users"."preferences" ->> 'theme') COLLATE "C") = lower('dark' COLLATE "C");
+```
+
+### JSON `json_path` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Users who chose the dark theme, targeting DuckDB
+
+```qd
+#users preferences|json_path("theme"):="dark" $username
+```
+
+```sql
+SELECT
+  "users"."username"
+FROM "users"
+WHERE
+  lower(strip_accents(json_extract_string("users"."preferences", '$."theme"'))) = lower(strip_accents('dark'));
+```
+
+### JSON `json_path` with positions
+
+> The name of each user's first saved filter, and the label they watch that's listed last
+
+```qd
+#users $preferences|json_path("saved_filters" 0 "name") $preferences|json_path("watched_labels" (-1))
+```
+
+```sql
+SELECT
+  (CAST("users"."preferences" AS json) -> 'saved_filters' -> 0 ->> 'name'),
+  (CAST("users"."preferences" AS json) -> 'watched_labels' ->> -1)
+FROM "users";
+```
+
+### JSON `json_path` with positions (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The name of each user's first saved filter, and the label they watch that's listed last, targeting DuckDB
+
+```qd
+#users $preferences|json_path("saved_filters" 0 "name") $preferences|json_path("watched_labels" (-1))
+```
+
+```sql
+SELECT
+  json_extract_string("users"."preferences", '$."saved_filters"[0]."name"'),
+  json_extract_string("users"."preferences", '$."watched_labels"[#-1]')
+FROM "users";
+```
+
+### JSON `json_path` with a key from a column
+
+> Assignments whose user wants to be notified about issues in the issue's status
+
+```qd
+#assignments user.preferences|json_path("notify" issue.status):="true" $issue.title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "assignments"
+LEFT JOIN "users" ON
+  "assignments"."user" = "users"."id"
+LEFT JOIN "issues" ON
+  "assignments"."issue" = "issues"."id"
+WHERE
+  lower(("users"."preferences" -> 'notify' ->> "issues"."status") COLLATE "C") = lower('true' COLLATE "C");
+```
+
+### JSON `json_path` with a key from a column (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Assignments whose user wants to be notified about issues in the issue's status, targeting DuckDB
+
+```qd
+#assignments user.preferences|json_path("notify" issue.status):="true" $issue.title
+```
+
+```sql
+SELECT
+  "issues"."title"
+FROM "assignments"
+LEFT JOIN "users" ON
+  "assignments"."user" = "users"."id"
+LEFT JOIN "issues" ON
+  "assignments"."issue" = "issues"."id"
+WHERE
+  lower(strip_accents(json_extract_string("users"."preferences", ('$."notify"."' || replace(replace("issues"."status", '\', '\\'), '"', '\"') || '"')))) = lower(strip_accents('true'));
+```
+
+### JSON `json_path` with a computed position
+
+> A label that each user watches, chosen by their id
+
+```qd
+#users $preferences|json_path("watched_labels" id|mod(3)|minus(1))
+```
+
+```sql
+SELECT
+  (CAST("users"."preferences" AS json) -> 'watched_labels' ->> CAST("users"."id" % 3 - 1 AS INTEGER))
+FROM "users";
+```
+
+### JSON `json_path` with a computed position (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> A label that each user watches, chosen by their id, targeting DuckDB
+
+```qd
+#users $preferences|json_path("watched_labels" id|mod(3)|minus(1))
+```
+
+```sql
+SELECT
+  json_extract_string("users"."preferences", ('$."watched_labels"[' || CASE
+    WHEN CAST("users"."id" % 3 - 1 AS INTEGER) < 0 THEN '#'
+    ELSE ''
+  END || CAST(CAST("users"."id" % 3 - 1 AS INTEGER) AS VARCHAR) || ']'))
+FROM "users";
+```
+
+### JSON `json_path` of text
+
+> The first element of the array under the key "a" of the JSON in each issue's description
+
+```qd
+#issues $description|json_path("a" 0)
+```
+
+```sql
+SELECT
+  (CAST("issues"."description" AS json) -> 'a' ->> 0)
+FROM "issues";
+```
+
+### JSON `json_path` of text (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The first element of the array under the key "a" of the JSON in each issue's description, targeting DuckDB
+
+```qd
+#issues $description|json_path("a" 0)
+```
+
+```sql
+SELECT
+  json_extract_string("issues"."description", '$."a"[0]')
+FROM "issues";
+```
+
+### JSON `json_path` of what `json_path` gives
+
+> Whether each user wants to be notified about open issues
+
+```qd
+#users $preferences|json_path("notify")|json_path("open")
+```
+
+```sql
+SELECT
+  (CAST(("users"."preferences" ->> 'notify') AS json) ->> 'open')
+FROM "users";
+```
+
+### JSON `json_path` of what `json_path` gives (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Whether each user wants to be notified about open issues, targeting DuckDB
+
+```qd
+#users $preferences|json_path("notify")|json_path("open")
+```
+
+```sql
+SELECT
+  json_extract_string(json_extract_string("users"."preferences", '$."notify"'), '$."open"')
+FROM "users";
+```
+
+### JSON `to_array`
+
+> Users who watch the "bug" label
+
+```qd
+#users preferences|json_path("watched_labels")|to_array|some(@l => @l:=="bug") $username
+```
+
+```sql
+SELECT
+  "users"."username"
+FROM "users"
+WHERE
+  (SELECT EXISTS (SELECT 1 FROM unnest("array") AS "l"("l") WHERE "l" = 'bug') FROM (SELECT (SELECT ARRAY(SELECT jsonb_array_elements_text("json")) FROM (SELECT CAST(("users"."preferences" ->> 'watched_labels') AS jsonb)) AS "json"("json") WHERE jsonb_typeof("json") = 'array')) AS "array"("array") WHERE "array" IS NOT NULL);
+```
+
+### JSON `to_array` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Users who watch the "bug" label, targeting DuckDB
+
+```qd
+#users preferences|json_path("watched_labels")|to_array|some(@l => @l:=="bug") $username
+```
+
+```sql
+SELECT
+  "users"."username"
+FROM "users"
+WHERE
+  len(list_filter(from_json(json_extract_string("users"."preferences", '$."watched_labels"'), '["VARCHAR"]'), lambda "l": "l" = 'bug')) > 0;
+```
+
+### JSON `to_array` with `filter` and `map`
+
+> The names of each user's saved filters whose query is about issues
+
+```qd
+#users $preferences|json_path("saved_filters")|to_array|filter(@f => @f|json_path("query"):~'^#issues')|map(@f => @f|json_path("name"))|join(", ")
+```
+
+```sql
+SELECT
+  array_to_string((SELECT ARRAY(SELECT (CAST("f_1" AS json) ->> 'name') FROM unnest("array_1") WITH ORDINALITY AS "f_1"("f_1", "i_1") ORDER BY "i_1") FROM (SELECT (SELECT ARRAY(SELECT "f" FROM unnest("array") WITH ORDINALITY AS "f"("f", "i") WHERE (CAST("f" AS json) ->> 'query') ~* '(?p)^#issues' ORDER BY "i") FROM (SELECT (SELECT ARRAY(SELECT jsonb_array_elements_text("json")) FROM (SELECT CAST(("users"."preferences" ->> 'saved_filters') AS jsonb)) AS "json"("json") WHERE jsonb_typeof("json") = 'array')) AS "array"("array") WHERE "array" IS NOT NULL)) AS "array_1"("array_1") WHERE "array_1" IS NOT NULL), ', ')
+FROM "users";
+```
+
+### JSON `to_array` with `filter` and `map` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The names of each user's saved filters whose query is about issues, targeting DuckDB
+
+```qd
+#users $preferences|json_path("saved_filters")|to_array|filter(@f => @f|json_path("query"):~'^#issues')|map(@f => @f|json_path("name"))|join(", ")
+```
+
+```sql
+SELECT
+  array_to_string(list_filter(list_transform(list_filter(from_json(json_extract_string("users"."preferences", '$."saved_filters"'), '["VARCHAR"]'), lambda "f": regexp_matches(json_extract_string("f", '$."query"'), '^#issues', 'i')), lambda "f_1": json_extract_string("f_1", '$."name"')), lambda e: e IS NOT NULL), ', ')
+FROM "users";
+```
+
+### JSON `to_json`
+
+> Each user's notification settings, nested as JSON within an object
+
+```qd
+#users $@@json_object("user" username "notify" preferences|json_path("notify")|to_json)
+```
+
+```sql
+SELECT
+  jsonb_build_object('user', "users"."username", 'notify', CAST(("users"."preferences" ->> 'notify') AS jsonb))
+FROM "users";
+```
+
+### JSON `to_json` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each user's notification settings, nested as JSON within an object, targeting DuckDB
+
+```qd
+#users $@@json_object("user" username "notify" preferences|json_path("notify")|to_json)
+```
+
+```sql
+SELECT
+  json_object('user', "users"."username", 'notify', CAST(json_extract_string("users"."preferences", '$."notify"') AS JSON))
+FROM "users";
+```
+
+### JSON `to_json` of JSON
+
+> Each user's preferences, which are JSON already
+
+```qd
+#users $preferences|to_json
+```
+
+```sql
+SELECT
+  "users"."preferences"
+FROM "users";
+```
+
+### JSON `to_json` of JSON (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each user's preferences, which are JSON already, targeting DuckDB
+
+```qd
+#users $preferences|to_json
+```
+
+```sql
+SELECT
+  "users"."preferences"
+FROM "users";
+```
+
+### JSON `json_object`
+
+> Each issue as a JSON object of its title, status, and creation time
+
+```qd
+#issues $@@json_object("title" title "status" status "created" created_at)
+```
+
+```sql
+SELECT
+  jsonb_build_object('title', "issues"."title", 'status', "issues"."status", 'created', "issues"."created_at")
+FROM "issues";
+```
+
+### JSON `json_object` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each issue as a JSON object of its title, status, and creation time, targeting DuckDB
+
+```qd
+#issues $@@json_object("title" title "status" status "created" created_at)
+```
+
+```sql
+SELECT
+  json_object('title', "issues"."title", 'status', "issues"."status", 'created', replace(CAST("issues"."created_at" AS VARCHAR), ' ', 'T'))
+FROM "issues";
+```
+
+### JSON `json_object` with a key that isn't text
+
+> Each issue as a JSON object of its title, keyed by its id
+
+```qd
+#issues $@@json_object(id title)
+```
+
+```sql
+SELECT
+  jsonb_build_object(CAST("issues"."id" AS TEXT), "issues"."title")
+FROM "issues";
+```
+
+### JSON `json_object` with a key that isn't text (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each issue as a JSON object of its title, keyed by its id, targeting DuckDB
+
+```qd
+#issues $@@json_object(id title)
+```
+
+```sql
+SELECT
+  json_object(CAST("issues"."id" AS TEXT), "issues"."title")
+FROM "issues";
+```
+
+### JSON `json_object` in an aggregated computed column
+
+> Each issue with its comments as JSON objects, oldest first
+
+```qd
+#comments.summary = @@json_object("by" user.username "body" body)
+#issues $title $#comments.summary%list_all(\\created_at)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg(jsonb_build_object('by', "users"."username", 'body', "comments"."body") ORDER BY "comments"."created_at" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### JSON `json_object` in an aggregated computed column (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each issue with its comments as JSON objects, oldest first, targeting DuckDB
+
+```qd
+#comments.summary = @@json_object("by" user.username "body" body)
+#issues $title $#comments.summary%list_all(\\created_at)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg(json_object('by', "users"."username", 'body', "comments"."body") ORDER BY "comments"."created_at" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    LEFT JOIN "users" ON
+      "comments"."user" = "users"."id"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### JSON `json_array`
+
+> Each user's username, preferences, birth date, and email addresses, as a JSON array
+
+```qd
+#users $@@json_array(username preferences birth_date last_seen @@array(email))
+```
+
+```sql
+SELECT
+  jsonb_build_array("users"."username", "users"."preferences", "users"."birth_date", "users"."last_seen", ARRAY["users"."email"])
+FROM "users";
+```
+
+### JSON `json_array` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each user's username, preferences, birth date, and email addresses, as a JSON array, targeting DuckDB
+
+```qd
+#users $@@json_array(username preferences birth_date last_seen @@array(email))
+```
+
+```sql
+SELECT
+  json_array("users"."username", "users"."preferences", "users"."birth_date", replace(CAST("users"."last_seen" AS VARCHAR), ' ', 'T'), ["users"."email"])
+FROM "users";
+```
+
+### JSON `json_array` with no values
+
+> An empty JSON array for each user
+
+```qd
+#users $@@json_array()
+```
+
+```sql
+SELECT
+  jsonb_build_array()
+FROM "users";
+```
+
+### JSON `json_array` with no values (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> An empty JSON array for each user, targeting DuckDB
+
+```qd
+#users $@@json_array()
+```
+
+```sql
+SELECT
+  json_array()
+FROM "users";
+```
+
 ## Column globs
 
 ### Basic column glob
@@ -5650,7 +6191,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "issues"
 LEFT JOIN "users" ON
   "issues"."author" = "users"."id"
@@ -5984,6 +6526,7 @@ SELECT
   "users"."team",
   "users"."birth_date",
   "users"."last_seen",
+  "users"."preferences",
   FLOOR(EXTRACT(epoch FROM NOW() - "users"."birth_date") / 31557600) >= 21
 FROM "users";
 ```
@@ -10667,7 +11210,8 @@ SELECT
   "users"."username",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "issues"
 LEFT JOIN "users" ON
   "issues"."author" = "users"."id"
@@ -10740,6 +11284,7 @@ SELECT
   "users"."team",
   "users"."birth_date",
   "users"."last_seen",
+  "users"."preferences",
   "teams"."id",
   "teams"."name"
 FROM "issues"
@@ -10773,7 +11318,8 @@ SELECT
   "users"."username",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "comments"
 LEFT JOIN "issues" ON
   "comments"."issue" = "issues"."id"
@@ -16590,7 +17136,8 @@ SELECT
   "users"."email",
   "users"."team",
   "users"."birth_date",
-  "users"."last_seen"
+  "users"."last_seen",
+  "users"."preferences"
 FROM "qdwin_src" AS "issues"
 LEFT JOIN "users" ON
   "issues"."author" = "users"."id"
@@ -16970,6 +17517,7 @@ SELECT
   "users"."team",
   "users"."birth_date",
   "users"."last_seen",
+  "users"."preferences",
   "issues_1"."id",
   "issues_1"."title",
   "issues_1"."description",
@@ -17572,6 +18120,7 @@ SELECT
   "users"."team",
   "users"."birth_date",
   "users"."last_seen",
+  "users"."preferences",
   "issues"."title"
 FROM "issues"
 LEFT JOIN "users" ON

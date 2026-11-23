@@ -973,6 +973,36 @@ fn function_with_optional_arguments_given_too_few_or_too_many_is_an_error() {
 }
 
 #[test]
+fn json_object_with_a_key_and_no_value_is_an_error() {
+    assert_errors(
+        &[
+            (
+                r#"#issues $@@json_object("title" title "status")"#,
+                r#""status""#,
+            ),
+            (r#"#issues $@@json_object(title)"#, "title"),
+            (r#"#issues $"a"|json_object(1 "b")"#, r#""b""#),
+        ],
+        "`json_object` takes pairs of keys and values, but this key has no value after it.",
+    );
+    compile(r#"#issues $@@json_object("title" title "status" status)"#).unwrap();
+    compile(r#"#issues $@@json_object()"#).unwrap();
+}
+
+#[test]
+fn json_path_without_steps_is_an_error() {
+    assert_errors(
+        &[
+            (r"#users $preferences|json_path", "|json_path"),
+            (r"#users $@@json_path(preferences)", "@@json_path"),
+            (r"#users $@@json_path()", "@@json_path"),
+        ],
+        "`json_path` needs at least one step: an object's key or an array's position, as in \
+         `json_path(\"items\" 0)`.",
+    );
+}
+
+#[test]
 fn function_argument_that_must_be_a_literal_is_an_error_otherwise() {
     assert_errors(
         &[

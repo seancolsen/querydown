@@ -20,8 +20,10 @@ serde_json = "1.0"
 # out to the `duckdb` CLI. This matches how downstream applications embed DuckDB via this crate, so
 # the DB tests exercise the same statically-linked library — notably *without* the ICU extension
 # that the official CLI bundles. It is optional and only pulled in by the `db-tests` feature, so a
-# plain `cargo test` (or any normal build) doesn't pay the 20+ minute cost of compiling it.
-duckdb = { version = "1.4.4", features = ["bundled"], optional = true }
+# plain `cargo test` (or any normal build) doesn't pay the 20+ minute cost of compiling it. The
+# `json` feature links in the JSON extension, which the JSON functions (`json_path` and the like)
+# need, as official DuckDB builds do; without it DuckDB would download the extension at run time.
+duckdb = { version = "1.4.4", features = ["bundled", "json"], optional = true }
 
 [dev-dependencies]
 testcase-markdown = "0.0.1"

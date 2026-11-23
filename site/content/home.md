@@ -171,6 +171,17 @@ The compiler doesn't connect to your database or run anything. What you do with 
   $#labels.name%list|map(@n => @n|uppercase)
   ```
 
+- [JSON](../../docs/functions.md#json-functions)
+
+  > This query shows each user who watches the "bug" label, with the name of their first saved filter.
+
+  ```qd
+  #users
+  preferences|json_path("watched_labels")|to_array|some(@l => @l:=="bug")
+  $username
+  $preferences|json_path("saved_filters" 0 "name") -> first_filter
+  ```
+
 - [Case expressions](../../docs/language.md#case-expressions)
 
   > This query shows each issue, categorized as "overdue", "due soon", or "due later".

@@ -81,8 +81,8 @@ tell it from an empty group.
 | `to_number` | Converts text to a number. | `CAST(x AS DOUBLE PRECISION)` |
 | `to_date` | Converts ISO 8601 text to a date, or a timestamp to its date. | `CAST(x AS DATE)`, through `temporal_arg` |
 | `to_timestamp` | Converts ISO 8601 text to a timestamp without a time zone. | `CAST(x AS TIMESTAMP)` |
-| `to_array` | Converts a JSON array to an array of text. An element that is an object or array becomes its JSON text. | PostgreSQL: `ARRAY(SELECT jsonb_array_elements_text(CAST(x AS jsonb)))`. DuckDB: `from_json(x, '["VARCHAR"]')` |
-| `to_json` | Reads text as JSON. | PostgreSQL: `CAST(x AS jsonb)`. DuckDB: `CAST(x AS JSON)` |
+| `to_array` | Converts a JSON array to an array of text. An element that is an object or array becomes its JSON text. NULL for NULL, or for JSON that isn't an array. | PostgreSQL: `(SELECT ARRAY(SELECT jsonb_array_elements_text(j)) FROM (SELECT CAST(x AS jsonb)) AS j(j) WHERE jsonb_typeof(j) = 'array')`, which gives NULL for NULL (rather than an empty array) and for JSON that isn't an array (rather than an error), as DuckDB does. DuckDB: `from_json(x, '["VARCHAR"]')` |
+| `to_json` | Reads text as JSON. A value that's JSON already is left as it is. | PostgreSQL: `CAST(x AS jsonb)`. DuckDB: `CAST(x AS JSON)` |
 
 There is no `to_text`, because a formatted string already converts: `^f"{id}"`.
 
@@ -158,39 +158,63 @@ applies it to the elements of an array.
 
 | Function | Description | Compiles to |
 | -- | -- | -- |
-| `json_path(step…)` | The value at a path into JSON. Each step is an object's key or an array's position. A text or number comes back as text without quotes, and an object or array as JSON text. NULL when the path leads nowhere, or to a JSON null. | PostgreSQL: `CAST(x AS jsonb) #>> ARRAY['items', '-1', 'sku']`. DuckDB: `json_extract_string(x, '$."items"[#-1]."sku"')` |
+| `json_path(step…)` | The value at a path into JSON. Each step is an object's key or an array's position. A text or number comes back as text without quotes, and an object or array as JSON text. NULL when the path leads nowhere, or to a JSON null. | PostgreSQL: `CAST(x AS json) -> 'items' -> -1 ->> 'sku'`, without the cast when `x` is JSON already and the path has no position. DuckDB: `json_extract_string(x, '$."items"[#-1]."sku"')` |
 | `json_object(key value …)` | Builds a JSON object from pairs of keys and values. | PostgreSQL: `jsonb_build_object`. DuckDB: `json_object` |
 | `json_array(value…)` | Builds a JSON array from values. | PostgreSQL: `jsonb_build_array`. DuckDB: `json_array` |
 
 - **`json_path` reads JSON columns and text that holds JSON**, including what an earlier `json_path`
   returned.
 - **A step needn't be a literal.** `translations|json_path(locale)` reads the key named by a column.
-  In DuckDB, such a step is concatenated into the path at run time.
+  Such a step is a position if its type is a number, and a key otherwise. In DuckDB, it's
+  concatenated into the path at run time.
+- **A key never indexes an array**, in either database. PostgreSQL's `#>>` takes a path of text,
+  and reads `'0'` as a position within an array but as a key within an object, where DuckDB's
+  `$."0"` finds nothing in an array. So `json_path` compiles to `->` and `->>`, which read a key
+  when they're given text and a position when they're given an integer. But `jsonb` treats a
+  string, number, or boolean as an array of one (`'"abc"'::jsonb -> 0` is `"abc"`), so a path with
+  a position reads its value as `json`, which doesn't.
+- **A negative position after another step needs parentheses**: `json_path("items" (-1) "sku")`.
+  Without them, `"items" -1` is a subtraction. (Changing that would change how the parser reads
+  every function's arguments, so it's left alone.)
+- **`to_array` of anything that isn't an array gives NULL**, as DuckDB's `from_json` does.
+- **`json_path` needs at least one step**, or the compiler reports an error.
+- **JSON text is the database's.** An object or array comes back as the database writes it:
+  PostgreSQL's `jsonb` puts a space after each `:` and `,`, and orders an object's keys its own
+  way, where DuckDB writes it compactly, with the keys in their order. Numbers can differ too
+  (`1.50` in `jsonb` is `1.5` in DuckDB).
 - **Values in the builders** become JSON by their type: text a string, a number a number, a boolean
   `true` or `false`, NULL `null`, a date or timestamp an ISO 8601 string, an array a JSON array, and
   JSON itself is nested as it is. Text that holds JSON is nested as a string unless it's piped
-  through `to_json` first.
-- **`json_object` needs an even number of arguments**, or the compiler reports an error.
+  through `to_json` first. A key that isn't text is cast to text, since DuckDB's `json_object`
+  takes only text keys. DuckDB writes a timestamp with a space rather than a `T`, so there one is
+  written as `replace(CAST(x AS VARCHAR), ' ', 'T')`. NaN still differs: PostgreSQL writes it as the
+  string `"NaN"`, and DuckDB as `NaN`, which isn't JSON.
+- **`json_object` needs an even number of arguments**, or the compiler reports an error, at the key
+  that has no value.
+- **Types.** `ValueType` has a `Json` variant, for the schema's `json` and `jsonb` columns and for
+  what `to_json` and the builders give, so that `json_path` and `to_json` leave a value that's JSON
+  already as it is.
+
+The sample schema's `users.preferences` is a JSON column, holding objects such as
+`{"theme": "dark", "notify": {"open": true}, "watched_labels": ["bug"], "saved_filters": [{"name":
+"Mine", "query": "…"}]}`.
 
 ```
-// users over 30, by a number inside a JSON column
-#users profile|json_path("age")|to_number:>30
+// users who chose the dark theme
+#users preferences|json_path("theme"):="dark"
 
-// events tagged "urgent"
-#events payload|json_path("tags")|to_array|some(@t => @t:=="urgent")
+// users who watch the "bug" label
+#users preferences|json_path("watched_labels")|to_array|some(@l => @l:=="bug")
 
-// the SKUs of each order's items that cost more than 10
-#orders $id $details|json_path("items")|to_array
-  |filter(@i => @i|json_path("price")|to_number:>10)
-  |map(@i => @i|json_path("sku"))
+// the names of each user's saved filters whose query is about issues
+#users $username $preferences|json_path("saved_filters")|to_array
+  |filter(@f => @f|json_path("query"):~'^#issues')
+  |map(@f => @f|json_path("name"))
 
 // each issue with its comments as objects, oldest first
 #comments.summary = @@json_object("by" user.username "body" body)
 #issues $title $#comments.summary%list_all(\\created_at)
 ```
-
-(`events` and `orders` aren't in the sample schema, which has no JSON column yet. Add one for the
-docs and the corpus.)
 
 ### Why the path isn't a richer language
 
@@ -287,9 +311,10 @@ Some of these are only a row in `get_standard_scalar_functions`
 - **Arguments to aggregate functions.** The parentheses after `%name` hold only sorting entries
   today (`aggregate_order_by` in `parser/src/parser/expr/pipe.rs`). `percentile` needs the parser to
   accept value arguments there, and `Call.args` to carry them.
-- **DuckDB's JSON extension.** The `db-tests` build uses the `duckdb` crate with only its `bundled`
-  feature. JSON needs its `json` feature too, which means rebuilding DuckDB. Applications need the
-  extension loaded, which official DuckDB builds do by themselves.
+- **DuckDB's JSON extension.** The `db-tests` build used the `duckdb` crate with only its `bundled`
+  feature, so DuckDB downloaded the JSON extension at run time. It now has the `json` feature too,
+  which links the extension in, as official DuckDB builds do. Applications need the extension
+  loaded, which official DuckDB builds do by themselves.
 
 For each function: add it to the registry and to `compiler/src/compiler/completion/catalog.rs`, add
 corpus cases that pass `cargo test --features db-tests`, document it in `docs/functions.md`, and add

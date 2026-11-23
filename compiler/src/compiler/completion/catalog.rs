@@ -20,7 +20,7 @@ const fn entry(name: &'static str, usage: &'static str, description: &'static st
 
 /// The built-in scalar functions, applied with `|` (or called with `@@`).
 #[rustfmt::skip]
-const SCALAR_FUNCTIONS: [Entry; 58] = [
+const SCALAR_FUNCTIONS: [Entry; 63] = [
     entry("abs", "x|abs", "The absolute value of a number."),
     entry("age", "x|age", "The interval from a timestamp until now (now − x). Chain with `days`, `years`, etc."),
     entry("and", "x|and(y…)", "True when all of the arguments are true."),
@@ -41,6 +41,9 @@ const SCALAR_FUNCTIONS: [Entry; 58] = [
     entry("if_null", "x|if_null(fallback…)", "The first of its arguments that isn't null (SQL `COALESCE`)."),
     entry("is_nan", "x|is_nan", "Whether a number is NaN, the floating-point value \"not a number\"."),
     entry("join", "x|join(separator)", "Joins the elements of an array into one string, skipping nulls. The opposite of `split`."),
+    entry("json_array", "@@json_array(value…)", "A JSON array of the given values, each of which becomes JSON by its type."),
+    entry("json_object", "@@json_object(key value …)", "A JSON object of pairs of keys and values, each value becoming JSON by its type."),
+    entry("json_path", "x|json_path(step…)", "The value at a path into JSON, as text. Each step is an object's key or an array's position (from 0, or from the end when negative). Null when the path leads nowhere."),
     entry("keep_above", "x|keep_above(min)", "The greater of the value and the argument: a lower bound."),
     entry("keep_below", "x|keep_below(max)", "The lesser of the value and the argument: an upper bound."),
     entry("lcm", "x|lcm(y)", "The least common multiple of two integers."),
@@ -69,7 +72,9 @@ const SCALAR_FUNCTIONS: [Entry; 58] = [
     entry("split", "x|split(separator)", "Splits a string at each occurrence of a separator, giving an array of strings."),
     entry("sqrt", "x|sqrt", "The square root of a number."),
     entry("times", "x|times(y)", "Multiplies the value by the argument."),
+    entry("to_array", "x|to_array", "Converts a JSON array to an array of text. An element that's an object or array becomes its JSON text."),
     entry("to_date", "x|to_date", "Converts ISO 8601 text to a date, or a timestamp to its date."),
+    entry("to_json", "x|to_json", "Reads text as JSON."),
     entry("to_number", "x|to_number", "Converts text to a number."),
     entry("to_timestamp", "x|to_timestamp", "Converts ISO 8601 text to a timestamp without a time zone."),
     entry("trim", "x|trim", "Removes whitespace from the start and end of a string."),

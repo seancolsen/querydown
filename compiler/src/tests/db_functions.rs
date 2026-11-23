@@ -9,16 +9,22 @@
 use super::db_introspection::{DuckEnv, PgEnv};
 use crate::{Compiler, Dialect, DuckDB, IdentifierResolution, Options, Postgres};
 
-/// One table of assorted values, in rows that each function's cases read.
-const DDL: &str = "\
-CREATE TABLE vals (id integer PRIMARY KEY, x double precision, n integer, s text, p text);
+/// One table of assorted values, in rows that each function's cases read. `JSON_TYPE` stands for
+/// the dialect's type of JSON (see [`ddl`]).
+const DDL: &str = r#"
+CREATE TABLE vals (id integer PRIMARY KEY, x double precision, n integer, s text, p text, j JSON_TYPE);
 INSERT INTO vals VALUES
-  (1, 2.5, 90, 'Fix: one fix', 'f(i)x'),
-  (2, -2.5, -1, 'a,b,c', ','),
-  (3, 1250, NULL, '', NULL),
-  (4, CAST('NaN' AS double precision), 0, NULL, ''),
-  (5, NULL, NULL, 'x' || chr(10) || 'y', NULL);
-";
+  (1, 2.5, 90, 'Fix: one fix', 'f(i)x', '{"items": [{"sku": "A1", "price": 12.5}, {"sku": "B2", "price": 8}], "tags": ["urgent", "ui"], "name": "x", "n": 3, "flag": true, "nothing": null, "nested": {"a": [1, 2], "b": "c"}, "k\"q": 1, "0": "zero"}'),
+  (2, -2.5, -1, 'a,b,c', ',', '[10, "b", null, [1], {"c": 1}]'),
+  (3, 1250, NULL, '', NULL, '{}'),
+  (4, CAST('NaN' AS double precision), 0, NULL, '', NULL),
+  (5, NULL, NULL, 'x' || chr(10) || 'y', NULL, '"just a string"');
+"#;
+
+/// [`DDL`] for a dialect whose type of JSON is `json_type`.
+fn ddl(json_type: &str) -> String {
+    DDL.replace("JSON_TYPE", json_type)
+}
 
 /// How a NULL value is shown in the expected values.
 const NULL: &str = "∅";
@@ -181,17 +187,133 @@ const CASES: &[(&str, &str)] = &[
         r"@@array(1 2)|reduce(@a @b => @@array(@a @b n)|reduce(@x @y => @x + @y))",
         "93|2|∅|3|∅",
     ),
+    // A path of keys and positions, which count from the end when negative. A key never indexes
+    // an array. Nowhere, and a JSON null, are NULL.
+    (r#"j|json_path("name")"#, "x|∅|∅|∅|∅"),
+    (r#"j|json_path("n")|to_number|times(2)"#, "6|∅|∅|∅|∅"),
+    (r#"j|json_path("flag")"#, "true|∅|∅|∅|∅"),
+    (r#"j|json_path("nothing")"#, "∅|∅|∅|∅|∅"),
+    (r#"j|json_path("missing")"#, "∅|∅|∅|∅|∅"),
+    (r#"j|json_path("items" 0 "sku")"#, "A1|∅|∅|∅|∅"),
+    (r#"j|json_path("items" (-1) "sku")"#, "B2|∅|∅|∅|∅"),
+    (r#"j|json_path("items" (-3) "sku")"#, "∅|∅|∅|∅|∅"),
+    (r#"j|json_path("items" 2 "sku")"#, "∅|∅|∅|∅|∅"),
+    (r#"j|json_path(0)"#, "∅|10|∅|∅|∅"),
+    (r#"j|json_path(-1 "c")"#, "∅|1|∅|∅|∅"),
+    (r#"j|json_path(3 0)"#, "∅|1|∅|∅|∅"),
+    (r#"j|json_path("0")"#, "zero|∅|∅|∅|∅"),
+    (r#"j|json_path("name" "x")"#, "∅|∅|∅|∅|∅"),
+    // A position never indexes a string, number, or boolean (as one does in Postgres's `jsonb`).
+    (r#"j|json_path("name" 0)"#, "∅|∅|∅|∅|∅"),
+    (r#"j|json_path(-1)"#, "∅|{\"c\":1.0}|∅|∅|∅"),
+    (r#"j|json_path('k"q')"#, "1|∅|∅|∅|∅"),
+    // A step that isn't a literal: a position when it's a number, and a key otherwise.
+    (r#"j|json_path(n)"#, r#"∅|{"c":1.0}|∅|∅|∅"#),
+    (r#"j|json_path(n|minus(1))"#, "∅|[1.0]|∅|∅|∅"),
+    (r#"j|json_path("na"|concat("me"))"#, "x|∅|∅|∅|∅"),
+    (r#"j|json_path('k'|concat('"q'))"#, "1|∅|∅|∅|∅"),
+    (r#"j|json_path(@null)"#, "∅|∅|∅|∅|∅"),
+    // An object or array is JSON text, which `json_path` reads again.
+    (
+        r#"j|json_path("nested")"#,
+        r#"{"a":[1.0,2.0],"b":"c"}|∅|∅|∅|∅"#,
+    ),
+    (r#"j|json_path("nested")|json_path("a" 1)"#, "2|∅|∅|∅|∅"),
+    (r#"j|json_path("tags")"#, r#"["urgent","ui"]|∅|∅|∅|∅"#),
+    (r#"'{"a": [5]}'|to_json|json_path("a" 0)"#, "5|5|5|5|5"),
+    // `to_array` gives text, as `json_path` does.
+    (
+        r#"j|json_path("tags")|to_array|join(",")"#,
+        "urgent,ui|∅|∅|∅|∅",
+    ),
+    (
+        r#"j|json_path("tags")|to_array|some(@t => @t:=="urgent")"#,
+        "true|∅|∅|∅|∅",
+    ),
+    (
+        r#"j|json_path("items")|to_array|map(@i => @i|json_path("sku"))|join(",")"#,
+        "A1,B2|∅|∅|∅|∅",
+    ),
+    (
+        r#"j|json_path("items")|to_array|filter(@i => @i|json_path("price")|to_number:>10)|map(@i => @i|json_path("sku"))|join(",")"#,
+        "A1|∅|∅|∅|∅",
+    ),
+    (r#"j|json_path(3)|to_array|length"#, "∅|1|∅|∅|∅"),
+    (
+        r#"'[1, "a", null, [2, 3], {"b": true}, 2.50]'|to_array|length"#,
+        "6|6|6|6|6",
+    ),
+    (
+        r#"'[1, "a", null, [2, 3], {"b": true}, 2.50]'|to_array|at(0)"#,
+        "1|1|1|1|1",
+    ),
+    (
+        r#"'[1, "a", null, [2, 3], {"b": true}, 2.50]'|to_array|at(1)"#,
+        "a|a|a|a|a",
+    ),
+    (
+        r#"'[1, "a", null, [2, 3], {"b": true}, 2.50]'|to_array|at(2)"#,
+        "∅|∅|∅|∅|∅",
+    ),
+    (
+        r#"'[1, "a", null, [2, 3], {"b": true}, 2.50]'|to_array|at(3)"#,
+        "[2.0,3.0]|[2.0,3.0]|[2.0,3.0]|[2.0,3.0]|[2.0,3.0]",
+    ),
+    (
+        r#"'[1, "a", null, [2, 3], {"b": true}, 2.50]'|to_array|at(4)"#,
+        r#"{"b":true}|{"b":true}|{"b":true}|{"b":true}|{"b":true}"#,
+    ),
+    (
+        r#"'[1, "a", null, [2, 3], {"b": true}, 2.50]'|to_array|at(5)"#,
+        "2.5|2.5|2.5|2.5|2.5",
+    ),
+    (r#"'[]'|to_array|length"#, "0|0|0|0|0"),
+    (r#"'null'|to_array|length"#, "∅|∅|∅|∅|∅"),
+    (
+        r#"@@json_array(1 "a")|to_array|join(",")"#,
+        "1,a|1,a|1,a|1,a|1,a",
+    ),
+    // The builders make JSON of each value by its type.
+    (
+        r#"@@json_object("s" s "n" n "b" n:>0 "z" @null)"#,
+        r#"{"b":true,"n":90.0,"s":"Fix: one fix","z":null}|{"b":false,"n":-1.0,"s":"a,b,c","z":null}|{"b":null,"n":null,"s":"","z":null}|{"b":false,"n":0.0,"s":null,"z":null}|{"b":null,"n":null,"s":"x\ny","z":null}"#,
+    ),
+    (
+        r#"@@json_array(@2024-01-02 "2024-01-02T10:30:00.5"|to_timestamp "2024-01-02T10:30:00"|to_timestamp)"#,
+        r#"["2024-01-02","2024-01-02T10:30:00.5","2024-01-02T10:30:00"]|["2024-01-02","2024-01-02T10:30:00.5","2024-01-02T10:30:00"]|["2024-01-02","2024-01-02T10:30:00.5","2024-01-02T10:30:00"]|["2024-01-02","2024-01-02T10:30:00.5","2024-01-02T10:30:00"]|["2024-01-02","2024-01-02T10:30:00.5","2024-01-02T10:30:00"]"#,
+    ),
+    (
+        r#"@@json_object("a" @@array(1 2) "j" @@json_array(1) "t" '{"x":1}' "tj" '{"x":1}'|to_json)"#,
+        r#"{"a":[1.0,2.0],"j":[1.0],"t":"{\"x\":1}","tj":{"x":1.0}}|{"a":[1.0,2.0],"j":[1.0],"t":"{\"x\":1}","tj":{"x":1.0}}|{"a":[1.0,2.0],"j":[1.0],"t":"{\"x\":1}","tj":{"x":1.0}}|{"a":[1.0,2.0],"j":[1.0],"t":"{\"x\":1}","tj":{"x":1.0}}|{"a":[1.0,2.0],"j":[1.0],"t":"{\"x\":1}","tj":{"x":1.0}}"#,
+    ),
+    (
+        r#"@@json_array(j|json_path("n") j|json_path("n")|to_json)"#,
+        r#"["3",3.0]|[null,null]|[null,null]|[null,null]|[null,null]"#,
+    ),
+    // (NaN isn't JSON: Postgres writes it as a string, and DuckDB as `NaN`.)
+    (
+        r#"@@json_array(? x|is_nan ~ 0 ~~ x)"#,
+        "[2.5]|[-2.5]|[1250.0]|[0.0]|[null]",
+    ),
+    // Anything but an array gives NULL.
+    (r#"j|to_array|length"#, "∅|5|∅|∅|∅"),
+    (
+        r#"@@json_object(1 "one")"#,
+        r#"{"1":"one"}|{"1":"one"}|{"1":"one"}|{"1":"one"}|{"1":"one"}"#,
+    ),
+    (r#"@@json_object()"#, "{}|{}|{}|{}|{}"),
+    (r#"@@json_array()"#, "[]|[]|[]|[]|[]"),
 ];
 
 #[test]
 fn test_functions_postgres() {
-    let env = PgEnv::setup("functions", DDL);
+    let env = PgEnv::setup("functions", &ddl("jsonb"));
     check(Box::new(Postgres()), |sql| env.run_query(sql));
 }
 
 #[test]
 fn test_functions_duckdb() {
-    let env = DuckEnv::setup(DDL);
+    let env = DuckEnv::setup(&ddl("JSON"));
     check(Box::new(DuckDB()), |sql| env.run_query(sql));
 }
 
@@ -228,7 +350,10 @@ fn check(dialect: Box<dyn Dialect>, run: impl Fn(&str) -> String) {
 }
 
 /// Writes each number among `values` as Rust formats an `f64`, since the databases format them
-/// differently (`3` and `3.0`, `NaN` and `nan`, `0` and `-0.0`).
+/// differently (`3` and `3.0`, `NaN` and `nan`, `0` and `-0.0`). Each JSON object or array is
+/// written compactly, with its keys in order and its numbers as `f64`s, since the databases format
+/// JSON differently too: Postgres's `jsonb` puts spaces after `:` and `,`, and orders keys by
+/// length, and DuckDB writes a `DOUBLE` of 1250 as `1250.0`.
 fn normalize(values: &str) -> String {
     values
         .split('|')
@@ -236,8 +361,30 @@ fn normalize(values: &str) -> String {
             // Without a sign on zero, which rounding a negative number can leave in DuckDB.
             Ok(number) if number == 0.0 => "0".to_string(),
             Ok(number) => number.to_string(),
+            Err(_) if value.starts_with(['{', '[']) => {
+                match serde_json::from_str::<serde_json::Value>(value) {
+                    Ok(json) => canonical_json(json).to_string(),
+                    Err(_) => value.to_string(),
+                }
+            }
             Err(_) => value.to_string(),
         })
         .collect::<Vec<_>>()
         .join("|")
+}
+
+/// `json` with each of its numbers as an `f64` (and its keys in order, as `serde_json` keeps them).
+fn canonical_json(json: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match json {
+        Value::Number(n) => n.as_f64().map(Value::from).unwrap_or(Value::Number(n)),
+        Value::Array(elements) => Value::Array(elements.into_iter().map(canonical_json).collect()),
+        Value::Object(entries) => Value::Object(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key, canonical_json(value)))
+                .collect(),
+        ),
+        other => other,
+    }
 }

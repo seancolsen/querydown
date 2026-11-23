@@ -337,6 +337,19 @@ pub fn expected_args_between(min: usize, max: usize, actual: usize) -> Error {
     ))
 }
 
+pub fn json_path_without_steps() -> Error {
+    Error::compile(
+        "`json_path` needs at least one step: an object's key or an array's position, as in \
+         `json_path(\"items\" 0)`.",
+    )
+}
+
+pub fn json_object_key_without_value() -> Error {
+    Error::compile(
+        "`json_object` takes pairs of keys and values, but this key has no value after it.",
+    )
+}
+
 pub fn expected_at_least_one_arg() -> Error {
     Error::compile("Expected at least one argument.")
 }

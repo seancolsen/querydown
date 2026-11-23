@@ -3,8 +3,8 @@ use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::{
     dialect::{
-        duration_part, ArrayIndex, Dialect, ElementNames, MaybeLiteral, NormalizedDuration,
-        ReduceNames, RegexPattern, Separator,
+        duration_part, ArrayIndex, Dialect, ElementNames, JsonStep, MaybeLiteral,
+        NormalizedDuration, ReduceNames, RegexPattern, Separator,
     },
     expr::{
         build::{
@@ -43,6 +43,11 @@ impl DuckDB {
         }
         SqlExpr::atom(format!("lambda {params}: {body}"))
     }
+}
+
+/// A key of an object, as a step of a JSON path: quoted, so that it may hold any character.
+fn json_path_key(key: &str) -> String {
+    format!(".\"{}\"", key.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 impl Dialect for DuckDB {
@@ -256,6 +261,116 @@ impl Dialect for DuckDB {
                     null(),
                 )
             }
+        }
+    }
+
+    fn json_path(&self, a: SqlExpr, _is_json: bool, steps: Vec<JsonStep>) -> SqlExpr {
+        // A JSON path, such as `$."items"[#-1]."sku"`. The steps that are literals are written into
+        // it, and any other is concatenated into it at run time.
+        let mut parts: Vec<SqlExpr> = Vec::new();
+        let mut literal = String::from("$");
+        for step in steps {
+            let part = match step {
+                JsonStep::Key(MaybeLiteral::Literal(key)) => {
+                    literal.push_str(&json_path_key(&key));
+                    continue;
+                }
+                JsonStep::Position(MaybeLiteral::Literal(n)) if n < 0 => {
+                    literal.push_str(&format!("[#{n}]"));
+                    continue;
+                }
+                JsonStep::Position(MaybeLiteral::Literal(n)) => {
+                    literal.push_str(&format!("[{n}]"));
+                    continue;
+                }
+                JsonStep::Key(MaybeLiteral::Expr(key)) => {
+                    literal.push_str(".\"");
+                    let key = sql_func(
+                        "replace",
+                        [
+                            sql_func(
+                                "replace",
+                                [
+                                    key,
+                                    SqlExpr::atom(r"'\'".to_string()),
+                                    SqlExpr::atom(r"'\\'".to_string()),
+                                ],
+                            ),
+                            SqlExpr::atom(r#"'"'"#.to_string()),
+                            SqlExpr::atom(r#"'\"'"#.to_string()),
+                        ],
+                    );
+                    parts.push(SqlExpr::atom(self.quote_string(&literal)));
+                    literal = String::from("\"");
+                    key
+                }
+                JsonStep::Position(MaybeLiteral::Expr(position)) => {
+                    literal.push('[');
+                    // From the end, a position is written after `#`.
+                    let from_end = case(
+                        vec![(
+                            lt(position.clone(), zero()),
+                            SqlExpr::atom("'#'".to_string()),
+                        )],
+                        SqlExpr::atom("''".to_string()),
+                    );
+                    parts.push(SqlExpr::atom(self.quote_string(&literal)));
+                    parts.push(from_end);
+                    literal = String::from("]");
+                    func::cast(position, "VARCHAR")
+                }
+            };
+            parts.push(part);
+        }
+        parts.push(SqlExpr::atom(self.quote_string(&literal)));
+        let path = match parts.len() {
+            1 => parts.pop().expect("there is a part"),
+            _ => SqlExpr::atom(format!(
+                "({})",
+                parts
+                    .into_iter()
+                    .map(|p| p.for_precedence(SqlExprPrecedence::Atom).content)
+                    .join(" || ")
+            )),
+        };
+        sql_func("json_extract_string", [a, path])
+    }
+
+    fn to_json(&self, a: SqlExpr) -> SqlExpr {
+        func::cast(a, "JSON")
+    }
+
+    fn to_array(&self, a: SqlExpr, _name: &str) -> SqlExpr {
+        sql_func(
+            "from_json",
+            [a, SqlExpr::atom(r#"'["VARCHAR"]'"#.to_string())],
+        )
+    }
+
+    fn json_object(&self, pairs: Vec<(SqlExpr, SqlExpr)>) -> SqlExpr {
+        sql_func(
+            "json_object",
+            pairs.into_iter().flat_map(|(key, value)| [key, value]),
+        )
+    }
+
+    fn json_array(&self, values: Vec<SqlExpr>) -> SqlExpr {
+        sql_func("json_array", values)
+    }
+
+    fn json_value(&self, value: SqlExpr, is_timestamp: bool) -> SqlExpr {
+        // DuckDB writes a timestamp into JSON with a space between the date and the time, where
+        // ISO 8601 (and Postgres) has a `T`.
+        match is_timestamp {
+            true => sql_func(
+                "replace",
+                [
+                    func::cast(value, "VARCHAR"),
+                    SqlExpr::atom("' '".to_string()),
+                    SqlExpr::atom("'T'".to_string()),
+                ],
+            ),
+            false => value,
         }
     }
 

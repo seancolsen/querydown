@@ -492,11 +492,41 @@ Converts ISO 8601 text, such as `"2024-03-01T09:30:00"`, to a timestamp without 
 #issues created_at:>"2024-03-01T09:30:00"|to_timestamp
 ```
 
+### `to_array`
+
+Converts a JSON array to an array of text, which the [array functions](#array-functions) work on.
+
+> Find users who watch the "bug" label
+
+```qd
+#users preferences|json_path("watched_labels")|to_array|some(@l => @l:=="bug") $username
+```
+
+- Each element becomes text as [`json_path`](#json_path) gives it: a string without its quotes, a number or boolean as its text, and an object or array as its JSON text. A JSON `null` becomes NULL.
+- It takes a JSON column, or text that holds JSON, such as what `json_path` gives.
+- NULL, or anything that isn't a JSON array (such as an object, or a JSON `null`), gives NULL.
+- Compiles to `jsonb_array_elements_text` in a subquery (Postgres), or to `from_json(value, '["VARCHAR"]')` (DuckDB).
+
+### `to_json`
+
+Reads text as JSON. Text that isn't JSON is an error from the database.
+
+> Show each user's notification settings, nested as JSON within an object
+
+```qd
+#users $@@json_object("user" username "notify" preferences|json_path("notify")|to_json)
+```
+
+Without `to_json`, the settings that [`json_path`](#json_path) gives would be nested as a string holding JSON, since they're text.
+
+- A value that's JSON already is left as it is.
+- Compiles to `CAST(value AS jsonb)` (Postgres) or `CAST(value AS JSON)` (DuckDB).
+
 To convert a number or a date to text, use a [formatted string](./language.md#formatted-strings), as in `^f"{id}"`.
 
 ## Array functions
 
-An array is a list of values in one column. You get one from [`array`](#array), [`split`](#split), or the aggregate functions [`list`](#list), [`list_all`](#list_all), and [`top`](#top), or from a column whose type is an array.
+An array is a list of values in one column. You get one from [`array`](#array), [`split`](#split), [`to_array`](#to_array), or the aggregate functions [`list`](#list), [`list_all`](#list_all), and [`top`](#top), or from a column whose type is an array.
 
 Five of these, [`map`](#map), [`filter`](#filter), [`some`](#some), [`every`](#every), and [`reduce`](#reduce), apply a [function that you give them](./language.md#functions-as-arguments) to each element.
 
@@ -637,6 +667,108 @@ Combines the elements of an array into one value, from the left, with a [functio
 - An array of one element gives that element, and an empty or NULL array gives NULL.
 - The function's result should have the type of the elements, since it's given back to the function as the value so far. Otherwise, the database may report an error.
 - Postgres has no direct equivalent, so `reduce` compiles to a recursive query there, which runs for each row. It works, but it's slow on long arrays. To join text, [`join`](#join) is quicker. In DuckDB, `reduce` compiles to `list_reduce`.
+
+## JSON functions
+
+These read values out of JSON, and build it. They work on columns whose type is JSON (`json` or `jsonb` in Postgres, `JSON` in DuckDB), and on text that holds JSON. In the sample schema, `users.preferences` is JSON, such as:
+
+```json
+{
+  "theme": "dark",
+  "page_size": 50,
+  "notify": { "open": true, "closed": false },
+  "watched_labels": ["bug", "ui"],
+  "saved_filters": [{ "name": "Mine", "query": "#issues author.username:sam" }]
+}
+```
+
+To turn a JSON array into an array that the [array functions](#array-functions) work on, use [`to_array`](#to_array). To read text as JSON, use [`to_json`](#to_json).
+
+### `json_path`
+
+Returns the value at a path into JSON, as text. Each step of the path is an object's key (text) or an array's position (a number).
+
+> Find users who chose the dark theme
+
+```qd
+#users preferences|json_path("theme"):="dark" $username
+```
+
+> Show the name of each user's first saved filter, and the label they watch that's listed last
+
+```qd
+#users $username $preferences|json_path("saved_filters" 0 "name") $preferences|json_path("watched_labels" (-1))
+```
+
+- Positions count from 0, and a negative position counts from the end, so `-1` is the last element.
+- Write a negative position after another step in parentheses, as in `json_path("watched_labels" (-1))`. Without them, `"watched_labels" -1` would be a subtraction.
+- A string comes back without its quotes, and a number or a boolean as its text, such as `50` or `true`. The database writes a number's text, so it may differ (`1.50` in Postgres's `jsonb` is `1.5` in DuckDB). To compare a number as a number, convert it with [`to_number`](#to_number): `preferences|json_path("page_size")|to_number:>20`.
+- An object or an array comes back as JSON text, which you can give to another `json_path`, or to [`to_array`](#to_array). The database formats that text: Postgres writes `jsonb` with a space after each `:` and `,`, and with an object's keys in an order of its own, while DuckDB writes it compactly, with the keys in their original order.
+- It gives NULL when the path leads nowhere (to a key that isn't there, a position past the end, or a key within an array) or to a JSON `null`.
+- It needs at least one step.
+
+A step needn't be a literal. One that isn't is a position if it's a number, and a key otherwise.
+
+> Find assignments whose user wants to be notified about issues in the issue's status
+
+```qd
+#assignments user.preferences|json_path("notify" issue.status):="true" $issue.title $user.username
+```
+
+The steps are the part of a JSON path that every database shares. The rest of a path language is already in Querydown: for a wildcard, use [`map`](#map), and for a filter, [`filter`](#filter).
+
+> Show the names of each user's saved filters whose query is about issues
+
+```qd
+#users $username $preferences|json_path("saved_filters")|to_array|filter(@f => @f|json_path("query"):~'^#issues')|map(@f => @f|json_path("name"))|join(", ")
+```
+
+In Postgres, `json_path` compiles to the operators `->` and `->>`, as in `CAST(preferences AS json) -> 'saved_filters' -> 0 ->> 'name'`. Text is read as `json` first, and so is any value whose path has a position, since `jsonb` treats a string, number, or boolean as an array of one. In DuckDB, it compiles to `json_extract_string` with a path, as in `'$."saved_filters"[0]."name"'`, into which a step that isn't a literal is concatenated.
+
+### `json_object`
+
+Returns a JSON object built from pairs of keys and values. It's called [without a pipe](./language.md#function-calling).
+
+> Show each issue as a JSON object of its title, status, and creation time
+
+```qd
+#issues $@@json_object("title" title "status" status "created" created_at)
+```
+
+> Show each issue with its comments as JSON objects, oldest first
+
+```qd
+#comments.summary = @@json_object("by" user.username "body" body)
+#issues $title $#comments.summary%list_all(\\created_at)
+```
+
+- Each value becomes JSON by its type: text a string, a number a number, a boolean `true` or `false`, NULL `null`, a date or timestamp an ISO 8601 string, an array a JSON array, and JSON itself is nested as it is.
+- Text that holds JSON becomes a string, unless you read it as JSON first with [`to_json`](#to_json).
+- A few values are written differently by each database: a timestamp with a time zone ends in `+00:00` in Postgres and `+00` in DuckDB, and NaN becomes the string `"NaN"` in Postgres but `NaN` in DuckDB, which isn't valid JSON.
+- A key is text. A key of another type is converted to text.
+- The arguments must come in pairs, so there must be an even number of them.
+
+> Attempt to build an object whose last key has no value
+
+```qd error
+#issues $@@json_object("title" title "status")
+```
+
+- Compiles to `jsonb_build_object` (Postgres) or `json_object` (DuckDB).
+
+### `json_array`
+
+Returns a JSON array of the given values. It's called [without a pipe](./language.md#function-calling).
+
+> Show each user's username and preferences together, as a JSON array
+
+```qd
+#users $@@json_array(username preferences)
+```
+
+- Each value becomes JSON as it does in [`json_object`](#json_object).
+- With no values, it gives an empty array, `[]`.
+- Compiles to `jsonb_build_array` (Postgres) or `json_array` (DuckDB).
 
 ## Aggregate functions
 

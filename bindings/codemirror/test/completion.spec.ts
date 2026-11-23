@@ -13,7 +13,7 @@ const ISSUES = [
   "duplicate_of",
   "due_date",
 ];
-const USERS = ["id", "username", "email", "team", "birth_date", "last_seen"];
+const USERS = ["id", "username", "email", "team", "birth_date", "last_seen", "preferences"];
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/completion.html");

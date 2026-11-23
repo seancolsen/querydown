@@ -28,7 +28,7 @@ use crate::{Compiler, Dialect, DuckDB, IdentifierResolution, Options, Postgres};
 const DDL: &str = "\
 CREATE TABLE teams (id integer PRIMARY KEY, name text);
 CREATE TABLE users (id integer PRIMARY KEY, name text, team integer REFERENCES teams(id));
-CREATE TABLE profiles (id integer PRIMARY KEY, \"user\" integer UNIQUE REFERENCES users(id));
+CREATE TABLE profiles (id integer PRIMARY KEY, \"user\" integer UNIQUE REFERENCES users(id), settings json);
 CREATE SCHEMA billing;
 CREATE TABLE billing.users (id integer PRIMARY KEY, email text);
 CREATE TABLE billing.invoices (id integer PRIMARY KEY, \"user\" integer REFERENCES billing.users(id));
@@ -168,6 +168,13 @@ fn assert_introspection(json: &str, dialect: Box<dyn Dialect>) -> Compiler {
         .compile("#users $team.name".to_string())
         .expect("query against introspected schema should compile");
     assert!(result.sql.contains("teams"));
+
+    // A JSON column is known to be JSON, so `to_json` leaves it as it is.
+    let sql = compiler
+        .compile("#profiles $settings|to_json".to_string())
+        .expect("a query of a JSON column should compile")
+        .sql;
+    assert!(!sql.contains("CAST"), "{sql}");
 
     // A table in the current schema has no `schema`, and one in another schema has one. Only the
     // tables in the current schema are written without a schema.

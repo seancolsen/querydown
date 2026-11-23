@@ -24,6 +24,14 @@ pub type ArrayIndex = MaybeLiteral<i64>;
 /// The separator that `split` splits text at, or that `join` joins elements with.
 pub type Separator = MaybeLiteral<String>;
 
+/// A step of the path that `json_path` follows into JSON: an object's key, or an array's position
+/// (counting from 0, or from the end when negative).
+#[derive(Debug, Clone)]
+pub enum JsonStep {
+    Key(MaybeLiteral<String>),
+    Position(MaybeLiteral<i64>),
+}
+
 impl MaybeLiteral<i64> {
     /// The SQL of the number.
     pub fn into_sql(self) -> SqlExpr {
@@ -291,6 +299,33 @@ pub trait Dialect {
     /// Render `reduce`: the elements of the array `a` combined from the left by `body`, starting
     /// from the first element (see [`Dialect::reduce_params`]). NULL for an empty or NULL array.
     fn array_reduce(&self, a: SqlExpr, names: &ReduceNames, body: SqlExpr) -> SqlExpr;
+
+    /// Render `json_path`: the value within the JSON `a` that `steps` (of which there's at least
+    /// one) lead to, as text. A string is unquoted, and an object or array is JSON text. NULL when
+    /// the path leads nowhere, or to a JSON null. `is_json` says whether `a` is known to be JSON
+    /// already, rather than text that holds it.
+    fn json_path(&self, a: SqlExpr, is_json: bool, steps: Vec<JsonStep>) -> SqlExpr;
+
+    /// Render `to_json`: the text `a` read as JSON.
+    fn to_json(&self, a: SqlExpr) -> SqlExpr;
+
+    /// Render `to_array`: the elements of the JSON array `a` (JSON, or text that holds it), as an
+    /// array of text, as `json_path` gives them. NULL for anything that isn't an array. `name` is
+    /// unique within the query, for a dialect that names `a` in a subquery.
+    fn to_array(&self, a: SqlExpr, name: &str) -> SqlExpr;
+
+    /// Render `json_object`: a JSON object of the given keys (text) and values.
+    fn json_object(&self, pairs: Vec<(SqlExpr, SqlExpr)>) -> SqlExpr;
+
+    /// Render `json_array`: a JSON array of the given values.
+    fn json_array(&self, values: Vec<SqlExpr>) -> SqlExpr;
+
+    /// Render a value given to `json_object` or `json_array`, so that the dialect writes it into
+    /// JSON as the other does. `is_timestamp` says whether it's known to be a timestamp, which
+    /// becomes an ISO 8601 string.
+    fn json_value(&self, value: SqlExpr, _is_timestamp: bool) -> SqlExpr {
+        value
+    }
 
     /// Render a regex `pattern` with the inline options `prefix` (e.g. `(?m)`) written before it.
     /// A literal pattern absorbs the prefix; any other is concatenated with it at run time, which
