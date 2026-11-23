@@ -2,8 +2,8 @@
 
 **Status:** planned. Nothing here is implemented.
 
-This spec adds 22 functions to Querydown and widens one. Each is here because something is
-impossible without it. None is here for convenience.
+This spec adds 26 functions to Querydown and widens one. Each is here because something is
+impossible without it, except for `round` and `is_nan`, which are explained below.
 
 ## Design rules
 
@@ -25,6 +25,9 @@ impossible without it. None is here for convenience.
 - **Positions count from 0**, in arrays and in JSON arrays. A negative position counts from the end,
   so `-1` is the last element.
 - **Dialects:** a function gives the same result in PostgreSQL and DuckDB.
+- **Errors:** a value that a function can't handle, such as text that isn't a number given to
+  `to_number`, is an error from the database. DuckDB could give NULL instead, but PostgreSQL 15
+  can't, so both give an error.
 
 The PostgreSQL SQL below was run on PostgreSQL 15. The DuckDB SQL wasn't run. It follows the
 DuckDB 1.4 documentation, so treat it as a starting point that the `db-tests` corpus will confirm.
@@ -46,21 +49,26 @@ the flags into the SQL as its `match_regex` does.
 
 | Function | Description | Compiles to |
 | -- | -- | -- |
+| `round(digits?)` | Rounds to the nearest integer, or to `digits` decimal places. A half rounds away from zero. A negative `digits` rounds to tens, hundreds, and so on. | PostgreSQL: `ROUND(CAST(x AS numeric), digits)`. DuckDB: `round(x, digits)` |
 | `ln` | The natural logarithm. With `exp` and `pow` already there, it completes logarithms to any base. | `LN` |
+| `gcd(y)` | The greatest common divisor of two integers. | `gcd` |
+| `lcm(y)` | The least common multiple of two integers. | `lcm` |
+| `is_nan` | Whether a number is NaN, the floating-point value "not a number". | PostgreSQL: `x = CAST('NaN' AS double precision)`. DuckDB: `isnan(x)` |
 
-## Dates and durations
+- **`round` is an exception to rule 1.** `floor` can do it, but the workaround is clumsy for
+  decimal places (`x|times(100)|plus(0.5)|floor|divide(100)`), and rounding is among the most common
+  needs. PostgreSQL rounds a half to even on `double precision`, so `round` casts to `numeric`,
+  which rounds a half away from zero, as DuckDB does.
+- **`is_nan` is the other exception.** PostgreSQL sorts NaN above every other number, infinity
+  included, so `x:>@infinity` already finds it there (DuckDB is documented to do the same). But no
+  one would think to write that, and the usual test, a value that isn't equal to itself, fails:
+  PostgreSQL treats NaN as equal to itself.
+
+## Durations
 
 | Function | Description | Compiles to |
 | -- | -- | -- |
-| `start_of(unit)` | The start of the `"year"`, `"quarter"`, `"month"`, `"week"`, `"day"`, `"hour"`, or `"minute"` that a date or timestamp falls in. Weeks begin on Monday. The result has the type of the input. | `date_trunc('…', x)`, cast back to `DATE` when the input is a date |
 | `seconds_to_duration` | Converts a number of seconds to a duration. The opposite of `seconds`. | PostgreSQL: `make_interval(secs => x)`. DuckDB: `to_seconds(x)` |
-
-`unit` must be a literal, so the compiler can reject an unknown one. `start_of` reads a zoned
-timestamp the way `year` does, through `temporal_arg`.
-
-`start_of` is the one new calendar function. Grouping by week, quarter, or hour needs it, and every
-calendar part that Querydown lacks follows from it by subtraction (see
-[What composes](#what-composes)).
 
 ## Conversions
 
@@ -72,19 +80,26 @@ calendar part that Querydown lacks follows from it by subtraction (see
 | `to_array` | Converts a JSON array to an array of text. An element that is an object or array becomes its JSON text. | PostgreSQL: `ARRAY(SELECT jsonb_array_elements_text(CAST(x AS jsonb)))`. DuckDB: `from_json(x, '["VARCHAR"]')` |
 | `to_json` | Reads text as JSON. | PostgreSQL: `CAST(x AS jsonb)`. DuckDB: `CAST(x AS JSON)` |
 
-Text that can't be converted is an error from the database (see [Open questions](#open-questions)).
 There is no `to_text`, because a formatted string already converts: `^f"{id}"`.
 
 ## Arrays
 
-These work on array columns, on the arrays that `list`, `list_all`, and `top` produce, and on the
-results of `split` and `to_array`.
+These work on array columns, on the arrays that `array`, `list`, `list_all`, and `top` produce, and
+on the results of `split` and `to_array`.
 
 | Function | Description | Compiles to |
 | -- | -- | -- |
+| `array(value…)` | An array of the given values, as in `@@array(home_phone work_phone)`. | PostgreSQL: `ARRAY[a, b]`. DuckDB: `[a, b]` |
 | `at(index)` | The element at a position, or NULL if there is none. | PostgreSQL: `x[index + 1]`, or `x[cardinality(x) + index + 1]` for a negative index. DuckDB: `x[index + 1]`, or `x[index]` for a negative one |
 | `join(separator)` | Joins the elements into one string, skipping NULLs. The opposite of `split`. | `array_to_string` |
 | `length` (widened) | Already counts the characters of text. Given an array, it counts the elements. | PostgreSQL: `cardinality`. DuckDB: `len` |
+
+- **`array` needs at least one value**, since PostgreSQL can't type an empty array literal. The
+  values must share a type, or the database reports an error. A NULL value is kept as an element.
+- **`join` stays** although `reduce` can do it (`x|reduce(@a @b => ^f"{@a}, {@b}")`). It's the
+  opposite of `split`, and `reduce` is slow in PostgreSQL.
+- **`length` counts elements**, rather than arrays getting a `size` of their own, since it answers the
+  same question of text and of arrays. The compiler chooses the SQL by the argument's inferred type.
 
 ### Functions that take a function
 
@@ -171,9 +186,9 @@ is a third language, and no database runs it. What the databases support differs
 | DuckDB | yes | `[#-1]` | `[*]` only | no |
 | SQLite | yes | `[#-1]` | no | no |
 
-Only keys and positions work everywhere, and even "from the end" is spelled two ways. A richer
-path would either work in PostgreSQL alone, or need Querydown to translate it into subqueries for
-the other three.
+Only keys and positions work everywhere, and even "from the end" is spelled two ways. A path string
+handed to the database, as in `json_path('$.items[0].sku')`, would look familiar, but anything past
+keys and positions would behave differently in each database, or not work at all.
 
 So `json_path` takes the common core, as steps, not as a string in another language. The compiler
 writes each database's own path from them. The rest of a path language is already in Querydown: a
@@ -198,11 +213,11 @@ None of these needs a function of its own.
 | The first or last element | `x\|at(0)`, `x\|at(-1)` |
 | One part of split text | `email\|split("@")\|at(1)` |
 | Whether an array has a value | `tags\|some(@t => @t:=="urgent")` |
+| Whether a value is one of several columns | `@@array(home_phone work_phone)\|some(@p => @p:==phone)` |
 | The first three elements | `x\|filter(@e @i => @i:<3)` |
 | The sum of an array's numbers | `x\|reduce(@a @b => @a + @b)` |
 | The largest element | `x\|reduce(@a @b => @a\|max(@b))` |
 | Two arrays, multiplied element by element | `xs\|map(@x @i => @x\|times(ys\|at(@i)))` |
-| An array from separate values | `@@json_array(home_phone work_phone)\|to_array` |
 | `string_agg` | `#labels.name%list(\s)\|join(", ")` |
 | A value from the latest related record | `#comments.body%list_all(\\created_at \d)\|at(0)` |
 | Trim one end | `x\|regex_replace('^\s+' "")`, `x\|regex_replace('\s+$' "")` |
@@ -212,14 +227,12 @@ None of these needs a function of its own.
 | The first or last 3 characters | `x\|regex_extract('^.{0,3}')`, `x\|regex_extract('.{0,3}$')` |
 | Pad with zeros to 5 digits | `^f"0000{id}"\|regex_extract('.{5}$')` |
 | Weeks or months in a duration | `x\|days\|divide(7)`, `x\|days\|divide(30.44)` |
-| Hour of the day | `t\|minus(t\|start_of("day"))\|hours\|floor` |
-| Day of the week (0 is Monday) | `t\|minus(t\|start_of("week"))\|days\|floor` |
-| Day of the year | `t\|minus(t\|start_of("year"))\|days\|floor\|plus(1)` |
+| Hour of the day | `t\|minus(t\|to_date)\|hours\|floor` |
+| Day of the week (0 is Monday) | `t\|minus(@1900-01-01)\|days\|floor\|mod(7)` |
 | Quarter | `t\|month\|plus(2)\|divide(3)\|floor` |
 | Seconds since 1970 | `t\|minus(@1970-01-01)\|seconds` |
 | A timestamp from seconds since 1970 | `@1970-01-01\|plus(n\|seconds_to_duration)` |
 | A duration from days | `n\|times(86400)\|seconds_to_duration` |
-| Round | `x\|plus(0.5)\|floor` |
 | Logarithm to base `b` | `x\|ln\|divide(b\|ln)` |
 | `null_if` | `? x:==v ~ @null ~~ x` |
 | Convert to text | `^f"{x}"` |
@@ -229,7 +242,8 @@ None of these needs a function of its own.
 | The most common value | `#comments.user%top(\\%count \d)` |
 
 The calendar rows are written for timestamps. Between two plain dates, `minus` already gives a
-number of days.
+number of days. The day of the week counts from 1900-01-01, a Monday, so it's wrong for earlier
+dates.
 
 ## Compiler work
 
@@ -242,14 +256,14 @@ Some of these are only a row in `get_standard_scalar_functions`
   element parameter is bound to a piece of SQL instead: the subquery's column in PostgreSQL, the
   lambda's variable in DuckDB. Type inference gives it the array's element type.
 - **Optional and literal arguments.** A helper for functions with optional arguments, and one that
-  reads an argument as a literal (`unit`, `flags`, `group`) and reports an error at it otherwise.
-- **Choosing SQL by type.** `length` compiles differently for an array, and `start_of` for a date.
-  They call `infer_type` on the argument, as `arg_zone` already does for time zones.
+  reads an argument as a literal (`flags`, `group`) and reports an error at it otherwise.
+- **Choosing SQL by type.** `length` compiles differently for an array. It calls `infer_type` on the
+  argument, as `arg_zone` already does for time zones.
 - **New `TypeRule`s.** `at` and `reduce` return the element type of an array. `map` returns an
-  array of its body's type.
-- **`Dialect` methods** for `regex_replace`, `regex_extract`, `seconds_to_duration`, `at`, array
-  `length`, the five functions that take a function, and the five JSON functions (`json_path`,
-  `json_object`, `json_array`, `to_array`, `to_json`).
+  array of its body's type. `array` returns an array of its arguments' common type.
+- **`Dialect` methods** for `round`, `is_nan`, `regex_replace`, `regex_extract`,
+  `seconds_to_duration`, `array`, `at`, array `length`, the five functions that take a function, and
+  the five JSON functions (`json_path`, `json_object`, `json_array`, `to_array`, `to_json`).
 - **Arguments to aggregate functions.** The parentheses after `%name` hold only sorting entries
   today (`aggregate_order_by` in `parser/src/parser/expr/pipe.rs`). `percentile` needs the parser to
   accept value arguments there, and `Call.args` to carry them.
@@ -263,10 +277,10 @@ it to the release notes.
 
 ## Order of work
 
-1. **Same SQL in both dialects:** `ln`, `split`, `join`, `to_number`, `to_date`, `to_timestamp`,
-   `start_of`.
-2. **Dialect-specific or chosen by type:** `regex_replace`, `regex_extract`,
-   `seconds_to_duration`, `at`, `length` for arrays.
+1. **Same SQL in both dialects:** `ln`, `gcd`, `lcm`, `split`, `join`, `to_number`, `to_date`,
+   `to_timestamp`.
+2. **Dialect-specific or chosen by type:** `round`, `is_nan`, `regex_replace`, `regex_extract`,
+   `seconds_to_duration`, `array`, `at`, `length` for arrays.
 3. **Functions that take a function:** `map`, `filter`, `some`, `every`, then `reduce`.
 4. **JSON:** `json_path`, `to_array`, `to_json`, `json_object`, `json_array`, and a JSON column in
    the sample schema.
@@ -281,7 +295,7 @@ this wasn't run. It's from their documentation as remembered.)
   steps translate directly. A richer path wouldn't: SQLite has no wildcards, and neither has filters.
 - **`json_object`, `json_array`, `to_json`:** both have equivalents.
 - **Arrays:** neither has an array type. There, an array would be a JSON array, including what
-  `list` produces, and `to_array` would change nothing.
+  `array` and `list` produce, and `to_array` would change nothing.
 - **`map`, `filter`, `some`, `every`:** neither has lambdas, and neither does PostgreSQL. They'd
   compile as in PostgreSQL, to a subquery over the elements (`JSON_TABLE` in MySQL, `json_each` in
   SQLite).
@@ -290,8 +304,11 @@ this wasn't run. It's from their documentation as remembered.)
 
 ## Left out
 
-Nothing that exists can do these. They wait until someone needs them:
+Nothing that exists can do these. They wait until someone needs them, or until they've had more
+thought:
 
+- **Truncating a date to its week, month, quarter, or year**, as a `start_of(unit)` function would.
+  Grouping by week needs it. Its design needs more thought.
 - **Trigonometry.** `sin`, `cos`, and `atan2` would cover all of it.
 - **`random`.** It takes no arguments, and nothing calls a function without arguments yet.
   `unit_hash` already gives a stable shuffle or sample.
@@ -300,19 +317,3 @@ Nothing that exists can do these. They wait until someone needs them:
   `strftime` take different patterns, so Querydown would need a pattern language of its own.
 - **More of JSON:** an object's keys, and an object built from many rows.
 - **Passing a named function** where a function is expected, as in `map(@@uppercase)`.
-
-## Open questions
-
-1. **Should `round` be an exception to rule 1?** It's left out because `floor` can do it. But the
-   workaround is clumsy for decimal places (`x|times(100)|plus(0.5)|floor|divide(100)`), and
-   rounding is among the most common needs.
-2. **Should `json_path` take steps, or one path string handed to the database?** A string, as in
-   `json_path('$.items[0].sku')`, looks familiar and would give PostgreSQL users filters and
-   wildcards. But anything past keys and positions would behave differently in each database, as
-   regexes already do. Recommended: steps.
-3. **Should `join` stay?** `reduce` can do it: `x|reduce(@a @b => ^f"{@a}, {@b}")`. Recommended:
-   keep it. It's the opposite of `split`, and `reduce` is slow in PostgreSQL.
-4. **Should `length` count an array's elements, or should arrays get `size`?** Recommended:
-   `length`. It's the same question asked of text and of arrays.
-5. **What should a conversion do with text it can't convert?** DuckDB can give NULL (`TRY_CAST`),
-   but PostgreSQL 15 can only raise an error. Recommended: an error in both, so the dialects agree.
