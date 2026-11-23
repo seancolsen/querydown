@@ -4838,6 +4838,480 @@ SELECT
 FROM "issues";
 ```
 
+### Array `map`
+
+> The words of each issue's title, in upper case
+
+```qd
+#issues $title|split(" ")|map(@w => @w|uppercase) -> words
+```
+
+```sql
+SELECT
+  (SELECT ARRAY(SELECT upper("w") FROM unnest("array") WITH ORDINALITY AS "w"("w", "i") ORDER BY "i") FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") WHERE "array" IS NOT NULL) AS "words"
+FROM "issues";
+```
+
+### Array `map` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The words of each issue's title, in upper case, targeting DuckDB
+
+```qd
+#issues $title|split(" ")|map(@w => @w|uppercase) -> words
+```
+
+```sql
+SELECT
+  list_transform(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda "w": upper("w")) AS "words"
+FROM "issues";
+```
+
+### Array `filter` by position
+
+> The first three words of each issue's title
+
+```qd
+#issues $title|split(" ")|filter(@w @i => @i:<3) -> first_words
+```
+
+```sql
+SELECT
+  (SELECT ARRAY(SELECT "w" FROM unnest("array") WITH ORDINALITY AS "w"("w", "i") WHERE "i" - 1 < 3 ORDER BY "i") FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") WHERE "array" IS NOT NULL) AS "first_words"
+FROM "issues";
+```
+
+### Array `filter` by position (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The first three words of each issue's title, targeting DuckDB
+
+```qd
+#issues $title|split(" ")|filter(@w @i => @i:<3) -> first_words
+```
+
+```sql
+SELECT
+  list_filter(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda "w", "i": "i" - 1 < 3) AS "first_words"
+FROM "issues";
+```
+
+### Array `some` compared with a column
+
+> Issues with a word in their title that is their status
+
+```qd
+#issues title|split(" ")|some(@w => @w:==`status`) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (SELECT EXISTS (SELECT 1 FROM unnest("array") AS "w"("w") WHERE "w" = "issues"."status") FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") WHERE "array" IS NOT NULL);
+```
+
+### Array `some` compared with a column (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Issues with a word in their title that is their status, targeting DuckDB
+
+```qd
+#issues title|split(" ")|some(@w => @w:==`status`) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  len(list_filter(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda "w": "w" = "issues"."status")) > 0;
+```
+
+### Array `every`
+
+> Issues whose title has no word of ten characters or more
+
+```qd
+#issues title|split(" ")|every(@w => @w|length:<10) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  (SELECT NOT EXISTS (SELECT 1 FROM unnest("array") AS "w"("w") WHERE (char_length("w") < 10) IS NOT TRUE) FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") WHERE "array" IS NOT NULL);
+```
+
+### Array `every` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Issues whose title has no word of ten characters or more, targeting DuckDB
+
+```qd
+#issues title|split(" ")|every(@w => @w|length:<10) $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  len(list_filter(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda "w": (char_length("w") < 10) IS NOT TRUE)) = 0;
+```
+
+### Array `reduce`
+
+> The words of each issue's title, in reverse order
+
+```qd
+#issues $title|split(" ")|reduce(@a @b => ^f"{@b} {@a}") -> reversed
+```
+
+```sql
+SELECT
+  (WITH RECURSIVE "a"("i", "a", "array") AS (SELECT 1, "array"[1], "array" FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") UNION ALL SELECT "i" + 1, concat("array"["i" + 1], ' ', "a"), "array" FROM "a" WHERE "i" < cardinality("array")) SELECT "a" FROM "a" ORDER BY "i" DESC LIMIT 1) AS "reversed"
+FROM "issues";
+```
+
+### Array `reduce` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The words of each issue's title, in reverse order, targeting DuckDB
+
+```qd
+#issues $title|split(" ")|reduce(@a @b => ^f"{@b} {@a}") -> reversed
+```
+
+```sql
+SELECT
+  list_reduce(CASE
+    WHEN len(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END) = 0 THEN NULL
+    ELSE CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END
+  END, lambda "a", "b": concat("b", ' ', "a")) AS "reversed"
+FROM "issues";
+```
+
+### Array functions within each other's functions
+
+> The words of each issue's title that contain an "x", and the length of the longest word of each part of its description between commas
+
+```qd
+#issues $title|split(" ")|filter(@w => @w|split("")|some(@c => @c:=="x")) $description|split(",")|map(@p => @p|split(" ")|map(@w => @w|length)|reduce(@a @b => @a|max(@b)))
+```
+
+```sql
+SELECT
+  (SELECT ARRAY(SELECT "w" FROM unnest("array") WITH ORDINALITY AS "w"("w", "i") WHERE (SELECT EXISTS (SELECT 1 FROM unnest("array_1") AS "c"("c") WHERE "c" = 'x') FROM (SELECT string_to_array("w", NULL)) AS "array_1"("array_1") WHERE "array_1" IS NOT NULL) ORDER BY "i") FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") WHERE "array" IS NOT NULL),
+  (SELECT ARRAY(SELECT (WITH RECURSIVE "a"("i_4", "a", "array_4") AS (SELECT 1, "array_4"[1], "array_4" FROM (SELECT (SELECT ARRAY(SELECT char_length("w_1") FROM unnest("array_3") WITH ORDINALITY AS "w_1"("w_1", "i_3") ORDER BY "i_3") FROM (SELECT string_to_array("p", ' ')) AS "array_3"("array_3") WHERE "array_3" IS NOT NULL)) AS "array_4"("array_4") UNION ALL SELECT "i_4" + 1, GREATEST("a", "array_4"["i_4" + 1]), "array_4" FROM "a" WHERE "i_4" < cardinality("array_4")) SELECT "a" FROM "a" ORDER BY "i_4" DESC LIMIT 1) FROM unnest("array_2") WITH ORDINALITY AS "p"("p", "i_2") ORDER BY "i_2") FROM (SELECT string_to_array("issues"."description", ',')) AS "array_2"("array_2") WHERE "array_2" IS NOT NULL)
+FROM "issues";
+```
+
+### Array functions within each other's functions (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The words of each issue's title that contain an "x", and the length of the longest word of each part of its description between commas, targeting DuckDB
+
+```qd
+#issues $title|split(" ")|filter(@w => @w|split("")|some(@c => @c:=="x")) $description|split(",")|map(@p => @p|split(" ")|map(@w => @w|length)|reduce(@a @b => @a|max(@b)))
+```
+
+```sql
+SELECT
+  list_filter(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda "w": len(list_filter(CASE
+    WHEN "w" = '' THEN []
+    ELSE string_split("w", '')
+  END, lambda "c": "c" = 'x')) > 0),
+  list_transform(CASE
+    WHEN "issues"."description" = '' THEN []
+    ELSE string_split("issues"."description", ',')
+  END, lambda "p": list_reduce(CASE
+    WHEN len(list_transform(CASE
+    WHEN "p" = '' THEN []
+    ELSE string_split("p", ' ')
+  END, lambda "w_1": char_length("w_1"))) = 0 THEN NULL
+    ELSE list_transform(CASE
+    WHEN "p" = '' THEN []
+    ELSE string_split("p", ' ')
+  END, lambda "w_1": char_length("w_1"))
+  END, lambda "a", "b": GREATEST("a", "b")))
+FROM "issues";
+```
+
+### Array function parameter that shadows a constant
+
+> Each word of an issue's title after the issue's id, through a function whose parameter has the name of a constant, within an anonymous function
+
+```qd
+@w = "x"
+#issues $id|(@i => title|split(" ")|map(@w => ^f"{@i}:{@w}"))
+```
+
+```sql
+SELECT
+  (SELECT ARRAY(SELECT concat("issues"."id", ':', "w") FROM unnest("array") WITH ORDINALITY AS "w"("w", "i") ORDER BY "i") FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") WHERE "array" IS NOT NULL)
+FROM "issues";
+```
+
+### Array function parameter that shadows a constant (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each word of an issue's title after the issue's id, through a function whose parameter has the name of a constant, within an anonymous function, targeting DuckDB
+
+```qd
+@w = "x"
+#issues $id|(@i => title|split(" ")|map(@w => ^f"{@i}:{@w}"))
+```
+
+```sql
+SELECT
+  list_transform(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda "w": concat("issues"."id", ':', "w"))
+FROM "issues";
+```
+
+### Array functions in definitions
+
+> The long words of each issue's title, and whether its description has one, through a computed column and a function
+
+```qd
+#issues.long_words = title|split(" ")|filter(@w => @w|length:>8)
+@@has_long_word = @t => @t|split(" ")|some(@w => @w|length:>8)
+#issues $long_words $description|has_long_word
+```
+
+```sql
+SELECT
+  (SELECT ARRAY(SELECT "w" FROM unnest("array") WITH ORDINALITY AS "w"("w", "i") WHERE char_length("w") > 8 ORDER BY "i") FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") WHERE "array" IS NOT NULL),
+  (SELECT EXISTS (SELECT 1 FROM unnest("array_1") AS "w_1"("w_1") WHERE char_length("w_1") > 8) FROM (SELECT string_to_array("issues"."description", ' ')) AS "array_1"("array_1") WHERE "array_1" IS NOT NULL)
+FROM "issues";
+```
+
+### Array functions in definitions (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The long words of each issue's title, and whether its description has one, through a computed column and a function, targeting DuckDB
+
+```qd
+#issues.long_words = title|split(" ")|filter(@w => @w|length:>8)
+@@has_long_word = @t => @t|split(" ")|some(@w => @w|length:>8)
+#issues $long_words $description|has_long_word
+```
+
+```sql
+SELECT
+  list_filter(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda "w": char_length("w") > 8),
+  len(list_filter(CASE
+    WHEN "issues"."description" = '' THEN []
+    ELSE string_split("issues"."description", ' ')
+  END, lambda "w_1": char_length("w_1") > 8)) > 0
+FROM "issues";
+```
+
+### Array functions on an aggregate in a grouped query
+
+> For each status, its issues' titles in upper case
+
+```qd
+#issues $status \g $title%list|map(@t => @t|uppercase) -> titles
+```
+
+```sql
+SELECT
+  "issues"."status",
+  (SELECT ARRAY(SELECT upper("t") FROM unnest("array") WITH ORDINALITY AS "t"("t", "i") ORDER BY "i") FROM (SELECT array_agg(DISTINCT "issues"."title")) AS "array"("array") WHERE "array" IS NOT NULL) AS "titles"
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Array functions on an aggregate in a grouped query (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> For each status, its issues' titles in upper case, targeting DuckDB
+
+```qd
+#issues $status \g $title%list|map(@t => @t|uppercase) -> titles
+```
+
+```sql
+SELECT
+  "issues"."status",
+  list_transform(array_agg(DISTINCT "issues"."title"), lambda "t": upper("t")) AS "titles"
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Array function using an aggregate of related records
+
+> Issues whose title has a word that is the body of their latest comment
+
+```qd
+#issues title|split(" ")|some(@w => #comments.body%list_all(\\created_at)|at(-1):==@w) $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg("comments"."body" ORDER BY "comments"."created_at" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  (SELECT EXISTS (SELECT 1 FROM unnest("array") AS "w"("w") WHERE ("cte0"."v1")[cardinality("cte0"."v1")] = "w") FROM (SELECT string_to_array("issues"."title", ' ')) AS "array"("array") WHERE "array" IS NOT NULL);
+```
+
+### Array function using an aggregate of related records (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Issues whose title has a word that is the body of their latest comment, targeting DuckDB
+
+```qd
+#issues title|split(" ")|some(@w => #comments.body%list_all(\\created_at)|at(-1):==@w) $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg("comments"."body" ORDER BY "comments"."created_at" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  len(list_filter(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda "w": list_extract("cte0"."v1", -1) = "w")) > 0;
+```
+
+### Array function within the value of an aggregate
+
+> Each issue, and whether a comment on it has the word "thanks"
+
+```qd
+#issues $title $#comments.body|split(" ")|some(@w => @w:="thanks")%any_true -> thanked
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      bool_or((SELECT EXISTS (SELECT 1 FROM unnest("array") AS "w"("w") WHERE lower("w" COLLATE "C") = lower('thanks' COLLATE "C")) FROM (SELECT string_to_array("comments"."body", ' ')) AS "array"("array") WHERE "array" IS NOT NULL)) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  "cte0"."v1" AS "thanked"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Array function within the value of an aggregate (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each issue, and whether a comment on it has the word "thanks", targeting DuckDB
+
+```qd
+#issues $title $#comments.body|split(" ")|some(@w => @w:="thanks")%any_true -> thanked
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      bool_or(len(list_filter(CASE
+        WHEN "comments"."body" = '' THEN []
+        ELSE string_split("comments"."body", ' ')
+      END, lambda "w": lower(strip_accents("w")) = lower(strip_accents('thanks')))) > 0) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  "cte0"."v1" AS "thanked"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
 ### Text `regex_replace`
 
 > Issue titles with a lowercase "fix" at the start capitalized

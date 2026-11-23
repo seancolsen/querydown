@@ -82,6 +82,9 @@ fn convert_expr_kind(kind: ExprKind, loc: Loc, scope: &mut Scope) -> Result<SqlE
         ExprKind::Window(w) => super::window::convert_window(w, scope),
         ExprKind::AnonymousFunctionCall(c) => convert_anonymous_function_call(*c, scope),
         ExprKind::Subquery(q) => super::convert_subquery(*q, scope),
+        // A function is a value only to the functions that apply it, which never compile it as
+        // one.
+        ExprKind::FunctionArg(_) => Err(msg::function_arg_not_accepted()),
     }
 }
 

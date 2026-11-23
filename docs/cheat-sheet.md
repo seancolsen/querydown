@@ -121,6 +121,7 @@ Flags follow a backslash, and several can be combined, as in `\sd2`.
 | `%%(a\p b\s)%func` | apply a [window function](./language.md#window-functions) to a window |
 | `? a ~ b ~~ c` | [case expression](./language.md#case-expressions): if `a` then `b`, else `c`. The `a ~ b` part can repeat. |
 | `(@x => @x + 1)` | [anonymous function](./language.md#anonymous-functions) |
+| `\|map(@e => @e + 1)` | [function as an argument](./language.md#functions-as-arguments), applied to each element of an array |
 
 ## Definitions
 

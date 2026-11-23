@@ -489,6 +489,16 @@ impl Walker<'_> {
                 env.locals.extend(call.params.iter().cloned());
                 self.function_body(&call.body, env)
             }
+            ExprKind::FunctionArg(function) => {
+                if function.params.iter().any(|p| is_sentinel(p)) {
+                    return env.found(Target::Nothing);
+                }
+                // Applied within the record where it's written, so the surrounding table remains in
+                // scope.
+                let mut env = env.clone();
+                env.locals.extend(function.params.iter().cloned());
+                self.function_body(&function.body, env)
+            }
             ExprKind::Subquery(query) => self.query(query, &[]),
         }
     }

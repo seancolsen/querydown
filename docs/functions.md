@@ -498,6 +498,8 @@ To convert a number or a date to text, use a [formatted string](./language.md#fo
 
 An array is a list of values in one column. You get one from [`array`](#array), [`split`](#split), or the aggregate functions [`list`](#list), [`list_all`](#list_all), and [`top`](#top), or from a column whose type is an array.
 
+Five of these, [`map`](#map), [`filter`](#filter), [`some`](#some), [`every`](#every), and [`reduce`](#reduce), apply a [function that you give them](./language.md#functions-as-arguments) to each element.
+
 ### `array`
 
 Returns an array of the given values. It's called [without a pipe](./language.md#function-calling).
@@ -548,6 +550,93 @@ Joins the elements of an array into one string, with a separator between them. E
 ```qd
 #issues $title $#comments.user%list|length -> commenters
 ```
+
+### `map`
+
+Applies a [function](./language.md#functions-as-arguments) to each element of an array, and returns an array of the results, in the same order.
+
+> Show the words of each issue's title, in lower case
+
+```qd
+#issues $title|split(" ")|map(@w => @w|lowercase) -> words
+```
+
+- The function may take a second parameter, the element's position, counting from 0, as in `map(@w @i => ^f"{@i}: {@w}")`.
+- A NULL array gives NULL.
+- Compiles to a subquery over the elements, `ARRAY(SELECT … FROM unnest(…))`, in Postgres, and to `list_transform` in DuckDB.
+
+### `filter`
+
+Returns the elements of an array for which a [function](./language.md#functions-as-arguments) is true, in the same order.
+
+> Show the words of each issue's title that are longer than three letters
+
+```qd
+#issues $title|split(" ")|filter(@w => @w|length:>3) -> long_words
+```
+
+The function may take a second parameter, the element's position, counting from 0.
+
+> Show the first three words of each issue's title
+
+```qd
+#issues $title|split(" ")|filter(@w @i => @i:<3)|join(" ") -> start
+```
+
+- An element for which the function gives NULL is left out.
+- A NULL array gives NULL.
+- Compiles to a subquery over the elements, `ARRAY(SELECT … FROM unnest(…) WHERE …)`, in Postgres, and to `list_filter` in DuckDB.
+
+### `some`
+
+Returns whether a [function](./language.md#functions-as-arguments) is true for at least one element of an array.
+
+> Find issues that a comment quotes the title of
+
+```qd
+#issues #comments.body%list|some(@b => @b:`title`) $title
+```
+
+- The function sees the columns of the row, like `title` above. On the right of a comparison, a column needs [backticks](./language.md#referencing-a-column-on-the-right-hand-side), as there.
+- An empty array gives false, and a NULL array gives NULL.
+- An element for which the function gives NULL counts as one for which it's false.
+- The function may take a second parameter, the element's position, counting from 0.
+- Compiles to `EXISTS` with a subquery over the elements in Postgres, and to `list_filter` in DuckDB.
+
+### `every`
+
+Returns whether a [function](./language.md#functions-as-arguments) is true for every element of an array.
+
+> Find issues whose title has no word longer than ten letters
+
+```qd
+#issues title|split(" ")|every(@w => @w|length:<=10) $title
+```
+
+- An empty array gives true, and a NULL array gives NULL.
+- An element for which the function gives NULL counts as one for which it's false.
+- The function may take a second parameter, the element's position, counting from 0.
+- Compiles to `NOT EXISTS` with a subquery over the elements in Postgres, and to `list_filter` in DuckDB.
+
+### `reduce`
+
+Combines the elements of an array into one value, from the left, with a [function](./language.md#functions-as-arguments) of two parameters. The first parameter starts as the first element. For each element after it, the function is given the value so far and the element, and its result becomes the value so far.
+
+> Show the words of each issue's title, in reverse order
+
+```qd
+#issues $title|split(" ")|reduce(@a @b => ^f"{@b} {@a}") -> reversed
+```
+
+> Show the length of the longest word of each issue's title
+
+```qd
+#issues $title|split(" ")|map(@w => @w|length)|reduce(@a @b => @a|max(@b)) -> longest_word
+```
+
+- An array of one element gives that element, and an empty or NULL array gives NULL.
+- The function's result should have the type of the elements, since it's given back to the function as the value so far. Otherwise, the database may report an error.
+- Postgres has no direct equivalent, so `reduce` compiles to a recursive query there, which runs for each row. It works, but it's slow on long arrays. To join text, [`join`](#join) is quicker. In DuckDB, `reduce` compiles to `list_reduce`.
 
 ## Aggregate functions
 

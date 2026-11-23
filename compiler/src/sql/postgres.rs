@@ -3,13 +3,13 @@ use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::{
     dialect::{
-        duration_part, ArrayIndex, Dialect, MaybeLiteral, NormalizedDuration, RegexPattern,
-        Separator,
+        duration_part, ArrayIndex, Dialect, ElementNames, MaybeLiteral, NormalizedDuration,
+        ReduceNames, RegexPattern, Separator,
     },
     expr::{
         build::{
             cmp::{comparison, is_not_null, lt},
-            cond::case,
+            cond::{case, not_true},
             math::{add, subtract},
             sql_func,
             value::{null, one, zero},
@@ -20,6 +20,35 @@ use super::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Postgres();
+
+impl Postgres {
+    /// The `FROM` clause of a subquery over the elements of the array named as `names` say (see
+    /// [`Postgres::unless_null`]), whose column is named after the element. With `with_position`,
+    /// each element's position (counting from 1) is a column too. The subquery is aliased by the
+    /// element's name, which is unique within the query.
+    fn elements(&self, names: &ElementNames, with_position: bool) -> String {
+        let array = self.quote_identifier(&names.array);
+        let element = self.quote_identifier(&names.element);
+        match with_position {
+            true => {
+                let position = self.quote_identifier(&names.position);
+                format!("FROM unnest({array}) WITH ORDINALITY AS {element}({element}, {position})")
+            }
+            false => format!("FROM unnest({array}) AS {element}({element})"),
+        }
+    }
+
+    /// `value`, which refers to the array `a` by the name that `names` give it, or NULL when the
+    /// array is NULL. (A subquery over the elements of a NULL array finds none, which would make
+    /// the array look empty.) The array is named in a subquery of its own, so that it's written
+    /// only once, however many times `value` refers to it.
+    fn unless_null(&self, a: SqlExpr, names: &ElementNames, value: String) -> SqlExpr {
+        let array = self.quote_identifier(&names.array);
+        SqlExpr::atom(format!(
+            "(SELECT {value} FROM (SELECT {a}) AS {array}({array}) WHERE {array} IS NOT NULL)"
+        ))
+    }
+}
 
 impl Dialect for Postgres {
     fn introspection_sql(&self) -> &'static str {
@@ -215,6 +244,63 @@ impl Dialect for Postgres {
             Separator::Expr(e) => e,
         };
         sql_func("array_to_string", [a, separator])
+    }
+
+    fn array_map(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        // Postgres has no lambdas, so the body is evaluated in a subquery over the elements.
+        let elements = self.elements(names, true);
+        let position = self.quote_identifier(&names.position);
+        let array = format!("ARRAY(SELECT {body} {elements} ORDER BY {position})");
+        self.unless_null(a, names, array)
+    }
+
+    fn array_filter(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        let elements = self.elements(names, true);
+        let element = self.quote_identifier(&names.element);
+        let position = self.quote_identifier(&names.position);
+        let array = format!("ARRAY(SELECT {element} {elements} WHERE {body} ORDER BY {position})");
+        self.unless_null(a, names, array)
+    }
+
+    fn array_some(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        // A NULL body counts as false, as `WHERE` takes it.
+        let elements = self.elements(names, names.uses_position);
+        let exists = format!("EXISTS (SELECT 1 {elements} WHERE {body})");
+        self.unless_null(a, names, exists)
+    }
+
+    fn array_every(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        let elements = self.elements(names, names.uses_position);
+        let body = not_true(body);
+        let none_fails = format!("NOT EXISTS (SELECT 1 {elements} WHERE {body})");
+        self.unless_null(a, names, none_fails)
+    }
+
+    fn reduce_params(&self, _a: &SqlExpr, names: &ReduceNames) -> (SqlExpr, SqlExpr) {
+        // The next element is the one after the position reached so far, which counts from 1.
+        let acc = SqlExpr::atom(self.quote_identifier(&names.acc));
+        let array = self.quote_identifier(&names.array);
+        let position = self.quote_identifier(&names.position);
+        let next = SqlExpr::atom(format!("{array}[{position} + 1]"));
+        (acc, next)
+    }
+
+    fn array_reduce(&self, a: SqlExpr, names: &ReduceNames, body: SqlExpr) -> SqlExpr {
+        // Postgres has no lambdas, nor a function like `reduce`, so the elements are combined by a
+        // recursive query, whose rows hold each position (counting from 1), the value accumulated
+        // up to it, and the array. It starts at the first element, which is NULL for an empty
+        // array, and for a NULL one.
+        let acc = self.quote_identifier(&names.acc);
+        let array = self.quote_identifier(&names.array);
+        let position = self.quote_identifier(&names.position);
+        SqlExpr::atom(format!(
+            "(WITH RECURSIVE {acc}({position}, {acc}, {array}) AS (\
+             SELECT 1, {array}[1], {array} FROM (SELECT {a}) AS {array}({array}) \
+             UNION ALL \
+             SELECT {position} + 1, {body}, {array} FROM {acc} \
+             WHERE {position} < cardinality({array})\
+             ) SELECT {acc} FROM {acc} ORDER BY {position} DESC LIMIT 1)"
+        ))
     }
 
     fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr {

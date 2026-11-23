@@ -160,6 +160,17 @@ The compiler doesn't connect to your database or run anything. What you do with 
   $due_date|countdown|days|max(0) -> days_left
   ```
 
+- [Functions of arrays](../../docs/language.md#functions-as-arguments)
+
+  > This query shows each issue that a comment quotes the title of, with the names of its labels in uppercase.
+
+  ```qd
+  #issues
+  #comments.body%list|some(@b => @b:`title`)
+  $title
+  $#labels.name%list|map(@n => @n|uppercase)
+  ```
+
 - [Case expressions](../../docs/language.md#case-expressions)
 
   > This query shows each issue, categorized as "overdue", "due soon", or "due later".

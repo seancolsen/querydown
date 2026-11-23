@@ -528,3 +528,65 @@ pub fn ungrouped_unaggregated_sort() -> Error {
          `\\g`) or by an expression that contains an aggregate function.",
     )
 }
+
+/// The functions that take a function as an argument, for messages about them.
+const FUNCTIONS_TAKING_A_FUNCTION: &str = "`map`, `filter`, `some`, `every`, or `reduce`";
+
+/// A function (`@e => …`) was given as an argument to something other than the functions that
+/// apply one.
+pub fn function_arg_not_accepted() -> Error {
+    Error::compile(format!(
+        "A function (like `@e => @e:>0`) can only be given to {FUNCTIONS_TAKING_A_FUNCTION}, which \
+         apply it to the elements of an array."
+    ))
+}
+
+/// One of the functions that apply a function wasn't given one, where `example` shows it given one.
+pub fn function_arg_expected(function_name: &str, example: &str) -> Error {
+    Error::compile(format!(
+        "`{function_name}` needs a function to apply to each element of the array, as in \
+         `{example}`."
+    ))
+}
+
+/// The function given to `function_name` has the wrong number of parameters, which `expected`
+/// describes.
+pub fn function_arg_param_count(function_name: &str, expected: &str) -> Error {
+    Error::compile(format!(
+        "The function given to `{function_name}` takes {expected}."
+    ))
+}
+
+/// A parameter of a function given to `map` (or the like) was used within a query of its own, such
+/// as that of a path to related records, which can't see the elements of the array.
+pub fn element_param_in_other_query(name: &str) -> Error {
+    Error::compile(format!(
+        "`@{name}` stands for an element of an array, so it can't be used within a filter of \
+         related records (like `#comments{{…}}`), or anything else that's found by a query of its \
+         own, which can't see the array's elements."
+    ))
+}
+
+pub fn subquery_in_lambda() -> Error {
+    Error::compile(format!(
+        "In DuckDB, a function given to {FUNCTIONS_TAKING_A_FUNCTION} can't use a subquery \
+         (`#( … )`), because it becomes a DuckDB lambda, which can't contain one."
+    ))
+}
+
+pub fn aggregate_in_function_arg() -> Error {
+    Error::compile(format!(
+        "An aggregate of the records being queried (like `%count` or `created_at%max`) can't be \
+         used within a function given to {FUNCTIONS_TAKING_A_FUNCTION}, which applies it to the \
+         elements of an array, one record at a time. An aggregate of related records is fine, \
+         e.g. `#comments%count`."
+    ))
+}
+
+pub fn window_in_function_arg() -> Error {
+    Error::compile(format!(
+        "Window functions can't be used within a function given to \
+         {FUNCTIONS_TAKING_A_FUNCTION}. Instead, compute the value as a result column of one \
+         stage of a pipeline (`~~~`), and use it in the next stage."
+    ))
+}

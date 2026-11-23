@@ -280,6 +280,9 @@ fn compile_pipeline(
 /// inlined wherever the subquery's value is referenced. The inner query is expected to produce a
 /// single value.
 pub(super) fn convert_subquery(query: Query, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    if scope.bans_subqueries() {
+        return Err(msg::subquery_in_lambda());
+    }
     let stage = compile_pipeline(scope.options, scope.schema, query, &[], false)?;
     // Rendering only reads the dialect from the scope, so rendering the subquery with the enclosing
     // scope is safe and does not disturb the outer query's compilation state.

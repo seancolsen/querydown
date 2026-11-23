@@ -20,7 +20,7 @@ const fn entry(name: &'static str, usage: &'static str, description: &'static st
 
 /// The built-in scalar functions, applied with `|` (or called with `@@`).
 #[rustfmt::skip]
-const SCALAR_FUNCTIONS: [Entry; 53] = [
+const SCALAR_FUNCTIONS: [Entry; 58] = [
     entry("abs", "x|abs", "The absolute value of a number."),
     entry("age", "x|age", "The interval from a timestamp until now (now − x). Chain with `days`, `years`, etc."),
     entry("and", "x|and(y…)", "True when all of the arguments are true."),
@@ -32,7 +32,9 @@ const SCALAR_FUNCTIONS: [Entry; 53] = [
     entry("day", "x|day", "The day of the month (1–31) of a date or timestamp."),
     entry("days", "x|days", "Converts an interval into a number of days."),
     entry("divide", "x|divide(y)", "Divides the value by the argument."),
+    entry("every", "x|every(@e => …)", "Whether the function is true for every element of an array. True for an empty array. The function may take a second parameter, the element's position."),
     entry("exp", "x|exp", "Raises e to the power of the value."),
+    entry("filter", "x|filter(@e => …)", "The elements of an array for which the function is true, in order. The function may take a second parameter, the element's position, counting from 0."),
     entry("floor", "x|floor", "Rounds a number down to the nearest integer."),
     entry("gcd", "x|gcd(y)", "The greatest common divisor of two integers."),
     entry("hours", "x|hours", "Converts an interval into a number of hours."),
@@ -45,6 +47,7 @@ const SCALAR_FUNCTIONS: [Entry; 53] = [
     entry("length", "x|length", "The number of characters in a string, or of elements in an array."),
     entry("ln", "x|ln", "The natural logarithm of a number."),
     entry("lowercase", "x|lowercase", "Converts a string to lower case."),
+    entry("map", "x|map(@e => …)", "An array of the function's result for each element of an array, in order. The function may take a second parameter, the element's position, counting from 0."),
     entry("max", "x|max(y…)", "The greatest of its arguments, within one row. (For the greatest of many rows, use `%max`.)"),
     entry("md5", "x|md5", "The MD5 hash of a string."),
     entry("min", "x|min(y…)", "The least of its arguments, within one row. (For the least of many rows, use `%min`.)"),
@@ -56,11 +59,13 @@ const SCALAR_FUNCTIONS: [Entry; 53] = [
     entry("or", "x|or(y…)", "True when any of the arguments is true."),
     entry("plus", "x|plus(y)", "Adds the argument to the value."),
     entry("pow", "x|pow(y)", "Raises the value to the power of the argument."),
+    entry("reduce", "x|reduce(@acc @e => …)", "Combines the elements of an array into one value, from the left: `@acc` starts as the first element, and becomes the function's result for each next element `@e`. Null for an empty array."),
     entry("regex_extract", "x|regex_extract(pattern group? flags?)", "The first match of a regular expression, or the text of one of its capture groups (1 is the first). Null when nothing matches."),
     entry("regex_replace", "x|regex_replace(pattern replacement flags?)", "Replaces every match of a regular expression. In the replacement, `\\1` is the first capture group."),
     entry("round", "x|round(digits?)", "Rounds a number to the nearest integer, or to a number of decimal places. A half rounds away from zero."),
     entry("seconds", "x|seconds", "Converts an interval into a number of seconds."),
     entry("seconds_to_duration", "x|seconds_to_duration", "Converts a number of seconds into an interval. The opposite of `seconds`."),
+    entry("some", "x|some(@e => …)", "Whether the function is true for at least one element of an array. False for an empty array. The function may take a second parameter, the element's position."),
     entry("split", "x|split(separator)", "Splits a string at each occurrence of a separator, giving an array of strings."),
     entry("sqrt", "x|sqrt", "The square root of a number."),
     entry("times", "x|times(y)", "Multiplies the value by the argument."),

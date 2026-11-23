@@ -140,6 +140,14 @@ pub fn contains_local_aggregate(expr: &Expr) -> bool {
                     .any(|a| contains_local_aggregate(&a.expr))
                 || contains_local_aggregate(&call.body.expr)
         }
+        ExprKind::FunctionArg(function) => {
+            function
+                .body
+                .assignments
+                .iter()
+                .any(|a| contains_local_aggregate(&a.expr))
+                || contains_local_aggregate(&function.body.expr)
+        }
         ExprKind::Product(a, b)
         | ExprKind::Quotient(a, b)
         | ExprKind::Sum(a, b)

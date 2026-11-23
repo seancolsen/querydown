@@ -12,7 +12,7 @@ use crate::{
     schema::{
         chain::Chain,
         links::{FilteredLink, Link, LinkToOne},
-        Schema, Table, TableId,
+        Schema, Table, TableId, ValueType,
     },
     sql::expr::build,
     sql::tree::{Cte, CtePurpose, Join, JoinType, SqlExpr},
@@ -86,7 +86,8 @@ impl Expansion {
     }
 }
 
-/// A variable bound to the expression that is inlined wherever the variable is referenced.
+/// A variable bound to the expression that is inlined wherever the variable is referenced, or to a
+/// piece of SQL (see [`Bound::Sql`]).
 ///
 /// The expression means what it meant *where it was written*, which for a local binding is not
 /// where it's inlined: an argument `author` passed to a function is a column of the table the
@@ -97,12 +98,48 @@ impl Expansion {
 #[derive(Debug)]
 pub struct Binding {
     id: usize,
-    pub expr: Expr,
-    /// The variables that `expr` can see. `None` for a constant, which sees only the constants.
+    value: Bound,
+    /// The variables that the bound expression can see. `None` for a constant, which sees only the
+    /// constants.
     env: Option<Env>,
-    /// Where `expr` was written. `None` for a constant, which isn't written within the query: any
-    /// columns it refers to are those of wherever it's used.
+    /// Where the bound expression was written. `None` for a constant, which isn't written within
+    /// the query: any columns it refers to are those of wherever it's used.
     context: Option<BindingContext>,
+}
+
+/// What a variable is bound to.
+#[derive(Debug)]
+enum Bound {
+    /// An expression, which is inlined wherever the variable is referenced.
+    Expr(Expr),
+    /// A piece of SQL that stands for a value which exists only within part of the query being
+    /// compiled: a parameter of a function given to `map` (and the like), which is bound to an
+    /// element of the array (the column of a subquery over the elements, or the variable of a
+    /// lambda). It can be referenced only within the `SELECT` of the scope with ID `scope_id`.
+    Sql {
+        sql: SqlExpr,
+        value_type: ValueType,
+        scope_id: usize,
+    },
+}
+
+impl Binding {
+    /// The bound expression, unless the variable is bound to SQL.
+    fn expr(&self) -> Option<&Expr> {
+        match &self.value {
+            Bound::Expr(expr) => Some(expr),
+            Bound::Sql { .. } => None,
+        }
+    }
+
+    /// The type of the value, when the variable is bound to SQL (whose type is known when it's
+    /// bound, since there's no expression to infer it from).
+    pub fn sql_type(&self) -> Option<ValueType> {
+        match &self.value {
+            Bound::Expr(_) => None,
+            Bound::Sql { value_type, .. } => Some(value_type.clone()),
+        }
+    }
 }
 
 /// Where an expression was written: which scope was being compiled, and what it was compiling.
@@ -195,6 +232,9 @@ pub enum AggregateBan {
     /// The functions applied to each value that an aggregate function aggregates (the `|length` in
     /// `#comments.body|length%avg`), which are evaluated before the values are aggregated.
     AggregatedValue,
+    /// The body of a function given to `map` (and the like), which is applied to each element of
+    /// an array.
+    FunctionArg,
 }
 
 /// The record that the rows of a CTE's `SELECT` are related to: the one that a path to related
@@ -254,6 +294,9 @@ pub enum WindowBan {
     Aggregate,
     /// The arguments, partitioning, or ordering of another window function.
     Nested,
+    /// The body of a function given to `map` (and the like), which is applied to each element of
+    /// an array.
+    FunctionArg,
 }
 
 pub struct Scope<'a, 'b> {
@@ -302,6 +345,10 @@ pub struct Scope<'a, 'b> {
     /// When set, compiling an aggregate of the rows being queried is an error (see
     /// [`AggregateBan`]). Not inherited by spawned scopes, which compile queries of their own.
     aggregate_ban: Option<AggregateBan>,
+    /// Whether compiling a subquery (`#( … )`) is an error, as it is within the body of a function
+    /// given to `map` (and the like) where that becomes a lambda that can't contain one. Inherited
+    /// only by spawned scopes that compile into the same `SELECT`.
+    bans_subqueries: bool,
     /// Where the path of the innermost scoped condition set being compiled (the `issue` in
     /// `issue{ … }`) was written.
     pub scoped_path_loc: Loc,
@@ -361,6 +408,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             window_substitutions: Vec::new(),
             compiled_window: None,
             aggregate_ban: None,
+            bans_subqueries: false,
             scoped_path_loc: Loc::NONE,
             shares_select_with_parent: false,
             outer_record: None,
@@ -377,7 +425,7 @@ impl<'a, 'b> Scope<'a, 'b> {
         for constant in constants {
             let binding = Binding {
                 id: self.next_binding_id(),
-                expr: constant.expr,
+                value: Bound::Expr(constant.expr),
                 env: None,
                 context: None,
             };
@@ -439,11 +487,41 @@ impl<'a, 'b> Scope<'a, 'b> {
     ) -> Env {
         let binding = Binding {
             id: self.next_binding_id(),
-            expr,
+            value: Bound::Expr(expr),
             env: Some(expr_env),
             context: Some(context),
         };
         env.with(name, binding)
+    }
+
+    /// Extends `env` with a local variable bound to `sql`, a value of type `value_type` that exists
+    /// only within the `SELECT` that this scope compiles (see [`Bound::Sql`]).
+    pub fn bind_sql(&self, env: &Env, name: String, sql: SqlExpr, value_type: ValueType) -> Env {
+        let binding = Binding {
+            id: self.next_binding_id(),
+            value: Bound::Sql {
+                sql,
+                value_type,
+                scope_id: self.id,
+            },
+            env: None,
+            context: Some(self.context()),
+        };
+        env.with(name, binding)
+    }
+
+    /// Whether SQL compiled within this scope ends up in the `SELECT` of the scope with ID `id`.
+    fn compiles_into_select_of(&self, id: usize) -> bool {
+        let mut scope = self;
+        loop {
+            if scope.id == id {
+                return true;
+            }
+            match scope.parent {
+                Some(parent) if scope.shares_select_with_parent => scope = parent,
+                _ => return false,
+            }
+        }
     }
 
     /// The expression that `expr` stands for: itself, unless it's a user-defined variable, in which
@@ -468,8 +546,11 @@ impl<'a, 'b> Scope<'a, 'b> {
             let Some(binding) = env.lookup(name) else {
                 break;
             };
+            let Some(bound) = binding.expr() else {
+                break;
+            };
+            expr = bound.clone();
             env = binding.env.clone().unwrap_or_else(|| self.globals.clone());
-            expr = binding.expr.clone();
         }
         expr
     }
@@ -534,7 +615,15 @@ impl<'a, 'b> Scope<'a, 'b> {
     /// Compiles the expression that `binding` binds to a variable named `name`, which is being
     /// referenced within this scope.
     pub fn convert_binding(&mut self, name: &str, binding: &Binding) -> Result<SqlExpr, Error> {
-        let expr = binding.expr.clone();
+        let expr = match &binding.value {
+            Bound::Expr(expr) => expr.clone(),
+            Bound::Sql { sql, scope_id, .. } => {
+                return match self.compiles_into_select_of(*scope_id) {
+                    true => Ok(sql.clone()),
+                    false => Err(msg::element_param_in_other_query(name)),
+                };
+            }
+        };
         self.with_binding(binding, |scope, is_home| {
             if is_home {
                 return convert_expr(expr, scope);
@@ -554,20 +643,21 @@ impl<'a, 'b> Scope<'a, 'b> {
         binding: &Binding,
         f: impl FnOnce(&Expr, &mut Scope) -> T,
     ) -> Option<T> {
+        let expr = binding.expr()?;
         self.with_binding(binding, |scope, is_home| {
             if is_home {
-                return f(&binding.expr, scope);
+                return f(expr, scope);
             }
             // The unwrap is safe because only a local binding is ever away from home.
             let context = binding.context.as_ref().unwrap();
             let Some(home) = scope.ancestor(context.scope_id) else {
-                return f(&binding.expr, scope);
+                return f(expr, scope);
             };
             let home_table = home.base_table;
             let mut probe = scope.spawn(home_table);
             probe.path_prefix = context.path_prefix.clone();
             probe.scoped_path_loc = context.scoped_path_loc;
-            f(&binding.expr, &mut probe)
+            f(expr, &mut probe)
         })
     }
 
@@ -874,6 +964,7 @@ impl<'a, 'b> Scope<'a, 'b> {
     pub fn spawn(&'b self, base_table: &'a Table) -> Self {
         let mut scope = self.spawn_with_aliases(base_table, &base_table.name, HashSet::new());
         scope.shares_select_with_parent = false;
+        scope.bans_subqueries = false;
         scope
     }
 
@@ -924,6 +1015,7 @@ impl<'a, 'b> Scope<'a, 'b> {
             window_substitutions: Vec::new(),
             compiled_window: None,
             aggregate_ban: None,
+            bans_subqueries: self.bans_subqueries,
             scoped_path_loc: Loc::NONE,
             shares_select_with_parent: true,
             outer_record: None,
@@ -948,6 +1040,20 @@ impl<'a, 'b> Scope<'a, 'b> {
 
     pub fn aggregate_ban(&self) -> Option<AggregateBan> {
         self.aggregate_ban
+    }
+
+    /// Bans subqueries while evaluating `f` (see [`Scope::bans_subqueries`]), restoring the
+    /// previous state afterward.
+    pub fn with_subquery_ban<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let previous = std::mem::replace(&mut self.bans_subqueries, true);
+        let result = f(self);
+        self.bans_subqueries = previous;
+        result
+    }
+
+    /// Whether compiling a subquery is an error here.
+    pub fn bans_subqueries(&self) -> bool {
+        self.bans_subqueries
     }
 
     /// Bans window functions while evaluating `f` (see [`WindowBan`]), restoring the previous ban

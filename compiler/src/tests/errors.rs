@@ -1012,3 +1012,146 @@ fn unknown_or_repeated_regex_flag_is_an_error() {
         "Repeated regex flag `m`.",
     );
 }
+
+// ------------------------------------------------------------------------------------------------
+// Functions given as arguments
+// ------------------------------------------------------------------------------------------------
+
+#[test]
+fn function_given_to_a_function_that_takes_none_is_an_error() {
+    assert_errors(
+        &[
+            (r#"#issues $title|uppercase(@t => 1)"#, "@t => 1"),
+            (r#"#issues $title|concat("a" @t => @t)"#, "@t => @t"),
+            (r#"#issues $@@max(1 @t => 2)"#, "@t => 2"),
+            (r#"#issues $title|(@x => @x)(@w => 1)"#, "@w => 1"),
+            // A user-defined function, even one that doesn't use its parameter.
+            ("@@one = @x @f => 1\n#issues $title|one(@w => 1)", "@w => 1"),
+            // The functions that take one take it as their second argument only.
+            (r#"#issues $@@map(@w => 1 @w => 2)"#, "@w => 1"),
+        ],
+        "A function (like `@e => @e:>0`) can only be given to `map`, `filter`, `some`, `every`, \
+         or `reduce`",
+    );
+}
+
+#[test]
+fn function_that_takes_a_function_given_something_else_is_an_error() {
+    assert_errors(
+        &[
+            (r#"#issues $title|split(" ")|map(1)"#, "1"),
+            (r#"#issues $title|split(" ")|filter"#, "|filter"),
+            (r#"#issues $title|split(" ")|some(@x)"#, "@x"),
+        ],
+        "`",
+    );
+    let err = compile_error(r#"#issues $title|split(" ")|every(`title`)"#);
+    assert_eq!(
+        err.message,
+        "`every` needs a function to apply to each element of the array, as in \
+         `every(@e => …)`."
+    );
+    assert_errors(
+        &[(r#"#issues $title|split(" ")|map(@w => 1 2)"#, "|map")],
+        "Expected exactly two arguments.",
+    );
+}
+
+#[test]
+fn function_with_the_wrong_number_of_parameters_is_an_error() {
+    assert_errors(
+        &[
+            (
+                r#"#issues $title|split(" ")|map(@a @b @c => 1)"#,
+                "@a @b @c => 1",
+            ),
+            (
+                r#"#issues $title|split(" ")|every(@a @b @c => @a)"#,
+                "@a @b @c => @a",
+            ),
+        ],
+        "The function given to `",
+    );
+    assert_errors(
+        &[
+            (r#"#issues $title|split(" ")|reduce(@a => @a)"#, "@a => @a"),
+            (
+                r#"#issues $title|split(" ")|reduce(@a @b @c => @a)"#,
+                "@a @b @c => @a",
+            ),
+        ],
+        "The function given to `reduce` takes two parameters: the value so far, and the next \
+         element.",
+    );
+}
+
+#[test]
+fn element_parameter_within_a_query_of_its_own_is_an_error() {
+    // Related records are found by a query of their own, which can't see the array.
+    assert_errors(
+        &[
+            (
+                r#"#issues $title|split(" ")|some(@w => #comments{body:@w})"#,
+                "@w",
+            ),
+            (
+                "#issues.has_comment:@x = ++#comments{body:@x}\n\
+                 #issues $title|split(\" \")|some(@w => has_comment:@w)",
+                "@w",
+            ),
+        ],
+        "`@w` stands for an element of an array, so it can't be used within a filter of related \
+         records",
+    );
+    // A related record, or an aggregate of related records that doesn't use the parameter, is
+    // fine.
+    compile(r#"#issues $title|split(" ")|some(@w => author{username:@w})"#).unwrap();
+    compile(r#"#issues $title|split(" ")|some(@w => #comments.body%max:==@w)"#).unwrap();
+}
+
+#[test]
+fn aggregate_or_window_within_a_function_argument_is_an_error() {
+    assert_errors(
+        &[
+            (
+                r#"#issues $title|split(" ")|some(@w => `title`%max:==@w)"#,
+                "`title`%max",
+            ),
+            (
+                r#"#issues $status \g $title%list|map(@t => %count)"#,
+                "%count",
+            ),
+        ],
+        "An aggregate of the records being queried (like `%count` or `created_at%max`) can't be \
+         used within a function given to",
+    );
+    assert_errors(
+        &[(
+            r#"#issues $title|split(" ")|map(@w => %%(id\s)%row_number)"#,
+            r"%%(id\s)%row_number",
+        )],
+        "Window functions can't be used within a function given to",
+    );
+    // The array may be an aggregate in a grouped query.
+    compile(r#"#issues $status \g $title%list|map(@t => @t|uppercase)"#).unwrap();
+}
+
+#[test]
+fn subquery_within_a_function_argument_is_an_error_in_duckdb() {
+    let input = "@m = #( #issues $title%max )\n#issues $title|split(\" \")|some(@w => @w:==@m)";
+    // Postgres evaluates the function in a subquery of its own, which may contain another.
+    compile(input).unwrap();
+    let options = Options {
+        dialect: Box::new(crate::DuckDB()),
+        ..options()
+    };
+    let compiler = Compiler::new(&get_test_resource("issue_schema.json"), options).unwrap();
+    let err = compiler.compile(input.to_string()).unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Compile);
+    assert_eq!(located(input, &err), "#( #issues $title%max )");
+    assert_eq!(
+        err.message,
+        "In DuckDB, a function given to `map`, `filter`, `some`, `every`, or `reduce` can't use a \
+         subquery (`#( … )`), because it becomes a DuckDB lambda, which can't contain one."
+    );
+}

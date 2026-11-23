@@ -107,6 +107,80 @@ const CASES: &[(&str, &str)] = &[
         "Fix: one fix|a,b,c||∅|-",
     ),
     (r#"s|regex_replace(p "-")"#, "-: one -|a-b-c|∅|∅|∅"),
+    // `map` keeps the elements' order, and a NULL array stays NULL (rather than becoming empty).
+    (
+        r#"s|split(",")|map(@e => @e|uppercase)|join("/")"#,
+        "FIX: ONE FIX|A/B/C||∅|X\nY",
+    ),
+    (r#"s|split(",")|map(@e => @e)|length"#, "1|3|0|∅|1"),
+    // Positions count from 0.
+    (
+        r#"s|split(",")|map(@e @i => ^f"{@i}{@e}")|join(" ")"#,
+        "0Fix: one fix|0a 1b 2c||∅|0x\ny",
+    ),
+    (
+        r#"s|split(",")|filter(@e @i => @i:<2)|join("")"#,
+        "Fix: one fix|ab||∅|x\ny",
+    ),
+    (
+        r#"s|split(",")|some(@e @i => @i:=2)"#,
+        "false|true|false|∅|false",
+    ),
+    // The body sees the row's columns, and the variables around it.
+    (r"@@array(1 2 3)|filter(@e => @e:<`n`)|length", "3|0|0|0|0"),
+    (r"@@array(1 2)|map(@e => @e|times(n))|at(1)", "180|-2|∅|0|∅"),
+    (
+        r"n|(@m => @@array(1 2)|map(@e => @e|times(@m))|at(1))",
+        "180|-2|∅|0|∅",
+    ),
+    // A parameter shadows a variable of the same name, and may be named like an SQL keyword.
+    (
+        r"n|(@e => @@array(1 2)|map(@e => @e + 1)|at(1))",
+        "3|3|3|3|3",
+    ),
+    (r"@@array(1 2)|map(@order => @order + 1)|at(0)", "2|2|2|2|2"),
+    // Functions within functions: the characters of each part, at that part's position.
+    (
+        r#"s|split(",")|map(@e @i => @e|split("")|filter(@c @j => @j:=@i)|join(""))|join("")"#,
+        "F|a||∅|x",
+    ),
+    // `some` is false for an empty array, and `every` true. A NULL body counts as false.
+    (
+        r#"s|split(",")|some(@e => @e:=="b")"#,
+        "false|true|false|∅|false",
+    ),
+    (
+        r#"s|split(",")|every(@e => @e|length:=1)"#,
+        "false|true|true|∅|false",
+    ),
+    (
+        r"@@array(n)|some(@e => @e:>0)",
+        "true|false|false|false|false",
+    ),
+    (
+        r"@@array(n)|every(@e => @e:>=0)",
+        "true|false|false|true|false",
+    ),
+    (
+        r"@@array(n 1)|every(@e => @e:>0)",
+        "true|false|false|false|false",
+    ),
+    // `reduce` starts from the first element: NULL for an empty array, and the element itself for
+    // an array of one.
+    (
+        r#"s|split(",")|reduce(@a @b => ^f"{@a}+{@b}")"#,
+        "Fix: one fix|a+b+c|∅|∅|x\ny",
+    ),
+    (r"@@array(n 2 3)|reduce(@a @b => @a + @b)", "95|4|∅|5|∅"),
+    (r"@@array(n 2 3)|reduce(@a @b => @a|max(@b))", "90|3|3|3|3"),
+    (
+        r"@@array(1 2 3)|reduce(@a @b => @a * n + @b)",
+        "8283|2|∅|3|∅",
+    ),
+    (
+        r"@@array(1 2)|reduce(@a @b => @@array(@a @b n)|reduce(@x @y => @x + @y))",
+        "93|2|∅|3|∅",
+    ),
 ];
 
 #[test]

@@ -328,6 +328,25 @@ $due_date|countdown|days|(@due @age => ? @due:<0 ~ "overdue" @age:>365 ~ "stale"
 
 Here `@due` is the number of days until the due date (piped in), and `@age` is the number of days since the issue was created (from the trailing `(created_at|age|days)`).
 
+### Functions as arguments
+
+A few functions take a function as an argument, and apply it to each element of an [array](./functions.md#array-functions). Write the function like an anonymous function, but without its parentheses, as in `map(@w => @w|lowercase)`.
+
+> Show the words of each issue's title that are longer than three letters, in upper case
+
+```qd
+#issues $title|split(" ")|filter(@w => @w|length:>3)|map(@w => @w|uppercase)
+```
+
+Here `split(" ")` turns the title into an array of words. `filter` keeps the words for which its function is true, and `map` applies its function to each of those.
+
+- Only [`map`](./functions.md#map), [`filter`](./functions.md#filter), [`some`](./functions.md#some), [`every`](./functions.md#every), and [`reduce`](./functions.md#reduce) take a function. Giving one to any other function is an error.
+- The body sees the columns of the row and the variables around it, as an anonymous function's does. So in ``#comments.body%list|some(@b => @b:`title`)``, each comment is compared with the issue's own `title`.
+- A parameter can have the name of a variable around it, which it hides within the body.
+- Functions can be given within functions, as in `title|split(" ")|some(@w => @w|split("")|every(@c => @c:~'[0-9]'))`, which finds titles with a word made only of digits.
+- The body can't use an aggregate of the rows being queried, like `%count`, or a window function. It can use an aggregate of related records, like `#comments%count`, but a parameter can't be used within a filter of related records, like `#comments{body:@w}`, which is found by a query of its own.
+- In DuckDB, the function becomes a lambda, which can't contain a subquery, so it can't use a [constant defined by a query](#defining-a-constant-using-the-result-of-a-query).
+
 ### Function calling
 
 The `@@` sigil calls a function by name, with all of its arguments in parentheses, instead of piping the first one in.

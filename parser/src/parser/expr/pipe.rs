@@ -60,10 +60,10 @@ enum PipeStep {
     },
 }
 
-/// Parses an inline anonymous function, e.g. `(@d => ? @d:<0 ~ "a" ~~ "b")`. The body — like a
-/// user-defined function's body — is zero or more local assignments followed by a single result
-/// expression, and may reference the parameters and earlier assignments.
-fn anonymous_function<'src>(
+/// Parses a function's parameters, its arrow, and its body, e.g. `@d => ? @d:<0 ~ "a" ~~ "b"`. The
+/// body — like a user-defined function's body — is zero or more local assignments followed by a
+/// single result expression, and may reference the parameters and earlier assignments.
+fn function_literal<'src>(
     body_expr: impl Psr<'src, Expr>,
 ) -> impl Psr<'src, (Vec<String>, FunctionBody)> {
     let params = super::variable()
@@ -91,20 +91,39 @@ fn anonymous_function<'src>(
                 .then(pad()),
         )
         .then(function_body)
-        .delimited_by(
-            just(EXPR_PAREN_L).then(pad()),
-            pad().then(just(EXPR_PAREN_R)),
-        )
+}
+
+/// Parses an inline anonymous function, e.g. `(@d => ? @d:<0 ~ "a" ~~ "b")`: a function literal in
+/// parentheses.
+fn anonymous_function<'src>(
+    body_expr: impl Psr<'src, Expr>,
+) -> impl Psr<'src, (Vec<String>, FunctionBody)> {
+    function_literal(body_expr).delimited_by(
+        just(EXPR_PAREN_L).then(pad()),
+        pad().then(just(EXPR_PAREN_R)),
+    )
+}
+
+/// One argument of a call to a named function: a value, or a function written without its outer
+/// parentheses (`@e => @e:>0`), which the function being called can apply, e.g. to the elements of
+/// an array (see [`ExprKind::FunctionArg`]). A function is tried first, since its parameters would
+/// otherwise be read as variables.
+pub(super) fn call_argument<'src>(args_expr: impl Psr<'src, Expr> + 'src) -> impl Psr<'src, Expr> {
+    // (A `fn` item rather than a closure, for the reason given in `utils`.)
+    fn function_arg((params, body): (Vec<String>, FunctionBody)) -> ExprKind {
+        ExprKind::FunctionArg(Box::new(FunctionArg { params, body }))
+    }
+    let function = located(function_literal(args_expr.clone()).map(function_arg)).boxed();
+    choice((function, args_expr)).boxed()
 }
 
 pub fn pipe<'src>(
     arg0_expr: impl Psr<'src, Expr>,
-    extra_args_expr: impl Psr<'src, Expr>,
+    extra_args_expr: impl Psr<'src, Expr> + 'src,
 ) -> impl Psr<'src, Expr> {
     let scalar_args = just(COMPOSITION_ARGUMENT_BRACE_L)
         .ignore_then(
-            extra_args_expr
-                .clone()
+            call_argument(extra_args_expr.clone())
                 .padded_by(pad())
                 .repeated()
                 .collect::<Vec<Expr>>(),

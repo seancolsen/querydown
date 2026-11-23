@@ -3,13 +3,13 @@ use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::{
     dialect::{
-        duration_part, ArrayIndex, Dialect, MaybeLiteral, NormalizedDuration, RegexPattern,
-        Separator,
+        duration_part, ArrayIndex, Dialect, ElementNames, MaybeLiteral, NormalizedDuration,
+        ReduceNames, RegexPattern, Separator,
     },
     expr::{
         build::{
-            cmp::{comparison, eq, is_not_null, is_null, lt},
-            cond::case,
+            cmp::{comparison, eq, gt, is_not_null, is_null, lt},
+            cond::{case, not_true},
             func,
             math::add,
             sql_func,
@@ -32,6 +32,18 @@ fn regex_args<const N: usize>(args: [SqlExpr; N], flags: &RegexFlags) -> Vec<Sql
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DuckDB();
+
+impl DuckDB {
+    /// A lambda whose variables are an element of a list and, when the body uses it, the element's
+    /// position (counting from 1), named as `names` say.
+    fn element_lambda(&self, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        let mut params = self.quote_identifier(&names.element);
+        if names.uses_position {
+            params = format!("{params}, {}", self.quote_identifier(&names.position));
+        }
+        SqlExpr::atom(format!("lambda {params}: {body}"))
+    }
+}
 
 impl Dialect for DuckDB {
     fn introspection_sql(&self) -> &'static str {
@@ -245,6 +257,54 @@ impl Dialect for DuckDB {
                 )
             }
         }
+    }
+
+    fn reserved_lambda_names(&self) -> &'static [&'static str] {
+        // The variables of `join`'s lambdas.
+        &["e", "acc"]
+    }
+
+    fn allows_subquery_in_function_arg(&self) -> bool {
+        // The function becomes a lambda, and DuckDB doesn't allow a subquery in one.
+        false
+    }
+
+    fn array_map(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        sql_func("list_transform", [a, self.element_lambda(names, body)])
+    }
+
+    fn array_filter(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        sql_func("list_filter", [a, self.element_lambda(names, body)])
+    }
+
+    fn array_some(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        // `list_filter` keeps the elements for which the body is true, and not those for which
+        // it's NULL. The length of a NULL list is NULL.
+        let passing = sql_func("list_filter", [a, self.element_lambda(names, body)]);
+        gt(sql_func("len", [passing]), zero())
+    }
+
+    fn array_every(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr {
+        let failing = sql_func(
+            "list_filter",
+            [a, self.element_lambda(names, not_true(body))],
+        );
+        eq(sql_func("len", [failing]), zero())
+    }
+
+    fn reduce_params(&self, _a: &SqlExpr, names: &ReduceNames) -> (SqlExpr, SqlExpr) {
+        let acc = SqlExpr::atom(self.quote_identifier(&names.acc));
+        let element = SqlExpr::atom(self.quote_identifier(&names.element));
+        (acc, element)
+    }
+
+    fn array_reduce(&self, a: SqlExpr, names: &ReduceNames, body: SqlExpr) -> SqlExpr {
+        // `list_reduce` fails on an empty list, so that's made NULL, which it reduces to NULL.
+        let nonempty = case(vec![(eq(sql_func("len", [a.clone()]), zero()), null())], a);
+        let acc = self.quote_identifier(&names.acc);
+        let element = self.quote_identifier(&names.element);
+        let lambda = SqlExpr::atom(format!("lambda {acc}, {element}: {body}"));
+        sql_func("list_reduce", [nonempty, lambda])
     }
 
     fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr {

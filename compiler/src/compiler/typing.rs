@@ -16,20 +16,22 @@
 //! through `max` is still recognized as a datetime, for example.
 
 use querydown_parser::ast::{
-    AnonymousFunctionCall, Call, Case, Expr, ExprKind, FunctionDimension, PathPart, WindowFn,
+    AnonymousFunctionCall, Call, Case, Expr, ExprKind, FunctionArg, FunctionDimension, PathPart,
+    WindowFn,
 };
 
 use crate::{
     compiler::{
         constants::{VAR_FALSE, VAR_INFINITY, VAR_NOW, VAR_NULL, VAR_TRUE},
         expr::resolve_computed_column,
-        functions::{bind_assignments, bind_params, TypeRule},
+        functions::{bind_assignments, bind_params, element_type, TypeRule},
         paths::{clarify_path, ClarifiedPathTail},
         scope::{Expansion, Scope},
         temporal::now_has_tz,
         window::window_fn_return_type,
     },
     schema::{Table, ValueType},
+    sql::expr::SqlExpr,
 };
 
 /// Best-effort classification of the [`ValueType`] that `expr` will produce. Returns
@@ -62,6 +64,8 @@ pub fn infer_type(expr: &Expr, scope: &mut Scope) -> ValueType {
         // A scalar subquery's type would require inferring the type of its single result column,
         // which we don't attempt.
         ExprKind::Subquery(_) => ValueType::Unknown,
+        // A function isn't a value. (What it returns is inferred where it's applied.)
+        ExprKind::FunctionArg(_) => ValueType::Unknown,
     }
 }
 
@@ -118,9 +122,13 @@ fn infer_variable(name: &str, scope: &mut Scope) -> ValueType {
         // constant defined in terms of itself is reported as an error by compilation; here, just
         // stop.
         _ => match scope.lookup_variable(name) {
-            Some(binding) => scope
-                .inspect_binding(&binding, infer_type)
-                .unwrap_or(ValueType::Unknown),
+            Some(binding) => match binding.sql_type() {
+                // A parameter bound to SQL (e.g. an element of an array), whose type is known.
+                Some(value_type) => value_type,
+                None => scope
+                    .inspect_binding(&binding, infer_type)
+                    .unwrap_or(ValueType::Unknown),
+            },
             None => ValueType::Unknown,
         },
     }
@@ -276,6 +284,19 @@ fn infer_anonymous_function_call(call: &AnonymousFunctionCall, scope: &mut Scope
     scope.with_env(env, |scope| infer_type(&call.body.expr, scope))
 }
 
+/// Infers the type of what `function` returns when it's applied to the elements of `array` (and
+/// optionally, their positions), as by `map`. This mirrors how the function is compiled: its
+/// parameters stand for values of known types.
+fn infer_function_arg_result(array: &Expr, function: &FunctionArg, scope: &mut Scope) -> ValueType {
+    let param_types = [element_type(array, scope), ValueType::Number];
+    let mut env = scope.env();
+    for (param, value_type) in function.params.iter().zip(param_types) {
+        env = scope.bind_sql(&env, param.clone(), SqlExpr::empty(), value_type);
+    }
+    let env = bind_assignments(function.body.assignments.clone(), env, scope);
+    scope.with_env(env, |scope| infer_type(&function.body.expr, scope))
+}
+
 fn infer_window(window: &WindowFn, scope: &mut Scope) -> ValueType {
     match window_fn_return_type(&window.function) {
         Some(rule) => apply_type_rule(&rule, &window.args, scope),
@@ -298,6 +319,15 @@ fn apply_type_rule(rule: &TypeRule, args: &[Expr], scope: &mut Scope) -> ValueTy
         TypeRule::ArrayOf(rule) => ValueType::Array(Box::new(apply_type_rule(rule, args, scope))),
         TypeRule::ElementOf(rule) => match apply_type_rule(rule, args, scope) {
             ValueType::Array(element) => *element,
+            _ => ValueType::Unknown,
+        },
+        TypeRule::FunctionArgResult(index) => match (args.first(), args.get(*index)) {
+            (Some(array), Some(function)) => match &function.kind {
+                ExprKind::FunctionArg(function) => {
+                    infer_function_arg_result(array, function, scope)
+                }
+                _ => ValueType::Unknown,
+            },
             _ => ValueType::Unknown,
         },
         TypeRule::Sum | TypeRule::Difference => match args {

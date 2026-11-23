@@ -341,8 +341,8 @@ fn variable<'src>() -> impl Psr<'src, String> {
 /// This applies a (built-in or user-defined) scalar function without using a pipe. The arguments are
 /// space-separated (no commas) and enclosed in parentheses; the parentheses are required even for a
 /// call with no arguments.
-fn function_call<'src>(args_expr: impl Psr<'src, Expr>) -> impl Psr<'src, ExprKind> {
-    let args = args_expr
+fn function_call<'src>(args_expr: impl Psr<'src, Expr> + 'src) -> impl Psr<'src, ExprKind> {
+    let args = pipe::call_argument(args_expr)
         .padded_by(pad())
         .repeated()
         .collect::<Vec<Expr>>()
@@ -1122,6 +1122,91 @@ mod tests {
                 .into()
             )
         );
+    }
+
+    #[test]
+    fn test_parse_function_argument() {
+        let p = |s: &str| {
+            expr()
+                .then_ignore(end())
+                .parse(s)
+                .into_result()
+                .map_err(|_| ())
+        };
+        let var = |name: &str| -> Expr { ExprKind::Variable(name.to_string()).into() };
+        let col = |name: &str| -> Expr {
+            ExprKind::Path(vec![PathPartKind::Column(name.to_string()).into()]).into()
+        };
+        let function = |params: &[&str], assignments: Vec<Assignment>, expr: Expr| -> Expr {
+            ExprKind::FunctionArg(Box::new(FunctionArg {
+                params: params.iter().map(|p| p.to_string()).collect(),
+                body: FunctionBody { assignments, expr },
+            }))
+            .into()
+        };
+        let call = |name: &str, syntax: CallSyntax, args: Vec<Expr>| -> Expr {
+            ExprKind::Call(Call {
+                name: name.to_string(),
+                name_loc: Loc::NONE,
+                dimension: FunctionDimension::Scalar,
+                args,
+                syntax,
+                order_by: vec![],
+            })
+            .into()
+        };
+        let times_two = |name: &str| -> Expr {
+            ExprKind::Product(
+                Box::new(var(name)),
+                Box::new(ExprKind::Number("2".to_string()).into()),
+            )
+            .into()
+        };
+
+        // A function given to a piped call, without parentheses of its own. Its body extends to
+        // the end of the argument.
+        assert_eq!(
+            p("tags|map(@t => @t * 2)"),
+            Ok(call(
+                "map",
+                CallSyntax::Piped,
+                vec![col("tags"), function(&["t"], vec![], times_two("t"))],
+            ))
+        );
+
+        // Several parameters, a local assignment, and a standalone call.
+        assert_eq!(
+            p("@@filter(tags @e @i => @x = @i @x * 2)"),
+            Ok(call(
+                "filter",
+                CallSyntax::Standalone,
+                vec![
+                    col("tags"),
+                    function(
+                        &["e", "i"],
+                        vec![Assignment {
+                            name: "x".to_string(),
+                            expr: var("i"),
+                        }],
+                        times_two("x"),
+                    ),
+                ],
+            ))
+        );
+
+        // Variables without an arrow are values, as before.
+        assert_eq!(
+            p("@@max(@a @b)"),
+            Ok(call(
+                "max",
+                CallSyntax::Standalone,
+                vec![var("a"), var("b")]
+            ))
+        );
+
+        // A function is only an argument: it can't stand by itself.
+        assert!(p("@t => @t").is_err());
+        assert!(p("tags|some((@t => @t))").is_err());
     }
 
     #[test]

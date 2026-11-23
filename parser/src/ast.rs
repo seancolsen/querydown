@@ -501,6 +501,10 @@ pub enum ExprKind {
     /// can only be applied immediately, via a pipe, so this node always carries its arguments. Like
     /// a user-defined function, its parameters are bound to the arguments and its body is inlined.
     AnonymousFunctionCall(Box<AnonymousFunctionCall>),
+    /// A function given as an argument to a call, e.g. the `@t => @t:=="urgent"` in
+    /// `tags|some(@t => @t:=="urgent")`. Only the functions that apply a function to the elements
+    /// of an array (`map`, `filter`, `some`, `every`, and `reduce`) accept one. See [`FunctionArg`].
+    FunctionArg(Box<FunctionArg>),
     /// A scalar subquery, written as `#( query )`. The inner query must produce a single value, which
     /// is inlined as a parenthesized `(SELECT ...)`. This is what gives a constant defined via
     /// `@name = #( ... )` its value.
@@ -546,6 +550,17 @@ pub struct AnonymousFunctionCall {
     /// The arguments to which the function is applied. The first is the piped-in value; any others
     /// come from parenthesized arguments following the anonymous function.
     pub args: Vec<Expr>,
+}
+
+/// A function written as an argument of a call, like an anonymous function without its outer
+/// parentheses: `@e @i => body`. Unlike an anonymous function, it isn't applied where it's written:
+/// the function that it's given to applies it, e.g. to each element of an array.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionArg {
+    /// Parameter names, without the `@` sigil, in order.
+    pub params: Vec<String>,
+    /// The function body: zero or more local assignments followed by a single result expression.
+    pub body: FunctionBody,
 }
 
 /// A window function application: a function applied over a window defined by partition and ordering

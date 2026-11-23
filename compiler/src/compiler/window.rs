@@ -92,6 +92,7 @@ pub fn convert_window(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, Er
             WindowBan::RelatedRecords => msg::window_in_related_records(),
             WindowBan::Aggregate => msg::window_in_aggregate(),
             WindowBan::Nested => msg::window_in_window(),
+            WindowBan::FunctionArg => msg::window_in_function_arg(),
         });
     }
     scope.note_compiled_window(window.function_loc);
@@ -202,8 +203,11 @@ fn collect_windows(expr: &Expr, windows: &mut Vec<(WindowFn, Loc)>) {
                 }
             }
         }
+        // A window function can't be used within a function given as an argument, which compiling
+        // the function reports.
         ExprKind::ScopedConditionSet(_)
         | ExprKind::HasQuantity(_)
+        | ExprKind::FunctionArg(_)
         | ExprKind::Subquery(_)
         | ExprKind::Number(_)
         | ExprKind::Date(_)

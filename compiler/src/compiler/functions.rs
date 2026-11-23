@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use querydown_parser::ast::{
     AggregateSortExpr, AggregateSortKey, AnonymousFunctionCall, Assignment, Call, CallSyntax, Expr,
-    ExprKind, FunctionDef, FunctionDimension, Loc, PathPart, PathPartKind, RegexFlags,
+    ExprKind, FunctionArg, FunctionBody, FunctionDef, FunctionDimension, Loc, PathPart,
+    PathPartKind, RegexFlags,
 };
 
 use crate::{
@@ -24,7 +25,7 @@ use crate::{
     schema::ValueType,
     sql::expr::build::{self, agg::*, cond::*, date_time::*, func, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
-    sql::{Dialect, MaybeLiteral, Separator},
+    sql::{Dialect, ElementNames, MaybeLiteral, ReduceNames, Separator},
     Error,
 };
 
@@ -55,6 +56,10 @@ pub enum TypeRule {
     /// The function subtracts its second argument from its first, so it returns what `-` does for
     /// them (see [`crate::compiler::typing::difference_type`]).
     Difference,
+    /// The function applies the function given as the argument at this index to the elements of
+    /// its first argument, an array, and returns the type of what that gives (e.g. `map`, whose
+    /// result is an array of these).
+    FunctionArgResult(usize),
 }
 
 impl TypeRule {
@@ -91,8 +96,12 @@ fn convert_scalar_call(
     // Built-in scalar functions take precedence; a user-defined function of the same name is only
     // consulted if no built-in matches.
     let result = if let Some(func) = s.get_scalar_function(name) {
+        if !TAKE_A_FUNCTION.contains(&name) {
+            reject_function_args(&e)?;
+        }
         (func.call)(e, s)
     } else if let Some(def) = s.get_user_function(name).cloned() {
+        reject_function_args(&e)?;
         convert_user_function_call(def, e, s)
     } else {
         Err(unknown_scalar_function(name))
@@ -126,6 +135,7 @@ pub fn convert_anonymous_function_call(
     call: AnonymousFunctionCall,
     scope: &mut Scope,
 ) -> Result<SqlExpr, Error> {
+    reject_function_args(&call.args)?;
     let env = bind_params("(anonymous)", call.params, call.args, scope.env(), scope)?;
     let env = bind_assignments(call.body.assignments, env, scope);
     scope.with_env(env, |scope| convert_expr(call.body.expr, scope))
@@ -203,6 +213,7 @@ fn check_aggregate_ban(scope: &Scope) -> Result<(), Error> {
         Some(AggregateBan::Condition) => Err(msg::aggregate_in_condition()),
         Some(AggregateBan::RelatedRecordsFilter) => Err(msg::aggregate_in_related_records_filter()),
         Some(AggregateBan::AggregatedValue) => Err(msg::aggregate_in_aggregated_value()),
+        Some(AggregateBan::FunctionArg) => Err(msg::aggregate_in_function_arg()),
     }
 }
 
@@ -474,6 +485,158 @@ fn length(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     })
 }
 
+/// The built-in functions that take a function as an argument (see [`FunctionArg`]).
+const TAKE_A_FUNCTION: [&str; 5] = ["every", "filter", "map", "reduce", "some"];
+
+/// Fails, at the first of `args` that's a function (`@e => …`), if any is: only the functions in
+/// [`TAKE_A_FUNCTION`] accept one.
+fn reject_function_args(args: &[Expr]) -> Result<(), Error> {
+    match args
+        .iter()
+        .find(|arg| matches!(arg.kind, ExprKind::FunctionArg(_)))
+    {
+        Some(arg) => Err(msg::function_arg_not_accepted().at(arg.loc)),
+        None => Ok(()),
+    }
+}
+
+/// The arguments of a function that applies a function to the elements of an array: the array, and
+/// the function, which must take between `min` and `max` parameters (`params` describes how many,
+/// for an error). `name` and `example` name the function being called and show it being used.
+fn array_and_function(
+    args: Vec<Expr>,
+    name: &str,
+    example: &str,
+    (min, max, params): (usize, usize, &str),
+) -> Result<(Expr, FunctionArg), Error> {
+    let mut args = args.into_iter();
+    let (Some(array), function) = (args.next(), args.next()) else {
+        return Err(msg::function_arg_expected(name, example));
+    };
+    let Some(function) = function else {
+        return Err(msg::function_arg_expected(name, example));
+    };
+    if args.next().is_some() {
+        return Err(msg::expected_two_args());
+    }
+    let loc = function.loc;
+    let ExprKind::FunctionArg(function) = function.kind else {
+        return Err(msg::function_arg_expected(name, example).at(loc));
+    };
+    if !(min..=max).contains(&function.params.len()) {
+        return Err(msg::function_arg_param_count(name, params).at(loc));
+    }
+    Ok((array, *function))
+}
+
+/// The type of the elements of `array`, or [`ValueType::Unknown`] if it's not known to be an array.
+pub(super) fn element_type(array: &Expr, scope: &mut Scope) -> ValueType {
+    match infer_type(array, scope) {
+        ValueType::Array(element) => *element,
+        _ => ValueType::Unknown,
+    }
+}
+
+/// A name for SQL to give a value that a function's parameter (named `param`) stands for, unique
+/// within the query, and unlike any name that the dialect gives the variables of its own lambdas.
+fn param_sql_name(param: &str, scope: &mut Scope) -> String {
+    let reserved = scope.options.dialect.reserved_lambda_names();
+    loop {
+        let name = scope.get_alias(param);
+        if !reserved.contains(&name.as_str()) {
+            return name;
+        }
+    }
+}
+
+/// Compiles the body of a function given as an argument, with its parameters bound to the SQL that
+/// stands for their values (each with its name and type). The body sees the variables around it,
+/// as an anonymous function's does.
+fn convert_function_body(
+    body: FunctionBody,
+    params: Vec<(String, SqlExpr, ValueType)>,
+    scope: &mut Scope,
+) -> Result<SqlExpr, Error> {
+    let mut env = scope.env();
+    for (name, sql, value_type) in params {
+        env = scope.bind_sql(&env, name, sql, value_type);
+    }
+    let env = bind_assignments(body.assignments, env, scope);
+    let bans_subqueries = !scope.options.dialect.allows_subquery_in_function_arg();
+    // The body is evaluated for each element, within one record, so it can't aggregate records
+    // or use a window over them.
+    scope.with_env(env, |scope| {
+        scope.with_aggregate_ban(AggregateBan::FunctionArg, |scope| {
+            scope.with_window_ban(WindowBan::FunctionArg, |scope| match bans_subqueries {
+                true => scope.with_subquery_ban(|scope| convert_expr(body.expr, scope)),
+                false => convert_expr(body.expr, scope),
+            })
+        })
+    })
+}
+
+/// `map`, `filter`, `some`, and `every`: a function applied to each element of an array (and,
+/// optionally, its position), whose results `build` combines.
+fn element_function(
+    args: Vec<Expr>,
+    scope: &mut Scope,
+    name: &str,
+    build: fn(&dyn Dialect, SqlExpr, &ElementNames, SqlExpr) -> SqlExpr,
+) -> Result<SqlExpr, Error> {
+    let example = format!("{name}(@e => …)");
+    let params = "one or two parameters: an element of the array, and optionally its position \
+                  (counting from 0)";
+    let (array, function) = array_and_function(args, name, &example, (1, 2, params))?;
+    let element_type = element_type(&array, scope);
+    let a = convert_expr(array, scope)?;
+    let mut params = function.params.into_iter();
+    let element_param = params.next().expect("the parameters were counted");
+    let position_param = params.next();
+    let names = ElementNames {
+        array: param_sql_name("array", scope),
+        element: param_sql_name(&element_param, scope),
+        position: param_sql_name(position_param.as_deref().unwrap_or("i"), scope),
+        uses_position: position_param.is_some(),
+    };
+    let options = scope.options;
+    let dialect = options.dialect.as_ref();
+    let (element, position) = dialect.element_params(&names);
+    let mut bindings = vec![(element_param, element, element_type)];
+    if let Some(param) = position_param {
+        bindings.push((param, position, ValueType::Number));
+    }
+    let body = convert_function_body(function.body, bindings, scope)?;
+    Ok(build(dialect, a, &names, body))
+}
+
+/// `reduce(x @acc @e => …)`: the elements of an array combined from the left.
+fn reduce(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let params = "two parameters: the value so far, and the next element";
+    let (array, function) =
+        array_and_function(args, "reduce", "reduce(@a @b => @a + @b)", (2, 2, params))?;
+    let element_type = element_type(&array, scope);
+    let a = convert_expr(array, scope)?;
+    let [acc_param, element_param]: [String; 2] = function
+        .params
+        .try_into()
+        .expect("the parameters were counted");
+    let names = ReduceNames {
+        array: param_sql_name("array", scope),
+        acc: param_sql_name(&acc_param, scope),
+        element: param_sql_name(&element_param, scope),
+        position: param_sql_name("i", scope),
+    };
+    let options = scope.options;
+    let dialect = options.dialect.as_ref();
+    let (acc, element) = dialect.reduce_params(&a, &names);
+    let bindings = vec![
+        (acc_param, acc, element_type.clone()),
+        (element_param, element, element_type),
+    ];
+    let body = convert_function_body(function.body, bindings, scope)?;
+    Ok(dialect.array_reduce(a, &names, body))
+}
+
 /// The zone classification of an AST argument, for temporal reconciliation (see
 /// [`crate::compiler::temporal`]).
 fn arg_zone(arg: &Expr, scope: &mut Scope) -> TemporalZone {
@@ -565,7 +728,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     // `countdown` produce durations, which `days`, `hours`, and so on turn into numbers. `plus` and
     // `minus` are typed like the operators they stand for, so that `date|plus(1w)` stays a date.
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc, TypeRule); 53] = [
+    let templates: [(&str, ScalarFunc, TypeRule); 58] = [
         ("abs",         |e, s| args_1(e, s, abs),                    SameAsArg(0)),
         ("age",         |e, s| temporal_age(e, s),                  Fixed(Duration)),
         ("and",         |e, s| args_v(e, s, build::cmp::and),        Fixed(Boolean)),
@@ -577,7 +740,9 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("day",         |e, s| calendar_field(e, s, "day"),          Fixed(Number)),
         ("days",        |e, s| args_1(e, s, days),                   Fixed(Number)),
         ("divide",      |e, s| args_2(e, s, divide),                 Fixed(Number)),
+        ("every",       |e, s| element_function(e, s, "every", |d, a, n, b| d.array_every(a, n, b)), Fixed(Boolean)),
         ("exp",         |e, s| args_1(e, s, exp),                    Fixed(Number)),
+        ("filter",      |e, s| element_function(e, s, "filter", |d, a, n, b| d.array_filter(a, n, b)), SameAsArg(0)),
         ("floor",       |e, s| args_1(e, s, floor),                  Fixed(Number)),
         ("gcd",         |e, s| args_2(e, s, gcd),                    Fixed(Number)),
         ("hours",       |e, s| args_1(e, s, hours),                  Fixed(Number)),
@@ -590,6 +755,7 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("length",      |e, s| length(e, s),                         Fixed(Number)),
         ("ln",          |e, s| args_1(e, s, ln),                     Fixed(Number)),
         ("lowercase",   |e, s| args_1(e, s, lower),                  Fixed(Text)),
+        ("map",         |e, s| element_function(e, s, "map", |d, a, n, b| d.array_map(a, n, b)), array_of(FunctionArgResult(1))),
         ("max",         |e, s| args_v(e, s, greatest),               UnifyArgs),
         ("md5",         |e, s| args_1(e, s, md5),                    Fixed(Text)),
         ("min",         |e, s| args_v(e, s, least),                  UnifyArgs),
@@ -601,11 +767,13 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("or",          |e, s| args_v(e, s, build::cmp::or),         Fixed(Boolean)),
         ("plus",        |e, s| args_2(e, s, add),                    Sum),
         ("pow",         |e, s| args_2(e, s, power),                  Fixed(Number)),
+        ("reduce",      |e, s| reduce(e, s),                         element_of(SameAsArg(0))),
         ("regex_extract", |e, s| regex_extract(e, s),                Fixed(Text)),
         ("regex_replace", |e, s| regex_replace(e, s),                Fixed(Text)),
         ("round",       |e, s| round(e, s),                          Fixed(Number)),
         ("seconds",     |e, s| args_1(e, s, seconds),                Fixed(Number)),
         ("seconds_to_duration", |e, s| dialect_1(e, s, |d, a| d.seconds_to_duration(a)), Fixed(Duration)),
+        ("some",        |e, s| element_function(e, s, "some", |d, a, n, b| d.array_some(a, n, b)), Fixed(Boolean)),
         ("split",       |e, s| with_separator(e, s, |d, a, b| d.split(a, b)), Fixed(Array(Box::new(Text)))),
         ("sqrt",        |e, s| args_1(e, s, sqrt),                   Fixed(Number)),
         ("times",       |e, s| args_2(e, s, multiply),               Fixed(Number)),

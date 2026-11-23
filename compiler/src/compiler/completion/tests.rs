@@ -525,7 +525,7 @@ fn scalar_functions_after_a_pipe() {
     assert_eq!(upper.kind, CompletionKind::Function);
     assert_eq!(upper.detail.as_deref(), Some("x|uppercase"));
     assert!(upper.info.is_some());
-    assert_eq!(labels(&completions).len(), 53);
+    assert_eq!(labels(&completions).len(), 58);
     // Also within a chain, and when followed by arguments.
     assert!(labels(&complete("#issues $due_date|age|d‸")).contains(&"days"));
     assert!(labels(&complete("#issues $title|con‸(\"x\")")).contains(&"concat"));
@@ -602,6 +602,26 @@ fn function_parameters_and_assignments() {
 }
 
 #[test]
+fn parameters_of_a_function_given_as_an_argument() {
+    let completions = complete("#issues $title|split(\" \")|map(@word @pos => @‸)");
+    assert_eq!(
+        labels_of(&completions, CompletionKind::Variable),
+        ["pos", "word"]
+    );
+    // The function is applied within the record, so the table's columns are in scope.
+    assert_columns(
+        "#issues $title|split(\" \")|some(@w => @w|concat(‸))",
+        &ISSUES,
+    );
+    // Outside the function, its parameters aren't.
+    let completions = complete("#issues $title|split(\" \")|map(@w => @w)|concat(@‸)");
+    assert_eq!(
+        labels_of(&completions, CompletionKind::Variable),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
 fn parameters_are_not_in_scope_outside_their_function() {
     let completions = complete("@@f = @x => @x\n#issues author:@‸");
     assert_eq!(
@@ -630,6 +650,7 @@ fn nothing_within_strings_comments_numbers_flags_or_new_names() {
         "@@fun‸ = @x => @x\n#issues",
         "#users.ag‸ = 1\n#users",
         "#issues $id|(@para‸ => 1)",
+        "#issues $title|split(\" \")|map(@para‸ => 1)",
     ] {
         assert_eq!(labels(&complete(marked)), Vec::<&str>::new(), "{marked:?}");
     }

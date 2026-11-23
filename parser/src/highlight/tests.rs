@@ -178,6 +178,18 @@ fn test_functions() {
 }
 
 #[test]
+fn test_function_arguments() {
+    check(
+        Display,
+        "$tags|map(@t @i => @t + @i) $@@some(tags @t => @t:x)",
+        "$:result-column tags:column |:pipe map:function (:bracket @t:variable @i:variable \
+         =>:definition @t:variable +:operator @i:variable ):bracket $:result-column \
+         @@some:function (:bracket tags:column @t:variable =>:definition @t:variable \
+         ::comparison-operator x:string ):bracket",
+    );
+}
+
+#[test]
 fn test_result_columns() {
     check(
         Display,

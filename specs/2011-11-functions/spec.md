@@ -113,29 +113,44 @@ applies it to the elements of an array.
 
 | Function | Description | PostgreSQL | DuckDB |
 | -- | -- | -- | -- |
-| `map(@e => …)` | An array of the function's result for each element. | `ARRAY(SELECT body FROM unnest(x) WITH ORDINALITY AS u(e, i) ORDER BY i)` | `list_transform(x, lambda e: body)` |
-| `filter(@e => …)` | The elements for which the function is true. | `ARRAY(SELECT e FROM unnest(x) WITH ORDINALITY AS u(e, i) WHERE body ORDER BY i)` | `list_filter(x, lambda e: body)` |
-| `some(@e => …)` | Whether the function is true for at least one element. False for an empty array. | `EXISTS (SELECT 1 FROM unnest(x) AS u(e) WHERE body)` | `len(list_filter(x, lambda e: body)) > 0` |
-| `every(@e => …)` | Whether the function is true for every element. True for an empty array. | `NOT EXISTS (SELECT 1 FROM unnest(x) AS u(e) WHERE (body) IS NOT TRUE)` | `len(list_filter(x, lambda e: (body) IS NOT TRUE)) = 0` |
-| `reduce(@acc @e => …)` | Combines the elements into one value, from the left. `@acc` starts as the first element. NULL for an empty array. | A recursive query (below) | `list_reduce(x, lambda acc, e: body)`, guarded for an empty array |
+| `map(@e => …)` | An array of the function's result for each element. | `ARRAY(SELECT body FROM unnest(a) WITH ORDINALITY AS e(e, i) ORDER BY i)`, guarded (below) | `list_transform(x, lambda e: body)` |
+| `filter(@e => …)` | The elements for which the function is true. | `ARRAY(SELECT e FROM unnest(a) WITH ORDINALITY AS e(e, i) WHERE body ORDER BY i)`, guarded | `list_filter(x, lambda e: body)` |
+| `some(@e => …)` | Whether the function is true for at least one element. False for an empty array. | `EXISTS (SELECT 1 FROM unnest(a) AS e(e) WHERE body)`, guarded | `len(list_filter(x, lambda e: body)) > 0` |
+| `every(@e => …)` | Whether the function is true for every element. True for an empty array. | `NOT EXISTS (SELECT 1 FROM unnest(a) AS e(e) WHERE (body) IS NOT TRUE)`, guarded | `len(list_filter(x, lambda e: (body) IS NOT TRUE)) = 0` |
+| `reduce(@acc @e => …)` | Combines the elements into one value, from the left. `@acc` starts as the first element. NULL for an empty array. | A recursive query (below) | `list_reduce(CASE WHEN len(x) = 0 THEN NULL ELSE x END, lambda acc, e: body)` |
 
 - **Position.** The function given to `map`, `filter`, `some`, or `every` may take a second
   parameter, the element's position: `filter(@e @i => @i:<3)` keeps the first three. Both databases
   count it from 1, so the compiler subtracts 1.
+- **NULL.** A NULL array gives NULL. A subquery over the elements of a NULL array finds none, so in
+  PostgreSQL the array is first named in a subquery of its own, which also keeps it from being
+  written twice: `(SELECT ARRAY(…unnest(a)…) FROM (SELECT x) AS a(a) WHERE a IS NOT NULL)`. A body
+  that gives NULL for an element counts as false in `filter`, `some`, and `every`.
+- **Names.** The names that the SQL gives the array, the element, and its position (and the
+  recursive query of `reduce`) are taken from the parameters, made unique within the query, so that
+  a function given within another one's body can't capture its names. They're quoted identifiers.
+  In DuckDB they also avoid `e` and `acc`, which `join`'s own lambdas use.
 - **Scope.** The body sees the row's columns and the variables around it, as an anonymous function
-  does. So `tags|some(@t => @t:==status)` compares each tag with the row's own `status`.
+  does. So ``tags|some(@t => @t:==`status`)`` compares each tag with the row's own `status`. (On
+  the right of a comparison, a bare word is text, so the column needs backticks.) A parameter can't
+  be used within a filter of related records (`#comments{body:@t}`), which is found by a query of
+  its own that can't see the elements.
 - **Limits.** The body can't use an aggregate of the rows being queried, or a window function.
   DuckDB doesn't allow a subquery in a lambda, so a body that compiles to one is an error there.
+  The only one a body can contain is a constant defined by a query (`@c = #( … )`), which the
+  compiler reports at the subquery.
 - **`reduce` in PostgreSQL** has no direct equivalent, so it compiles to a recursive query that runs
   for each row:
 
     ```sql
-    (WITH RECURSIVE r(i, acc) AS (
-       SELECT 1, x[1]
+    (WITH RECURSIVE acc(i, acc, a) AS (
+       SELECT 1, a[1], a FROM (SELECT x) AS a(a)
        UNION ALL
-       SELECT i + 1, body FROM r WHERE i < cardinality(x)  -- body uses acc and x[i + 1]
-     ) SELECT acc FROM r ORDER BY i DESC LIMIT 1)
+       SELECT i + 1, body, a FROM acc WHERE i < cardinality(a)  -- body uses acc and a[i + 1]
+     ) SELECT acc FROM acc ORDER BY i DESC LIMIT 1)
     ```
+
+    The array is carried along in each row, so that it's written only once.
 
     It works, but it's slow on long arrays.
 
@@ -217,7 +232,7 @@ None of these needs a function of its own.
 | The first or last element | `x\|at(0)`, `x\|at(-1)` |
 | One part of split text | `email\|split("@")\|at(1)` |
 | Whether an array has a value | `tags\|some(@t => @t:=="urgent")` |
-| Whether a value is one of several columns | `@@array(home_phone work_phone)\|some(@p => @p:==phone)` |
+| Whether a value is one of several columns | ``@@array(home_phone work_phone)\|some(@p => @p:==`phone`)`` |
 | The first three elements | `x\|filter(@e @i => @i:<3)` |
 | The sum of an array's numbers | `x\|reduce(@a @b => @a + @b)` |
 | The largest element | `x\|reduce(@a @b => @a\|max(@b))` |

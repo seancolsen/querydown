@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use querydown_parser::ast::{Date, Duration, RegexFlags};
 
-use super::expr::{SqlExpr, SqlExprPrecedence};
+use super::expr::{build, SqlExpr, SqlExprPrecedence};
 
 /// An operand whose value may be known when the query is compiled: a literal, kept apart from
 /// other expressions so that a dialect can write SQL that suits the value (or merge it with
@@ -32,6 +32,31 @@ impl MaybeLiteral<i64> {
             MaybeLiteral::Expr(e) => e,
         }
     }
+}
+
+/// The names that the SQL of a function given to `map`, `filter`, `some`, or `every` gives to the
+/// array, to an element of it, and to the element's position. Each is unique within the query, so that a function
+/// given within another one's body can't capture the other's names.
+#[derive(Debug, Clone)]
+pub struct ElementNames {
+    /// A name for the array itself, for a dialect that refers to it more than once.
+    pub array: String,
+    pub element: String,
+    pub position: String,
+    /// Whether the function's body uses the position. When it doesn't, a dialect may leave it out.
+    pub uses_position: bool,
+}
+
+/// The names that the SQL of a function given to `reduce` gives to the array, to the value
+/// accumulated so far, to the next element, and to the next element's position. Each is unique within the query (see
+/// [`ElementNames`]).
+#[derive(Debug, Clone)]
+pub struct ReduceNames {
+    /// A name for the array itself, for a dialect that refers to it more than once.
+    pub array: String,
+    pub acc: String,
+    pub element: String,
+    pub position: String,
 }
 
 const SECONDS_PER_MINUTE: i64 = 60;
@@ -217,6 +242,55 @@ pub trait Dialect {
     /// `separator`. An array without such elements gives the empty string, and a NULL separator
     /// gives NULL.
     fn join(&self, a: SqlExpr, separator: Separator) -> SqlExpr;
+
+    /// The names that SQL which this dialect writes by itself gives to the variables of lambdas,
+    /// such as those of `join`. The names of the functions given to `map` (and the like) avoid
+    /// them, so that they can't be captured.
+    fn reserved_lambda_names(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Whether the body of a function given to `map` (and the like) may contain a subquery.
+    fn allows_subquery_in_function_arg(&self) -> bool {
+        true
+    }
+
+    /// The SQL that stands, within the body of a function given to `map`, `filter`, `some`, or
+    /// `every`, for an element of the array, and for its position, counting from 0. Both
+    /// dialects count positions from 1, so 1 is subtracted.
+    fn element_params(&self, names: &ElementNames) -> (SqlExpr, SqlExpr) {
+        let element = SqlExpr::atom(self.quote_identifier(&names.element));
+        let position = SqlExpr::atom(self.quote_identifier(&names.position));
+        (
+            element,
+            build::math::subtract(position, build::value::one()),
+        )
+    }
+
+    /// Render `map`: an array of `body`'s value for each element of the array `a`, in order. NULL
+    /// for a NULL array. `body` refers to the element and its position by `names` (see
+    /// [`Dialect::element_params`]).
+    fn array_map(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr;
+
+    /// Render `filter`: the elements of the array `a` for which `body` is true, in order. NULL for
+    /// a NULL array.
+    fn array_filter(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr;
+
+    /// Render `some`: whether `body` is true for at least one element of the array `a` (false for
+    /// an empty array, and NULL for a NULL one). A NULL `body` counts as false.
+    fn array_some(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr;
+
+    /// Render `every`: whether `body` is true for every element of the array `a` (true for an
+    /// empty array, and NULL for a NULL one). A NULL `body` counts as false.
+    fn array_every(&self, a: SqlExpr, names: &ElementNames, body: SqlExpr) -> SqlExpr;
+
+    /// The SQL that stands, within the body of a function given to `reduce` over the array `a`, for
+    /// the value accumulated so far, and for the next element.
+    fn reduce_params(&self, a: &SqlExpr, names: &ReduceNames) -> (SqlExpr, SqlExpr);
+
+    /// Render `reduce`: the elements of the array `a` combined from the left by `body`, starting
+    /// from the first element (see [`Dialect::reduce_params`]). NULL for an empty or NULL array.
+    fn array_reduce(&self, a: SqlExpr, names: &ReduceNames, body: SqlExpr) -> SqlExpr;
 
     /// Render a regex `pattern` with the inline options `prefix` (e.g. `(?m)`) written before it.
     /// A literal pattern absorbs the prefix; any other is concatenated with it at run time, which

@@ -127,6 +127,13 @@ fn contains_related_aggregate(expr: &Expr) -> bool {
                     .any(|a| contains_related_aggregate(&a.expr))
                 || contains_related_aggregate(&c.body.expr)
         }
+        ExprKind::FunctionArg(f) => {
+            f.body
+                .assignments
+                .iter()
+                .any(|a| contains_related_aggregate(&a.expr))
+                || contains_related_aggregate(&f.body.expr)
+        }
         ExprKind::Window(_)
         | ExprKind::Subquery(_)
         | ExprKind::Number(_)

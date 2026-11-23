@@ -566,6 +566,10 @@ fn expr_all_match(expr: &Expr) -> bool {
                 && c.body.assignments.iter().all(|a| expr_all_match(&a.expr))
                 && expr_all_match(&c.body.expr)
         }
+        ExprKind::FunctionArg(f) => {
+            f.body.assignments.iter().all(|a| expr_all_match(&a.expr))
+                && expr_all_match(&f.body.expr)
+        }
         // A scalar subquery is self-contained; it does not participate in operator switching.
         ExprKind::Subquery(_) => true,
         ExprKind::Number(_)
@@ -665,6 +669,13 @@ fn rewrite_match_operator(expr: &mut Expr, new_operator: Operator) {
                 .iter_mut()
                 .for_each(|a| rewrite_match_operator(&mut a.expr, new_operator));
             rewrite_match_operator(&mut c.body.expr, new_operator);
+        }
+        ExprKind::FunctionArg(f) => {
+            f.body
+                .assignments
+                .iter_mut()
+                .for_each(|a| rewrite_match_operator(&mut a.expr, new_operator));
+            rewrite_match_operator(&mut f.body.expr, new_operator);
         }
         // A scalar subquery is self-contained; its inner operators are not rewritten.
         ExprKind::Subquery(_) => {}
