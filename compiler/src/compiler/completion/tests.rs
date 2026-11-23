@@ -564,7 +564,7 @@ fn aggregate_functions() {
         find(&completions, "max").kind,
         CompletionKind::AggregateFunction
     );
-    assert_eq!(labels(&completions).len(), 12);
+    assert_eq!(labels(&completions).len(), 13);
     assert!(labels(&complete("#issues $status \\g $%c‸")).contains(&"count"));
 }
 
@@ -594,6 +594,26 @@ fn constants_and_user_defined_constants() {
         ["user_id"]
     );
     assert_eq!(complete("#issues created_at:<@n‸").from, 21);
+}
+
+#[test]
+fn aggregate_value_arguments() {
+    for source in [
+        "@p = 0.5\n#issues $#comments.id%percentile(@‸)",
+        // After an operand that applies functions to the column, too.
+        "@p = 0.5\n#issues $#comments.body|length%percentile(@‸)",
+        // Among sorting entries.
+        "@p = 0.5\n#issues $#labels.name%list(\\sd @‸)",
+    ] {
+        let completions = complete(source);
+        assert_eq!(
+            labels_of(&completions, CompletionKind::Variable),
+            ["p"],
+            "{source}"
+        );
+    }
+    // Sorting entries after a value argument are still relative to the first related table.
+    assert_columns("#issues $#labels.name%list(0.5 \\\\‸)", &["id", "name"]);
 }
 
 #[test]

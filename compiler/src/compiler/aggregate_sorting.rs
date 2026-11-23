@@ -221,6 +221,9 @@ pub enum AggregateKind {
     /// `top`, which collects the distinct values that tie for first place under its sorting
     /// entries.
     DistinctTop,
+    /// `percentile`, with its fraction as written (e.g. `0.5`). It sorts the values itself, so it
+    /// has no sorting entries.
+    Percentile(String),
 }
 
 /// Which distinct values a two-level list aggregation collects.
@@ -267,6 +270,14 @@ pub fn compile_aggregate(
             let order_by = render_sorts(sorts, &value);
             Ok(CompiledAggregate::Expr(
                 crate::sql::expr::build::agg::array_agg_distinct(value, order_by),
+            ))
+        }
+        AggregateKind::Percentile(fraction) => {
+            if let Some(sort) = sorts.first() {
+                return Err(msg::percentile_with_sorting().at(sort.loc));
+            }
+            Ok(CompiledAggregate::Expr(
+                crate::sql::expr::build::agg::percentile_cont(&fraction, value),
             ))
         }
         AggregateKind::DistinctTop => {

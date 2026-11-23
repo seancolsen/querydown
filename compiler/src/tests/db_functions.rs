@@ -19,6 +19,14 @@ INSERT INTO vals VALUES
   (3, 1250, NULL, '', NULL, '{}'),
   (4, CAST('NaN' AS double precision), 0, NULL, '', NULL),
   (5, NULL, NULL, 'x' || chr(10) || 'y', NULL, '"just a string"');
+CREATE TABLE groups (id integer PRIMARY KEY);
+INSERT INTO groups VALUES (1), (2), (3), (4), (5);
+CREATE TABLE members (id integer PRIMARY KEY, grp integer REFERENCES groups(id), v double precision, d interval);
+INSERT INTO members VALUES
+  (1, 1, 10, INTERVAL '10 seconds'), (2, 1, 1, INTERVAL '1 second'), (3, 1, 2, INTERVAL '2 seconds'),
+  (4, 2, 3, NULL), (5, 2, 1, NULL), (6, 2, 10, NULL), (7, 2, 2, NULL),
+  (8, 3, 4, INTERVAL '1 day'), (9, 3, NULL, NULL), (10, 3, 6, INTERVAL '2 days'),
+  (11, 4, NULL, NULL);
 "#;
 
 /// [`DDL`] for a dialect whose type of JSON is `json_type`.
@@ -305,6 +313,60 @@ const CASES: &[(&str, &str)] = &[
     (r#"@@json_array()"#, "[]|[]|[]|[]|[]"),
 ];
 
+/// Queries that aggregate, each with the values it should give, as for [`CASES`]. Each query has a
+/// column `id`, by which its rows are ordered, and a column `v`, whose values are shown.
+///
+/// The groups are 1: an odd number of members, 2: an even number, 3: a NULL among them, 4: only
+/// NULLs, and 5: no members.
+const AGGREGATE_CASES: &[(&str, &str)] = &[
+    // The median: the middle value, or between the two middle ones. NULLs are ignored, and there's
+    // no median of nothing.
+    (
+        r"#groups $id $#members.v%percentile(0.5) -> v",
+        "2|2.5|5|∅|∅",
+    ),
+    // Interpolated between the values on either side.
+    (
+        r"#groups $id $#members.v%percentile(0.25) -> v",
+        "1.5|1.75|4.5|∅|∅",
+    ),
+    (r"#groups $id $#members.v%percentile(0) -> v", "1|1|4|∅|∅"),
+    (r"#groups $id $#members.v%percentile(1) -> v", "10|10|6|∅|∅"),
+    // Through a constant, of the values that functions compute, and of filtered records.
+    (
+        "@f = 0.75\n#groups $id $#members.v%percentile(@f) -> v",
+        "6|4.75|5.5|∅|∅",
+    ),
+    (
+        r"#groups $id $#members.v|times(2)%percentile(0.5) -> v",
+        "4|5|10|∅|∅",
+    ),
+    (
+        r"#groups $id $#members{v:>1}.v%percentile(0.5) -> v",
+        "6|3|5|∅|∅",
+    ),
+    // Integers interpolate as other numbers do, and durations by their seconds.
+    (
+        r"#groups $id $#members.id%percentile(0.5) -> v",
+        "2|5.5|9|11|∅",
+    ),
+    (
+        r"#groups $id $#members.d|seconds%percentile(0.5)|seconds_to_duration|seconds -> v",
+        "2|∅|129600|∅|∅",
+    ),
+    // In a condition.
+    (r"#groups #members.v%percentile(0.5):>2 $id $id -> v", "2|3"),
+    // In a grouped query, and in a pipeline's later stage.
+    (
+        r"#members $grp -> id \g $v%percentile(0.5) -> v",
+        "2|2.5|5|∅",
+    ),
+    (
+        r"#members $grp $v ~~~ $grp -> id \g $v%percentile(0.5) -> v",
+        "2|2.5|5|∅",
+    ),
+];
+
 #[test]
 fn test_functions_postgres() {
     let env = PgEnv::setup("functions", &ddl("jsonb"));
@@ -317,8 +379,42 @@ fn test_functions_duckdb() {
     check(Box::new(DuckDB()), |sql| env.run_query(sql));
 }
 
-/// Compiles each case for `dialect` and runs it with `run`, which returns a query's lone text value.
+#[test]
+fn test_aggregates_postgres() {
+    let env = PgEnv::setup("aggregates", &ddl("jsonb"));
+    check_aggregates(Box::new(Postgres()), |sql| env.run_query(sql));
+}
+
+#[test]
+fn test_aggregates_duckdb() {
+    let env = DuckEnv::setup(&ddl("JSON"));
+    check_aggregates(Box::new(DuckDB()), |sql| env.run_query(sql));
+}
+
+/// Compiles each of [`CASES`] for `dialect` and runs it with `run`, which returns a query's lone
+/// text value.
 fn check(dialect: Box<dyn Dialect>, run: impl Fn(&str) -> String) {
+    let cases = CASES
+        .iter()
+        .map(|(expr, expected)| (format!("#vals $id $({expr}) -> v"), *expected));
+    check_queries(dialect, cases, run);
+}
+
+/// Like [`check`], for [`AGGREGATE_CASES`].
+fn check_aggregates(dialect: Box<dyn Dialect>, run: impl Fn(&str) -> String) {
+    let cases = AGGREGATE_CASES
+        .iter()
+        .map(|(query, expected)| (query.to_string(), *expected));
+    check_queries(dialect, cases, run);
+}
+
+/// Compiles each query of `cases` for `dialect`, runs it with `run`, and compares the values of its
+/// column `v`, in order of its column `id`, with those expected.
+fn check_queries<'a>(
+    dialect: Box<dyn Dialect>,
+    cases: impl Iterator<Item = (String, &'a str)>,
+    run: impl Fn(&str) -> String,
+) {
     let schema = run(dialect.introspection_sql());
     let options = Options {
         dialect,
@@ -327,10 +423,8 @@ fn check(dialect: Box<dyn Dialect>, run: impl Fn(&str) -> String) {
         offset: None,
     };
     let compiler = Compiler::new(&schema, options).expect("introspected schema should compile");
-    let failures: Vec<String> = CASES
-        .iter()
-        .filter_map(|(expr, expected)| {
-            let query = format!("#vals $id $({expr}) -> v");
+    let failures: Vec<String> = cases
+        .filter_map(|(query, expected)| {
             let sql = compiler
                 .compile(query.clone())
                 .unwrap_or_else(|e| panic!("{query} failed to compile: {}", e.render(&query)))
@@ -342,7 +436,7 @@ fn check(dialect: Box<dyn Dialect>, run: impl Fn(&str) -> String) {
                 sql.trim_end().trim_end_matches(';')
             ));
             let values = normalize(&values);
-            (values != *expected)
+            (values != expected)
                 .then(|| format!("{query}\n  expected [{expected}], found [{values}]\n{sql}"))
         })
         .collect();

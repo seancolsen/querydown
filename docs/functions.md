@@ -782,6 +782,8 @@ Aggregate functions combine values from many rows into one, and are applied with
 
 An aggregate function is applied to a **column**, or to a [value computed from a column](./language.md#aggregating-a-computed-value) by piping it through scalar functions first, e.g. `#comments.body|length%avg`. It can't be applied to any other kind of expression, such as `(#issues.id * 2)%sum`.
 
+Only [`percentile`](#percentile) takes an [argument](./language.md#arguments-to-an-aggregate-function). Some aggregate functions can be [sorted](./language.md#sorting-within-an-aggregate-function), with sorting entries in parentheses.
+
 Where the descriptions below say "the values of a column", that includes such computed values.
 
 ### `count`
@@ -925,6 +927,35 @@ Multiplies the values of a numeric column together. DuckDB has a native `product
 ```qd
 #projects $name $#issues.id%product
 ```
+
+### `percentile`
+
+Returns the value that a given fraction of the values of a numeric column are below, compiling to SQL `percentile_cont(fraction) WITHIN GROUP (ORDER BY ...)`. The fraction, from 0 to 1, goes in parentheses: `%percentile(0.5)` is the median, `%percentile(0)` the smallest value, and `%percentile(1)` the largest.
+
+> For each issue, show the median length of its comments
+
+```qd
+#issues $title $#comments.body|length%percentile(0.5)
+```
+
+> For each status, show the quartiles of the lengths of issues' titles
+
+```qd
+#issues $status \g $title|length%percentile(0.25) -> q1 $title|length%percentile(0.5) -> q2 $title|length%percentile(0.75) -> q3
+```
+
+- Between two values, the result is interpolated: the median of 1, 2, 3, and 10 is 2.5.
+- NULL values are ignored. With no values, the result is NULL.
+- The fraction must be a literal number from 0 to 1, written directly or as a [constant](./language.md#user-defined-constants). Anything else is an error.
+- The values must be numbers, and the result is a number. A duration is an error, so convert durations to seconds and back:
+
+  > For each project, show the median time from an issue's creation to its due date
+
+  ```qd
+  #projects $name $#issues.due_date|minus(created_at)|seconds%percentile(0.5)|seconds_to_duration
+  ```
+
+- `percentile` takes no [sorting entries](./language.md#sorting-within-an-aggregate-function), since it sorts the values itself, and it isn't a [window function](#window-functions), since PostgreSQL can't compute `percentile_cont` over a window.
 
 ## Window functions
 

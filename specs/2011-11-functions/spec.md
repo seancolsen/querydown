@@ -1,6 +1,6 @@
 # More built-in functions
 
-**Status:** planned. Nothing here is implemented.
+**Status:** implemented.
 
 This spec adds 26 functions to Querydown and widens one. Each is here because something is
 impossible without it, except for `round` and `is_nan`, which are explained below.
@@ -29,8 +29,10 @@ impossible without it, except for `round` and `is_nan`, which are explained belo
   `to_number`, is an error from the database. DuckDB could give NULL instead, but PostgreSQL 15
   can't, so both give an error.
 
-The PostgreSQL SQL below was run on PostgreSQL 15. The DuckDB SQL wasn't run. It follows the
-DuckDB 1.4 documentation, so treat it as a starting point that the `db-tests` corpus will confirm.
+The PostgreSQL SQL below was run on PostgreSQL 15. The DuckDB SQL was first written from the
+DuckDB 1.4 documentation. Both have since been run by the `db-tests` corpus and by
+`compiler/src/tests/db_functions.rs`, and where it turned out to be wrong, the cells below were
+changed to match what the compiler writes.
 
 ## Text
 
@@ -242,10 +244,16 @@ expression, which no path language can.
 
 | Function | Description | Compiles to |
 | -- | -- | -- |
-| `percentile(fraction)` | The value below which that fraction of a numeric column falls, interpolated. `%percentile(0.5)` is the median. | `percentile_cont(fraction) WITHIN GROUP (ORDER BY x)` |
+| `percentile(fraction)` | The value below which that fraction of a numeric column falls, interpolated. `%percentile(0.5)` is the median. | `percentile_cont(fraction) WITHIN GROUP (ORDER BY CAST(x AS DOUBLE PRECISION))` |
 
 `percentile` takes no sorting entries, and it isn't a window function, since PostgreSQL can't use
-`percentile_cont` over a window.
+`percentile_cont` over a window. The fraction is a literal number from 0 to 1 (PostgreSQL needs it
+constant within each group), so a fraction outside that range is a compile error.
+
+The values are cast to `DOUBLE PRECISION`: DuckDB's `percentile_cont` returns a value of its
+argument's type, so the median of integers would be rounded, and PostgreSQL's also takes intervals,
+which DuckDB's doesn't. Cast, a duration is an error in both. For durations, write
+`x|seconds%percentile(0.5)|seconds_to_duration`.
 
 ## What composes
 

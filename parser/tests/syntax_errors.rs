@@ -825,3 +825,18 @@ fn union_after_pipeline_stage() {
         ],
     );
 }
+
+#[test]
+fn value_argument_to_aggregate_used_on_its_own() {
+    assert_render(
+        parse,
+        "#issues $%percentile(0.5)",
+        &[
+            "syntax error: An aggregate function used on its own, without a value before it (as in `%count`), takes no arguments. To aggregate a value, write it before the function, as in `x%percentile(0.5)`.",
+            " --> line 1, column 22",
+            "  |",
+            "1 | #issues $%percentile(0.5)",
+            "  |                      ^^^",
+        ],
+    );
+}

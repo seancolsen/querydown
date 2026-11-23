@@ -532,7 +532,9 @@ impl Walker<'_> {
             (Some(parts), Some(operand)) if !matches!(operand.kind, ExprKind::Path(_)) => {
                 let host_parts = &parts[..parts.len().saturating_sub(1)];
                 let host_env = env.with_table(self.follow(&env.table, host_parts));
+                // An aggregate's value arguments (`%percentile(0.5)`) follow its operand.
                 self.aggregate_operand(operand, env, &host_env)
+                    .or_else(|| call.args[1..].iter().find_map(|e| self.expr(e, env, false)))
             }
             _ => call.args.iter().find_map(|e| self.expr(e, env, false)),
         };

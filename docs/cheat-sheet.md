@@ -117,6 +117,7 @@ Flags follow a backslash, and several can be combined, as in `\sd2`.
 | `value\|func` `value\|func(arg)` | [pipe](./language.md#function-piping) a value into a scalar function |
 | `@@func(a b)` | [call](./language.md#function-calling) a scalar function without a pipe |
 | `column%func` | apply an [aggregate function](./language.md#specifying-an-aggregate-function) to a column, or to a [value computed from one](./language.md#aggregating-a-computed-value) like `#comments.body\|length%avg` |
+| `column%percentile(0.5)` | an aggregate function with an [argument](./language.md#arguments-to-an-aggregate-function) |
 | `%count` | count the rows of a [group](./language.md#grouping-and-aggregation) |
 | `%%(a\p b\s)%func` | apply a [window function](./language.md#window-functions) to a window |
 | `? a ~ b ~~ c` | [case expression](./language.md#case-expressions): if `a` then `b`, else `c`. The `a ~ b` part can repeat. |

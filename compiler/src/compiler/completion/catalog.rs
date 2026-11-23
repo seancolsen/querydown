@@ -88,7 +88,7 @@ const SCALAR_FUNCTIONS: [Entry; 63] = [
 
 /// The built-in aggregate functions, applied with `%`.
 #[rustfmt::skip]
-const AGGREGATE_FUNCTIONS: [Entry; 12] = [
+const AGGREGATE_FUNCTIONS: [Entry; 13] = [
     entry("all_true", "x%all_true", "True when every value is true."),
     entry("any_true", "x%any_true", "True when at least one value is true."),
     entry("avg", "x%avg", "The average of the values."),
@@ -98,6 +98,7 @@ const AGGREGATE_FUNCTIONS: [Entry; 12] = [
     entry("list_all", "x%list_all(\\\\sort…)", "All of the values, including duplicates, as an array."),
     entry("max", "x%max", "The largest value."),
     entry("min", "x%min", "The smallest value."),
+    entry("percentile", "x%percentile(fraction)", "The value that the fraction (0 to 1) of the numbers or durations are below, interpolated. `%percentile(0.5)` is the median."),
     entry("product", "x%product", "The values multiplied together."),
     entry("sum", "x%sum", "The values added together."),
     entry("top", "x%top(\\\\sort…)", "The distinct values that tie for first place under the sorting entries, as an array."),

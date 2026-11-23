@@ -110,8 +110,13 @@ fn convert_window_parts(window: WindowFn, scope: &mut Scope) -> Result<SqlExpr, 
         order_by,
     } = window;
 
-    let spec = window_fn_spec(&function)
-        .ok_or_else(|| msg::unknown_window_function(&function).at(function_loc))?;
+    let spec = window_fn_spec(&function).ok_or_else(|| {
+        let err = match function.as_str() {
+            "percentile" => msg::percentile_over_window(),
+            _ => msg::unknown_window_function(&function),
+        };
+        err.at(function_loc)
+    })?;
     if args.len() < spec.min_args || args.len() > spec.max_args {
         let err =
             msg::window_fn_wrong_arg_count(&function, spec.min_args, spec.max_args, args.len());

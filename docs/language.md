@@ -1258,13 +1258,31 @@ things to know:
   `(#issues.id * 2)%sum`. For anything else, define a [computed column](#computed-columns) and
   aggregate that.
 
+#### Arguments to an aggregate function
+
+One aggregate function, [`percentile`](./functions.md#percentile), takes an argument, which goes in
+parentheses after its name, like a scalar function's. Its argument is the fraction of the values
+that the result is above: `0.5` for the median.
+
+> For each issue, the median length of its comments
+
+```qd
+#issues $title $#comments.body|length%percentile(0.5)
+```
+
+The same parentheses hold an aggregate function's [sorting entries](#sorting-within-an-aggregate-function),
+which begin with `\`. Giving an argument to any other aggregate function is an error, and so is
+giving one to an aggregate function that's used on its own, without a value before it, like
+`%count`.
+
 ### Sorting within an aggregate function
 
 Some aggregate functions (notably [`list`](./functions.md#list) and
 [`list_all`](./functions.md#list_all)) produce a result whose order is meaningful. You can control
 that order by attaching one or more sorting entries inside the function's parentheses. Each entry
 is either a [standalone sorting expression](#sorting-outside-of-result-columns) (written with the
-`\\` prefix) or the `\s` [column flags](#basic-sorting).
+`\\` prefix) or the `\s` [column flags](#basic-sorting). (The parentheses can hold an
+[argument](#arguments-to-an-aggregate-function) too, which is told apart by not beginning with `\`.)
 
 > For each issue, list its label names in alphabetical order
 

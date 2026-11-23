@@ -1185,3 +1185,87 @@ fn subquery_within_a_function_argument_is_an_error_in_duckdb() {
          subquery (`#( … )`), because it becomes a DuckDB lambda, which can't contain one."
     );
 }
+
+#[test]
+fn value_argument_to_an_aggregate_other_than_percentile_is_an_error() {
+    assert_errors(
+        &[
+            (r"#issues $#comments.id%max(5)", "5"),
+            (r"#issues $#labels.name%list(\sd 2)", "2"),
+            (r"#issues $status \g $title%list_all(@x \\id)", "@x"),
+            (r"#issues $status \g $id%count(id)", "id"),
+        ],
+        "The aggregate function `",
+    );
+    let err = compile_error(r"#issues $#comments.id%sum(1)");
+    assert_eq!(
+        err.message,
+        "The aggregate function `sum` takes no arguments. Only sorting entries, which begin with \
+         `\\`, go in its parentheses."
+    );
+}
+
+#[test]
+fn percentile_without_one_fraction_is_an_error() {
+    assert_errors(
+        &[
+            (r"#issues $#comments.id%percentile", "%percentile"),
+            (r"#issues $#comments.id%percentile()", "%percentile"),
+            (r"#issues $status \g $id%percentile", "%percentile"),
+            (r"#issues $status \g $id % percentile(\sd)", "% percentile"),
+        ],
+        "The `percentile` function needs the fraction of the values that its result is above",
+    );
+    assert_errors(
+        &[(r"#issues $#comments.id%percentile(0.5 0.9)", "0.9")],
+        "The `percentile` function takes one argument",
+    );
+}
+
+#[test]
+fn percentile_fraction_must_be_a_literal_from_0_to_1() {
+    assert_errors(
+        &[
+            (r"#issues $#comments.id%percentile(id)", "id"),
+            (r#"#issues $#comments.id%percentile("0.5")"#, r#""0.5""#),
+            (
+                r"#issues $status \g $id%percentile(0.5|plus(0))",
+                "0.5|plus(0)",
+            ),
+        ],
+        "The `fraction` argument must be a literal number, as in `0.5`.",
+    );
+    assert_errors(
+        &[
+            (r"#issues $#comments.id%percentile(1.5)", "1.5"),
+            (r"#issues $#comments.id%percentile((-0.5))", "(-0.5)"),
+            ("@f = 2\n#issues $#comments.id%percentile(@f)", "@f"),
+        ],
+        "The `fraction` argument of `percentile` must be from 0 to 1.",
+    );
+    // A literal that arrives through a constant is still a literal, and the ends are included.
+    compile("@f = 0.9\n#issues $#comments.id%percentile(@f)").unwrap();
+    compile(r"#issues $#comments.id%percentile(0) $#comments.id%percentile(1)").unwrap();
+}
+
+#[test]
+fn percentile_with_sorting_is_an_error() {
+    assert_errors(
+        &[
+            (r"#issues $#comments.id%percentile(0.5 \sd)", r"\sd"),
+            (
+                r"#issues $status \g $id%percentile(\\created_at 0.5)",
+                r"\\created_at",
+            ),
+        ],
+        "The `percentile` function sorts the values itself, so it takes no sorting entries.",
+    );
+}
+
+#[test]
+fn percentile_over_a_window_is_an_error() {
+    assert_errors(
+        &[(r"#issues $%%(project\p)%percentile(id)", "%percentile")],
+        "The `percentile` function can't be used as a window function",
+    );
+}

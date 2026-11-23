@@ -858,6 +858,10 @@ pub struct Call {
     /// Where the function was named (e.g. `|upper`, `%count`, or `@@max`).
     pub name_loc: Loc,
     pub dimension: FunctionDimension,
+    /// The arguments. For a piped call, the piped-in value comes first, followed by those in
+    /// parentheses. For an aggregate function, that's the aggregated value, followed by the value
+    /// arguments in its parentheses (e.g. the `0.5` of `x%percentile(0.5)`); a standalone aggregate
+    /// like `%count` has none.
     pub args: Vec<Expr>,
     pub syntax: CallSyntax,
     /// The sorting entries written within an aggregate function's parentheses, e.g. the `\\name`

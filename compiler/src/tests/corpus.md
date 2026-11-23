@@ -5603,6 +5603,388 @@ LEFT JOIN "cte0" ON
   "projects"."id" = "cte0"."pk";
 ```
 
+### Aggregate `percentile`
+
+> The median id of the issues in each project
+
+```qd
+#projects $name $#issues.id%percentile(0.5) -> median_id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST("issues"."id" AS DOUBLE PRECISION)) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1" AS "median_id"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Aggregate `percentile` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The median id of the issues in each project, targeting DuckDB
+
+```qd
+#projects $name $#issues.id%percentile(0.5) -> median_id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST("issues"."id" AS DOUBLE PRECISION)) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1" AS "median_id"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Aggregate `percentile` of computed values
+
+> The length that 90% of each issue's comments are shorter than
+
+```qd
+#issues $id $#comments.body|length%percentile(0.9)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      percentile_cont(0.9) WITHIN GROUP (ORDER BY CAST(char_length("comments"."body") AS DOUBLE PRECISION)) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Aggregate `percentile` of computed values (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The length that 90% of each issue's comments are shorter than, targeting DuckDB
+
+```qd
+#issues $id $#comments.body|length%percentile(0.9)
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      percentile_cont(0.9) WITHIN GROUP (ORDER BY CAST(char_length("comments"."body") AS DOUBLE PRECISION)) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id",
+  "cte0"."v1"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Aggregate `percentile` in a condition
+
+> Issues whose comments have a median length over 200
+
+```qd
+#issues #comments.body|length%percentile(0.5):>200 $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST(char_length("comments"."body") AS DOUBLE PRECISION)) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."v1" > 200;
+```
+
+### Aggregate `percentile` in a condition (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Issues whose comments have a median length over 200, targeting DuckDB
+
+```qd
+#issues #comments.body|length%percentile(0.5):>200 $id
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST(char_length("comments"."body") AS DOUBLE PRECISION)) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."id"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk"
+WHERE
+  "cte0"."v1" > 200;
+```
+
+### Aggregate `percentile` in sorting
+
+> Projects, those with the greatest median issue id first
+
+```qd
+#projects \\#issues.id%percentile(0.5) \d $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST("issues"."id" AS DOUBLE PRECISION)) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+ORDER BY
+  "cte0"."v1" DESC NULLS LAST;
+```
+
+### Aggregate `percentile` in sorting (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Projects, those with the greatest median issue id first, targeting DuckDB
+
+```qd
+#projects \\#issues.id%percentile(0.5) \d $name
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issues"."project" AS "pk",
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST("issues"."id" AS DOUBLE PRECISION)) AS "v1"
+    FROM "issues"
+    GROUP BY "issues"."project"
+  )
+SELECT
+  "projects"."name"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk"
+ORDER BY
+  "cte0"."v1" DESC NULLS LAST;
+```
+
+### Aggregate `percentile` in a grouped query
+
+> The quartiles of the lengths of issues' titles, for each status
+
+```qd
+#issues $status \g $title|length%percentile(0.25) -> q1 $title|length%percentile(0.5) -> q2 $title|length%percentile(0.75) -> q3
+```
+
+```sql
+SELECT
+  "issues"."status",
+  percentile_cont(0.25) WITHIN GROUP (ORDER BY CAST(char_length("issues"."title") AS DOUBLE PRECISION)) AS "q1",
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST(char_length("issues"."title") AS DOUBLE PRECISION)) AS "q2",
+  percentile_cont(0.75) WITHIN GROUP (ORDER BY CAST(char_length("issues"."title") AS DOUBLE PRECISION)) AS "q3"
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Aggregate `percentile` in a grouped query (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The quartiles of the lengths of issues' titles, for each status, targeting DuckDB
+
+```qd
+#issues $status \g $title|length%percentile(0.25) -> q1 $title|length%percentile(0.5) -> q2 $title|length%percentile(0.75) -> q3
+```
+
+```sql
+SELECT
+  "issues"."status",
+  percentile_cont(0.25) WITHIN GROUP (ORDER BY CAST(char_length("issues"."title") AS DOUBLE PRECISION)) AS "q1",
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST(char_length("issues"."title") AS DOUBLE PRECISION)) AS "q2",
+  percentile_cont(0.75) WITHIN GROUP (ORDER BY CAST(char_length("issues"."title") AS DOUBLE PRECISION)) AS "q3"
+FROM "issues"
+GROUP BY "issues"."status";
+```
+
+### Aggregate `percentile` in a pipeline's later stage
+
+> The median length of issues' titles for each status, from a first stage
+
+```qd
+#issues $status $title|length -> len ~~~ $status \g $len%percentile(0.5)
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."status" AS "status",
+      char_length("issues"."title") AS "len"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."status",
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST("pipe0"."len" AS DOUBLE PRECISION))
+FROM "pipe0"
+GROUP BY "pipe0"."status";
+```
+
+### Aggregate `percentile` in a pipeline's later stage (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The median length of issues' titles for each status, from a first stage, targeting DuckDB
+
+```qd
+#issues $status $title|length -> len ~~~ $status \g $len%percentile(0.5)
+```
+
+```sql
+WITH
+  "pipe0" AS (
+    SELECT
+      "issues"."status" AS "status",
+      char_length("issues"."title") AS "len"
+    FROM "issues"
+  )
+SELECT
+  "pipe0"."status",
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST("pipe0"."len" AS DOUBLE PRECISION))
+FROM "pipe0"
+GROUP BY "pipe0"."status";
+```
+
+### Aggregate `percentile` as a sorting entry of `list`
+
+> Each project's statuses, ordered by the median id of the issues with each
+
+```qd
+#projects $name $#issues.status%list(\\id%percentile(0.5))
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "issues"."project" AS "pk",
+          "issues"."status" AS "value",
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST("issues"."id" AS DOUBLE PRECISION)) AS "sort1"
+        FROM "issues"
+        GROUP BY "issues"."project", "issues"."status"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."sort1" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
+### Aggregate `percentile` as a sorting entry of `list` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each project's statuses, ordered by the median id of the issues with each, targeting DuckDB
+
+```qd
+#projects $name $#issues.status%list(\\id%percentile(0.5))
+```
+
+```sql
+WITH
+  "cte0" AS (
+    WITH
+      "distinct_values" AS (
+        SELECT
+          "issues"."project" AS "pk",
+          "issues"."status" AS "value",
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST("issues"."id" AS DOUBLE PRECISION)) AS "sort1"
+        FROM "issues"
+        GROUP BY "issues"."project", "issues"."status"
+      )
+    SELECT
+      "distinct_values"."pk" AS "pk",
+      array_agg("distinct_values"."value" ORDER BY "distinct_values"."sort1" ASC NULLS LAST) AS "v1"
+    FROM "distinct_values"
+    GROUP BY "distinct_values"."pk"
+  )
+SELECT
+  "projects"."name",
+  "cte0"."v1"
+FROM "projects"
+LEFT JOIN "cte0" ON
+  "projects"."id" = "cte0"."pk";
+```
+
 ### JSON `json_path`
 
 > Users who chose the dark theme

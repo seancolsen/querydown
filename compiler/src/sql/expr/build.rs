@@ -74,6 +74,19 @@ pub mod agg {
         with_order("count", a, order_by)
     }
 
+    /// The value below which `fraction` of the numbers `a` fall, interpolated between them, e.g.
+    /// `percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST(x AS DOUBLE PRECISION))` for the median.
+    ///
+    /// The values are cast because DuckDB's `percentile_cont` gives a value of their own type,
+    /// rounding the median of integers, and because Postgres's also takes intervals, which DuckDB's
+    /// doesn't: cast, a duration is an error in both.
+    pub fn percentile_cont(fraction: &str, a: SqlExpr) -> SqlExpr {
+        SqlExpr::atom(format!(
+            "percentile_cont({}) WITHIN GROUP (ORDER BY CAST({} AS DOUBLE PRECISION))",
+            fraction, a.content
+        ))
+    }
+
     pub fn count_star() -> SqlExpr {
         SqlExpr::atom("count(*)".to_string())
     }

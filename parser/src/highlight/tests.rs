@@ -178,6 +178,17 @@ fn test_functions() {
 }
 
 #[test]
+fn test_aggregate_arguments() {
+    check(
+        Display,
+        "$#issues.x%percentile(0.5) $y%list(\\\\z \\d 1)",
+        "$:result-column #issues:table .:path-separator x:column %:pipe \
+         percentile:aggregate-function (:bracket 0.5:number ):bracket $:result-column y:column \
+         %:pipe list:aggregate-function (:bracket \\\\:sort z:column \\d:flag 1:number ):bracket",
+    );
+}
+
+#[test]
 fn test_function_arguments() {
     check(
         Display,
@@ -455,7 +466,7 @@ fn test_every_prefix_is_well_formed() {
     let query = "@@f = @a => @a + 1\n#t.c = x|f\n#issues /* c */ title:~[\"a\\n\" b] body:\\cms~x \
                  ++#comments(author){x} due:@2024-01-01..<@now created:3d..1y6m \
                  \\\\created_at \\d $author.* $%count -> total \\s2d @{w:100 t:[a b] ok:@true} \
-                 $? s:=1 ~ 'é' ~~ -1.5 $%%(a\\p d\\s)%sum(x) ~~~ $*(id\\h) $`naïve`.( $y ) \
+                 $? s:=1 ~ 'é' ~~ -1.5 $%%(a\\p d\\s)%sum(x) $q%percentile(0.5 \\s) ~~~ $*(id\\h) $`naïve`.( $y ) \
                  $^fe|a\\n{{{x|f(^'é')}}}| \
                  ~~~ ++#/s/`t u`/v $#/w/x/2 >>/y/z";
     for grammar in [Query, Definitions, Conditions, Sorting, Display] {

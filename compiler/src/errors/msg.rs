@@ -261,6 +261,44 @@ pub fn aggregate_fn_without_argument(function_name: &str) -> Error {
     ))
 }
 
+pub fn aggregate_fn_takes_no_arguments(function_name: &str) -> Error {
+    Error::compile(format!(
+        "The aggregate function `{function_name}` takes no arguments. Only sorting entries, which \
+         begin with `\\`, go in its parentheses."
+    ))
+}
+
+pub fn percentile_without_fraction() -> Error {
+    Error::compile(
+        "The `percentile` function needs the fraction of the values that its result is above, from \
+         0 to 1, as in `%percentile(0.5)` for the median.",
+    )
+}
+
+pub fn percentile_wrong_arg_count() -> Error {
+    Error::compile(
+        "The `percentile` function takes one argument: the fraction of the values that its result \
+         is above, as in `%percentile(0.5)` for the median.",
+    )
+}
+
+pub fn percentile_fraction_out_of_range() -> Error {
+    Error::compile("The `fraction` argument of `percentile` must be from 0 to 1.")
+}
+
+pub fn percentile_with_sorting() -> Error {
+    Error::compile(
+        "The `percentile` function sorts the values itself, so it takes no sorting entries.",
+    )
+}
+
+pub fn percentile_over_window() -> Error {
+    Error::compile(
+        "The `percentile` function can't be used as a window function, since PostgreSQL can't \
+         compute it over a window.",
+    )
+}
+
 pub fn list_sorted_by_row_expr() -> Error {
     Error::compile("The `list` function removes duplicate values, so it can only be sorted by the listed value \
      itself (e.g. `%list(\\s)`) or by an aggregated sorting expression that summarizes the records \

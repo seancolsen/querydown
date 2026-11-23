@@ -202,6 +202,14 @@ fn convert_aggregate_call(
     let func = s
         .get_aggregate_function(name)
         .ok_or_else(|| unknown_aggregate_function(name).at(name_loc))?;
+    // Only `percentile` takes a value argument (in its parentheses, after the aggregated value).
+    if name == "percentile" {
+        if e.len() < 2 {
+            return Err(msg::percentile_without_fraction().at(name_loc));
+        }
+    } else if let Some(arg) = e.get(1) {
+        return Err(msg::aggregate_fn_takes_no_arguments(name).at(arg.loc));
+    }
     (func.call)(e, order_by, s)
 }
 
@@ -1088,6 +1096,46 @@ fn agg_1(
     }
 }
 
+/// Compiles `percentile`, which takes the fraction of the values to fall below its result (`0.5`
+/// for the median) as a literal number from 0 to 1, after the aggregated value. It sorts the values
+/// itself, so it takes no sorting entries.
+fn agg_percentile(
+    args: Vec<Expr>,
+    order_by: Vec<AggregateSortExpr>,
+    scope: &mut Scope,
+) -> Result<SqlExpr, Error> {
+    if let Some(sort) = order_by.first() {
+        return Err(msg::percentile_with_sorting().at(sort.loc));
+    }
+    if let Some(extra) = args.get(2) {
+        return Err(msg::percentile_wrong_arg_count().at(extra.loc));
+    }
+    let mut args = args.into_iter();
+    let (Some(operand), Some(fraction)) = (args.next(), args.next()) else {
+        return Err(msg::percentile_without_fraction());
+    };
+    let fraction = literal_fraction_arg(&fraction, scope)?;
+    agg_1(
+        vec![operand],
+        vec![],
+        scope,
+        AggregateKind::Percentile(fraction),
+        false,
+    )
+}
+
+/// Reads the `fraction` argument of `percentile`, which must be written as a literal number from 0
+/// to 1 (directly, or through constants or parameters), and returns it as written.
+fn literal_fraction_arg(arg: &Expr, scope: &Scope) -> Result<String, Error> {
+    let ExprKind::Number(number) = scope.see_through_variables(arg).kind else {
+        return Err(msg::argument_not_literal("fraction", "number", "0.5").at(arg.loc));
+    };
+    match number.parse::<f64>() {
+        Ok(value) if (0.0..=1.0).contains(&value) => Ok(number),
+        _ => Err(msg::percentile_fraction_out_of_range().at(arg.loc)),
+    }
+}
+
 pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
     use AggregateKind::*;
     use TypeRule::*;
@@ -1098,7 +1146,7 @@ pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
     // preserve their argument's type, `list`/`list_all`/`top` wrap it in an array, and the rest are
     // fixed.
     #[rustfmt::skip]
-    let templates: [(&str, AggregateFunc, TypeRule); 12] = [
+    let templates: [(&str, AggregateFunc, TypeRule); 13] = [
         ("all_true", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| bool_and(a, ob)), false),         Fixed(Boolean)),
         ("any_true", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| bool_or(a, ob)), false),          Fixed(Boolean)),
         ("avg",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| avg(a, ob)), false),              Fixed(Number)),
@@ -1108,6 +1156,7 @@ pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
         ("list_all", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| array_agg(a, ob)), false),        array_of(SameAsArg(0))),
         ("max",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| max(a, ob)), false),              SameAsArg(0)),
         ("min",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| min(a, ob)), false),              SameAsArg(0)),
+        ("percentile", agg_percentile,                                                              Fixed(Number)),
         ("product",  |e, ob, s| agg_1(e, ob, s, Wrapped(|a, _ob, d| d.aggregate_product(a)), false), Fixed(Number)),
         ("sum",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| sum(a, ob)), false),              Fixed(Number)),
         ("top",      |e, ob, s| agg_1(e, ob, s, DistinctTop, false),                                 array_of(SameAsArg(0))),
