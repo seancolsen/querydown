@@ -4,6 +4,8 @@ pub(crate) mod corpus_loader;
 #[cfg(feature = "db-tests")]
 mod db_corpus;
 #[cfg(feature = "db-tests")]
+mod db_functions;
+#[cfg(feature = "db-tests")]
 mod db_introspection;
 #[cfg(feature = "db-tests")]
 mod db_negation;

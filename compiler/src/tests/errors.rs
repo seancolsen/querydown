@@ -947,3 +947,68 @@ fn union_members_cannot_be_sorted() {
     // Sorting the union's result in a later stage is fine.
     compile(r"#issues $id +++ #projects $id ~~~ \\id").unwrap();
 }
+
+// ------------------------------------------------------------------------------------------------
+// Arguments of built-in functions
+// ------------------------------------------------------------------------------------------------
+
+#[test]
+fn function_with_optional_arguments_given_too_few_or_too_many_is_an_error() {
+    assert_errors(
+        &[
+            (r"#issues $id|round(1 2)", "|round"),
+            (r"#issues $title|regex_extract", "|regex_extract"),
+            (r#"#issues $title|regex_replace("a")"#, "|regex_replace"),
+            (
+                r#"#issues $title|regex_replace("a" "b" "c" "d")"#,
+                "|regex_replace",
+            ),
+        ],
+        "Expected between ",
+    );
+    assert_errors(
+        &[(r"#issues $@@array()", "@@array")],
+        "Expected at least one argument.",
+    );
+}
+
+#[test]
+fn function_argument_that_must_be_a_literal_is_an_error_otherwise() {
+    assert_errors(
+        &[
+            (r#"#issues $title|regex_replace("a" "b" status)"#, "status"),
+            (r#"#issues $title|regex_extract("a" 0 status)"#, "status"),
+        ],
+        "The `flags` argument must be a literal string, as in `\"cm\"`.",
+    );
+    assert_errors(
+        &[(r#"#issues $title|regex_extract("a" id)"#, "id")],
+        "The `group` argument must be a literal number, as in `1`.",
+    );
+    assert_errors(
+        &[
+            ("@g = -1\n#issues $title|regex_extract(\"a\" @g)", "@g"),
+            (r#"#issues $title|regex_extract("a" 1.5)"#, "1.5"),
+        ],
+        "The `group` argument must be a whole number of 0 or more.",
+    );
+    // A literal that arrives through a constant or a parameter is still a literal.
+    compile("@flags = \"cm\"\n#issues $title|regex_replace(\"a\" \"b\" @flags)").unwrap();
+    compile("@@group = @x @n => @x|regex_extract(\"(a)\" @n)\n#issues $title|group(1)").unwrap();
+}
+
+#[test]
+fn unknown_or_repeated_regex_flag_is_an_error() {
+    assert_errors(
+        &[(r#"#issues $title|regex_replace("a" "b" "cx")"#, r#""cx""#)],
+        "Unknown regex flag `x`. The flags are `c` (case-sensitive),",
+    );
+    assert_errors(
+        &[(r#"#issues $title|regex_extract("a" 0 "i")"#, r#""i""#)],
+        "Regex matching is already case-insensitive, so there is no `i` flag.",
+    );
+    assert_errors(
+        &[(r#"#issues $title|regex_replace("a" "b" "mcm")"#, r#""mcm""#)],
+        "Repeated regex flag `m`.",
+    );
+}

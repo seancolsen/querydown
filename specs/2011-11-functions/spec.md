@@ -37,19 +37,23 @@ DuckDB 1.4 documentation, so treat it as a starting point that the `db-tests` co
 | Function | Description | Compiles to |
 | -- | -- | -- |
 | `regex_replace(pattern replacement flags?)` | Replaces every match of a regular expression. In the replacement, `\1` is the first capture group. | `regexp_replace(x, p, r, 'g')` |
-| `regex_extract(pattern group? flags?)` | The first match of a regular expression, or NULL if there is none. With `group`, the text of that capture group, where 1 is the first. | PostgreSQL: `(regexp_match(x, '(' \|\| p \|\| ')'))[group + 1]`. DuckDB: `regexp_extract(x, p, group)`, guarded by `regexp_matches` to give NULL |
-| `split(separator)` | The parts of a string split at `separator`, as an array of text. | `string_to_array` |
+| `regex_extract(pattern group? flags?)` | The first match of a regular expression, or NULL if there is none. With `group`, the text of that capture group, where 1 is the first (and 0 the whole match). | PostgreSQL: `(regexp_match(x, '(' \|\| p \|\| ')'))[group + 1]`. DuckDB: `regexp_extract(x, p, group)`, guarded by `regexp_matches` to give NULL |
+| `split(separator)` | The parts of a string split at `separator`, as an array of text. Empty text has no parts. An empty separator splits text into its characters. | PostgreSQL: `string_to_array(x, separator)`, with an empty separator made NULL. DuckDB: `string_split(x, separator)`, guarded to give an empty array for empty text. A separator that isn't a literal is guarded to give NULL when it's NULL |
 
 The regex functions match as `:~` does: ignoring case, with the same `c`, `m`, and `s`
 [flags](../../docs/language.md#regex-flags). The flags are a string, as in
 `title|regex_replace('^fix' "Fix" "c")`. `flags` and `group` must be literals. Each dialect writes
-the flags into the SQL as its `match_regex` does.
+the flags into the SQL as its `match_regex` does. To give flags without a group, give the group 0.
+
+One difference remains: a group that takes no part in the match (group 2 of `'(a)|(b)'` matched
+against `"a"`) gives NULL in PostgreSQL, but the empty string in DuckDB, whose `regexp_extract` can't
+tell it from an empty group.
 
 ## Math
 
 | Function | Description | Compiles to |
 | -- | -- | -- |
-| `round(digits?)` | Rounds to the nearest integer, or to `digits` decimal places. A half rounds away from zero. A negative `digits` rounds to tens, hundreds, and so on. | PostgreSQL: `ROUND(CAST(x AS numeric), digits)`. DuckDB: `round(x, digits)` |
+| `round(digits?)` | Rounds to the nearest integer, or to `digits` decimal places. A half rounds away from zero. A negative `digits` rounds to tens, hundreds, and so on. NaN and infinity stay as they are. | PostgreSQL: `ROUND(CAST(x AS numeric), digits)`. DuckDB: `round(x, digits)`, guarded by `isfinite(x)` unless `digits` is a literal of 0 or more, since DuckDB rounds NaN and infinity to 0 at a negative `digits`. DuckDB rounds a `DECIMAL` only to constant digits, so to digits that aren't a literal, `x` is cast to `DOUBLE` |
 | `ln` | The natural logarithm. With `exp` and `pow` already there, it completes logarithms to any base. | `LN` |
 | `gcd(y)` | The greatest common divisor of two integers. | `gcd` |
 | `lcm(y)` | The least common multiple of two integers. | `lcm` |
@@ -90,8 +94,8 @@ on the results of `split` and `to_array`.
 | Function | Description | Compiles to |
 | -- | -- | -- |
 | `array(value…)` | An array of the given values, as in `@@array(home_phone work_phone)`. | PostgreSQL: `ARRAY[a, b]`. DuckDB: `[a, b]` |
-| `at(index)` | The element at a position, or NULL if there is none. | PostgreSQL: `x[index + 1]`, or `x[cardinality(x) + index + 1]` for a negative index. DuckDB: `x[index + 1]`, or `x[index]` for a negative one |
-| `join(separator)` | Joins the elements into one string, skipping NULLs. The opposite of `split`. | `array_to_string` |
+| `at(index)` | The element at a position, or NULL if there is none. | PostgreSQL: `(x)[index + 1]`, or `(x)[cardinality(x) + index + 1]` for a negative index. DuckDB: `list_extract(x, index + 1)`, or `list_extract(x, index)` for a negative one. An index that isn't a literal is tested with `CASE` |
+| `join(separator)` | Joins the elements into one string, skipping NULLs. An empty array, or one of only NULLs, gives the empty string. The opposite of `split`. | PostgreSQL: `array_to_string`. DuckDB: `array_to_string(list_filter(x, lambda e: e IS NOT NULL), separator)`, since DuckDB gives NULL for only NULLs. DuckDB needs a constant separator there, so any other is written between the elements with `list_reduce` |
 | `length` (widened) | Already counts the characters of text. Given an array, it counts the elements. | PostgreSQL: `cardinality`. DuckDB: `len` |
 
 - **`array` needs at least one value**, since PostgreSQL can't type an empty array literal. The
@@ -262,7 +266,8 @@ Some of these are only a row in `get_standard_scalar_functions`
 - **New `TypeRule`s.** `at` and `reduce` return the element type of an array. `map` returns an
   array of its body's type. `array` returns an array of its arguments' common type.
 - **`Dialect` methods** for `round`, `is_nan`, `regex_replace`, `regex_extract`,
-  `seconds_to_duration`, `array`, `at`, array `length`, the five functions that take a function, and
+  `seconds_to_duration`, `array`, `at`, array `length`, `split`, `join` (whose databases' functions
+  turned out to differ at the edges), the five functions that take a function, and
   the five JSON functions (`json_path`, `json_object`, `json_array`, `to_array`, `to_json`).
 - **Arguments to aggregate functions.** The parentheses after `%name` hold only sorting entries
   today (`aggregate_order_by` in `parser/src/parser/expr/pipe.rs`). `percentile` needs the parser to

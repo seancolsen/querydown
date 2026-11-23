@@ -329,6 +329,49 @@ pub fn expected_two_args() -> Error {
     Error::compile("Expected exactly two arguments.")
 }
 
+/// A function with optional arguments was given too few or too many. The counts include the piped
+/// value.
+pub fn expected_args_between(min: usize, max: usize, actual: usize) -> Error {
+    Error::compile(format!(
+        "Expected between {min} and {max} arguments, but received {actual}."
+    ))
+}
+
+pub fn expected_at_least_one_arg() -> Error {
+    Error::compile("Expected at least one argument.")
+}
+
+/// An argument that must be written as a literal (such as the `flags` of `regex_replace`) wasn't.
+/// `example` is a literal that would do.
+pub fn argument_not_literal(param: &str, kind: &str, example: &str) -> Error {
+    Error::compile(format!(
+        "The `{param}` argument must be a literal {kind}, as in `{example}`."
+    ))
+}
+
+pub fn argument_not_whole_number(param: &str) -> Error {
+    Error::compile(format!(
+        "The `{param}` argument must be a whole number of 0 or more."
+    ))
+}
+
+pub fn unknown_regex_flag(letter: char) -> Error {
+    Error::compile(if letter == 'i' {
+        "Regex matching is already case-insensitive, so there is no `i` flag. Use `c` to make it \
+         case-sensitive."
+            .to_string()
+    } else {
+        format!(
+            "Unknown regex flag `{letter}`. The flags are `c` (case-sensitive), `m` (`^` and `$` \
+             match at line breaks), and `s` (`.` matches a newline)."
+        )
+    })
+}
+
+pub fn repeated_regex_flag(letter: char) -> Error {
+    Error::compile(format!("Repeated regex flag `{letter}`."))
+}
+
 pub fn multiple_fk_from_col() -> Error {
     Error::schema("The schema has multiple links from the same column.")
 }

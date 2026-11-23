@@ -1,9 +1,19 @@
+use itertools::Itertools;
 use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::{
-    dialect::{duration_part, Dialect, NormalizedDuration, RegexPattern},
+    dialect::{
+        duration_part, ArrayIndex, Dialect, MaybeLiteral, NormalizedDuration, RegexPattern,
+        Separator,
+    },
     expr::{
-        build::{cmp::comparison, sql_func},
+        build::{
+            cmp::{comparison, is_not_null, lt},
+            cond::case,
+            math::{add, subtract},
+            sql_func,
+            value::{null, one, zero},
+        },
         SqlExpr, SqlExprPrecedence,
     },
 };
@@ -59,8 +69,7 @@ impl Dialect for Postgres {
         format!("make_interval({args})")
     }
 
-    fn match_regex(&self, a: SqlExpr, pattern: RegexPattern, flags: &RegexFlags) -> SqlExpr {
-        let op = if flags.case_sensitive { "~" } else { "~*" };
+    fn regex_newline_options(&self, flags: &RegexFlags) -> &'static str {
         // Postgres's newline handling is set by an embedded option, which must begin the pattern
         // (and of which there may only be one group). Its options don't share Python's letters:
         //
@@ -73,13 +82,139 @@ impl Dialect for Postgres {
         //
         // One divergence remains: when `.` doesn't match a newline, Postgres's negated bracket
         // expressions (e.g. `[^a]`) don't either, whereas Python's do.
-        let prefix = match (flags.multiline, flags.dot_all) {
+        match (flags.multiline, flags.dot_all) {
             (false, false) => "(?p)",
             (false, true) => "",
             (true, false) => "(?n)",
             (true, true) => "(?w)",
-        };
+        }
+    }
+
+    fn match_regex(&self, a: SqlExpr, pattern: RegexPattern, flags: &RegexFlags) -> SqlExpr {
+        let op = if flags.case_sensitive { "~" } else { "~*" };
+        let prefix = self.regex_newline_options(flags);
         comparison(a, op, self.prefixed_regex_pattern(prefix, pattern))
+    }
+
+    fn regex_replace(
+        &self,
+        a: SqlExpr,
+        pattern: RegexPattern,
+        replacement: SqlExpr,
+        flags: &RegexFlags,
+    ) -> SqlExpr {
+        // `g` replaces every match rather than the first, and `i` ignores case.
+        let pattern = self.prefixed_regex_pattern(self.regex_newline_options(flags), pattern);
+        let options = if flags.case_sensitive { "'g'" } else { "'gi'" };
+        sql_func(
+            "regexp_replace",
+            [a, pattern, replacement, SqlExpr::atom(options.to_string())],
+        )
+    }
+
+    fn regex_extract(
+        &self,
+        a: SqlExpr,
+        pattern: RegexPattern,
+        group: u32,
+        flags: &RegexFlags,
+    ) -> SqlExpr {
+        // `regexp_match` gives an array of the text of each capture group, when the pattern has
+        // any, and otherwise of the whole match; or NULL when nothing matches. Wrapping the pattern
+        // in a group of its own makes the whole match the first element, and each of the pattern's
+        // groups the one after. (The embedded options still go first.)
+        let pattern = match pattern {
+            RegexPattern::Literal(p) => RegexPattern::Literal(format!("({p})")),
+            RegexPattern::Expr(e) => RegexPattern::Expr(SqlExpr::atom(format!(
+                "('(' || {} || ')')",
+                e.for_precedence(SqlExprPrecedence::Atom)
+            ))),
+        };
+        let pattern = self.prefixed_regex_pattern(self.regex_newline_options(flags), pattern);
+        let mut args = vec![a, pattern];
+        if !flags.case_sensitive {
+            args.push(SqlExpr::atom("'i'".to_string()));
+        }
+        SqlExpr::atom(format!(
+            "({})[{}]",
+            sql_func("regexp_match", args),
+            u64::from(group) + 1
+        ))
+    }
+
+    fn round(&self, a: SqlExpr, digits: Option<MaybeLiteral<i64>>) -> SqlExpr {
+        // Postgres rounds a half to even on `double precision`, but away from zero on `numeric`.
+        let a = SqlExpr::atom(format!("CAST({a} AS numeric)"));
+        let digits = digits.map(MaybeLiteral::into_sql);
+        sql_func("ROUND", std::iter::once(a).chain(digits))
+    }
+
+    fn is_nan(&self, a: SqlExpr) -> SqlExpr {
+        // Postgres has no `isnan`, but unlike IEEE 754, it treats NaN as equal to itself.
+        comparison(
+            a,
+            "=",
+            SqlExpr::atom("CAST('NaN' AS double precision)".to_string()),
+        )
+    }
+
+    fn seconds_to_duration(&self, a: SqlExpr) -> SqlExpr {
+        SqlExpr::atom(format!("make_interval(secs => {a})"))
+    }
+
+    fn array(&self, values: Vec<SqlExpr>) -> SqlExpr {
+        SqlExpr::atom(format!("ARRAY[{}]", values.iter().join(", ")))
+    }
+
+    fn array_at(&self, a: SqlExpr, index: ArrayIndex) -> SqlExpr {
+        // Postgres counts an array's elements from 1, and gives NULL for a subscript outside the
+        // array, as for 0 or less. Counting from the end takes the array's length.
+        let length = || self.array_length(a.clone());
+        let subscript = match index {
+            ArrayIndex::Literal(i) if i >= 0 => SqlExpr::atom(i.saturating_add(1).to_string()),
+            ArrayIndex::Literal(-1) => length(),
+            ArrayIndex::Literal(i) => subtract(
+                length(),
+                SqlExpr::atom((-(i.saturating_add(1))).to_string()),
+            ),
+            ArrayIndex::Expr(i) => case(
+                vec![(lt(i.clone(), zero()), add(add(length(), i.clone()), one()))],
+                add(i, one()),
+            ),
+        };
+        // A subscript applies only to a column or to an expression in parentheses.
+        SqlExpr::atom(format!("({a})[{subscript}]"))
+    }
+
+    fn array_length(&self, a: SqlExpr) -> SqlExpr {
+        sql_func("cardinality", [a])
+    }
+
+    fn split(&self, a: SqlExpr, separator: Separator) -> SqlExpr {
+        // `string_to_array` splits text into its characters at a NULL separator, and doesn't split
+        // it at an empty one. So an empty separator becomes NULL, and a NULL one is handled apart.
+        match separator {
+            Separator::Literal(s) if s.is_empty() => sql_func("string_to_array", [a, null()]),
+            Separator::Literal(s) => {
+                sql_func("string_to_array", [a, SqlExpr::atom(self.quote_string(&s))])
+            }
+            Separator::Expr(e) => {
+                let nonempty = sql_func("NULLIF", [e.clone(), SqlExpr::atom("''".to_string())]);
+                case(
+                    vec![(is_not_null(e), sql_func("string_to_array", [a, nonempty]))],
+                    null(),
+                )
+            }
+        }
+    }
+
+    fn join(&self, a: SqlExpr, separator: Separator) -> SqlExpr {
+        // `array_to_string` skips NULL elements.
+        let separator = match separator {
+            Separator::Literal(s) => SqlExpr::atom(self.quote_string(&s)),
+            Separator::Expr(e) => e,
+        };
+        sql_func("array_to_string", [a, separator])
     }
 
     fn text_contains(&self, haystack: SqlExpr, needle: SqlExpr) -> SqlExpr {

@@ -295,9 +295,10 @@ fn apply_type_rule(rule: &TypeRule, args: &[Expr], scope: &mut Scope) -> ValueTy
             let types: Vec<ValueType> = args.iter().map(|arg| infer_type(arg, scope)).collect();
             unify_types(types)
         }
-        TypeRule::ArrayOfArg(index) => match args.get(*index) {
-            Some(arg) => ValueType::Array(Box::new(infer_type(arg, scope))),
-            None => ValueType::Unknown,
+        TypeRule::ArrayOf(rule) => ValueType::Array(Box::new(apply_type_rule(rule, args, scope))),
+        TypeRule::ElementOf(rule) => match apply_type_rule(rule, args, scope) {
+            ValueType::Array(element) => *element,
+            _ => ValueType::Unknown,
         },
         TypeRule::Sum | TypeRule::Difference => match args {
             [a, b] => {

@@ -70,7 +70,7 @@ Exclusive-or across its arguments — true when an odd number of them are true. 
 
 ### `length`
 
-Returns the number of characters in a string, compiling to SQL `char_length`.
+Returns the number of characters in a string, compiling to SQL `char_length`. Given an [array](#array-functions), it returns the number of elements instead.
 
 ```qd
 #issues $title $description|length
@@ -115,6 +115,65 @@ Computes the MD5 hash of a string, compiling to SQL `md5`.
 ```qd
 #users $email|md5 -> email_hash
 ```
+
+### `regex_replace`
+
+Replaces every match of a [regular expression](./language.md#regular-expression-matching) with a replacement, compiling to SQL `regexp_replace`. In the replacement, `\1` stands for the text of the first capture group, `\2` for the second, and so on.
+
+> Show each user's email address with its "@" spelled out
+
+```qd
+#users $email|regex_replace('@' " at ")
+```
+
+> Show each issue's title with "fix" at its start capitalized, matching case-sensitively
+
+```qd
+#issues $title|regex_replace('^fix' "Fix" "c")
+```
+
+- It takes the pattern, then the replacement, then optional flags.
+- The pattern is matched as by [`:~`](./language.md#regular-expression-matching): case-insensitively, unless the flags say otherwise.
+- The flags are a string of the letters that `:~` takes after a backslash, with the same meanings: `c`, `m`, and `s` (see [regex flags](./language.md#regex-flags)). They must be a literal string, as in `"cm"`, or a constant set to one.
+- Write the pattern and the replacement as [raw strings](./language.md#string-literals), as in `'\1'`, so that a backslash reaches the database intact.
+
+### `regex_extract`
+
+Returns the first match of a [regular expression](./language.md#regular-expression-matching), or NULL if there's none.
+
+> Show the first number in each issue's title
+
+```qd
+#issues $title|regex_extract('\d+')
+```
+
+Given a group number, it returns the text of that capture group instead, where 1 is the first (and 0 is the whole match).
+
+> Show the domain of each user's email address
+
+```qd
+#users $email|regex_extract('@(.+)$' 1) -> domain
+```
+
+- It takes the pattern, then an optional group number, then optional flags, which work as for [`regex_replace`](#regex_replace). To give flags without a group, give the group 0, as in `regex_extract('^fix' 0 "c")`.
+- The group number must be a literal whole number, or a constant set to one.
+- A group that takes no part in the match gives NULL in Postgres, but the empty string in DuckDB. In `'(a)|(b)'`, matched against `"a"`, group 2 is such a group.
+- Postgres compiles it to `regexp_match`, with the pattern wrapped in a group of its own, so a backreference such as `\1` in the pattern counts that group too. DuckDB compiles it to `regexp_extract`.
+
+### `split`
+
+Splits a string at each occurrence of a separator, giving an [array](#array-functions) of strings. Compiles to SQL `string_to_array` (Postgres) or `string_split` (DuckDB).
+
+> Show the domain of each user's email address
+
+```qd
+#users $email|split("@")|at(1) -> domain
+```
+
+- The separator is plain text, not a regular expression.
+- Empty text has no parts, so it gives an empty array.
+- An empty separator splits a string into its characters.
+- [`join`](#join) does the opposite.
 
 ## Math functions
 
@@ -238,6 +297,54 @@ Returns the square root of a number, compiling to SQL `SQRT`.
 #issues $id|sqrt
 ```
 
+### `round`
+
+Rounds a number to the nearest integer, or to a number of decimal places. A half rounds away from zero, so 2.5 rounds to 3, and -2.5 to -3.
+
+> Show how many days old each issue is, to one decimal place
+
+```qd
+#issues $title $created_at|age|days|round(1) -> days_old
+```
+
+- A negative number of decimal places rounds to tens, hundreds, and so on: `round(-2)` rounds 1250 to 1300.
+- NaN and infinity stay as they are.
+- Postgres compiles it to `ROUND` of the number cast to `numeric`, since it rounds a half to even on `double precision`. DuckDB compiles it to `round`.
+
+### `ln`
+
+Returns the natural logarithm of a number, compiling to SQL `LN`. With [`exp`](#exp) and [`pow`](#pow), it gives logarithms to any base: `x|ln|divide(b|ln)` is the logarithm of `x` to base `b`.
+
+```qd
+#issues $id|ln
+```
+
+### `gcd`
+
+Returns the greatest common divisor of two integers, compiling to SQL `gcd`.
+
+```qd
+#issues $id|gcd(12)
+```
+
+### `lcm`
+
+Returns the least common multiple of two integers, compiling to SQL `lcm`.
+
+```qd
+#issues $id|lcm(12)
+```
+
+### `is_nan`
+
+Returns whether a number is NaN, the floating-point value "not a number". Compiles to `isnan` (DuckDB), or to a comparison with NaN (Postgres, which unlike most languages treats NaN as equal to itself).
+
+> Find invoices whose amount is NaN
+
+```qd
+#/billing/invoices amount|is_nan
+```
+
 ### `unit_hash`
 
 Hashes a value deterministically to a floating-point number between 0 and 1. Useful for sampling or bucketing rows in a stable, repeatable way. Compiles to a dialect-specific normalization of `hash` (DuckDB) or `hashtext` (Postgres).
@@ -337,6 +444,109 @@ Converts an interval into a number of seconds, compiling to `EXTRACT(epoch FROM 
 
 ```qd
 #comments $body $created_at|age|seconds
+```
+
+### `seconds_to_duration`
+
+Converts a number of seconds into an interval, the opposite of [`seconds`](#seconds). Compiles to `make_interval(secs => value)` (Postgres) or `to_seconds(value)` (DuckDB).
+
+> Show an hour after each issue was created
+
+```qd
+#issues $title $created_at|plus(3600|seconds_to_duration)
+```
+
+Multiply first to convert from other units, as in `n|times(86400)|seconds_to_duration` for `n` days.
+
+## Conversion functions
+
+### `to_number`
+
+Converts text to a number, compiling to `CAST(value AS DOUBLE PRECISION)`. Text that isn't a number is an error from the database.
+
+> Show the first number in each issue's title, as a number
+
+```qd
+#issues $title|regex_extract('\d+')|to_number
+```
+
+### `to_date`
+
+Converts [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) text, such as `"2024-03-01"`, to a date, or a timestamp to its date. Compiles to `CAST(value AS DATE)`. Text that isn't a date is an error from the database.
+
+> Show the number of issues created on each day
+
+```qd
+#issues $created_at|to_date \g $%count
+```
+
+A zoned timestamp (`timestamptz`) gives its date in the session time zone on Postgres. On DuckDB, which can't operate on zoned timestamps without the ICU extension, it gives its date in UTC.
+
+### `to_timestamp`
+
+Converts ISO 8601 text, such as `"2024-03-01T09:30:00"`, to a timestamp without a time zone. Compiles to `CAST(value AS TIMESTAMP)`. Text that isn't a timestamp is an error from the database.
+
+> Find issues created after 9:30 on 1 March 2024
+
+```qd
+#issues created_at:>"2024-03-01T09:30:00"|to_timestamp
+```
+
+To convert a number or a date to text, use a [formatted string](./language.md#formatted-strings), as in `^f"{id}"`.
+
+## Array functions
+
+An array is a list of values in one column. You get one from [`array`](#array), [`split`](#split), or the aggregate functions [`list`](#list), [`list_all`](#list_all), and [`top`](#top), or from a column whose type is an array.
+
+### `array`
+
+Returns an array of the given values. It's called [without a pipe](./language.md#function-calling).
+
+> Show each user's username and email address, as an array
+
+```qd
+#users $@@array(username email) -> names
+```
+
+- It needs at least one value.
+- The values must share a type, or the database reports an error.
+- A NULL value is kept as an element.
+- Compiles to `ARRAY[a, b]` (Postgres) or `[a, b]` (DuckDB).
+
+### `at`
+
+Returns the element of an array at a position, or NULL if there's none. Positions count from 0, and a negative position counts from the end, so `at(-1)` is the last element.
+
+> Show the body of each issue's latest comment
+
+```qd
+#issues $title $#comments.body%list_all(\\created_at)|at(-1) -> latest_comment
+```
+
+- The position can be any number, as in `at(id|mod(3))`.
+- Compiles to a subscript, `array[position]`, in Postgres, and to `list_extract` in DuckDB. Postgres has no negative subscripts, so a position from the end takes the array's length, with `cardinality`.
+
+### `join`
+
+Joins the elements of an array into one string, with a separator between them. Elements that are NULL are skipped. The opposite of [`split`](#split).
+
+> Show the names of each issue's labels, in one string
+
+```qd
+#issues $title $#labels.name%list(\s)|join(", ") -> labels
+```
+
+- An empty array, or one of only NULLs, gives the empty string.
+- Compiles to SQL `array_to_string`. In DuckDB, whose `array_to_string` needs a constant separator, a separator that isn't a literal string is written between the elements with `list_reduce`.
+
+### `length` of an array
+
+[`length`](#length) returns the number of elements of an array, compiling to `cardinality` (Postgres) or `len` (DuckDB).
+
+> Show the number of different users who commented on each issue
+
+```qd
+#issues $title $#comments.user%list|length -> commenters
 ```
 
 ## Aggregate functions

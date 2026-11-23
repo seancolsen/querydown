@@ -4,12 +4,34 @@ use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::expr::{SqlExpr, SqlExprPrecedence};
 
-/// The pattern of a regular-expression match. A literal pattern is kept apart from other
-/// expressions so that the flags a dialect writes into the pattern itself (e.g. `(?m)`) can be
-/// merged into the literal at compile time rather than concatenated at run time.
-pub enum RegexPattern {
-    Literal(String),
+/// An operand whose value may be known when the query is compiled: a literal, kept apart from
+/// other expressions so that a dialect can write SQL that suits the value (or merge it with
+/// something else at compile time), or any other expression, already compiled.
+#[derive(Debug, Clone)]
+pub enum MaybeLiteral<T> {
+    Literal(T),
     Expr(SqlExpr),
+}
+
+/// The pattern of a regular-expression match. A literal pattern is kept apart so that the flags a
+/// dialect writes into the pattern itself (e.g. `(?m)`) can be merged into the literal at compile
+/// time rather than concatenated at run time.
+pub type RegexPattern = MaybeLiteral<String>;
+
+/// The position of an array's element, counting from 0, or from the end when negative.
+pub type ArrayIndex = MaybeLiteral<i64>;
+
+/// The separator that `split` splits text at, or that `join` joins elements with.
+pub type Separator = MaybeLiteral<String>;
+
+impl MaybeLiteral<i64> {
+    /// The SQL of the number.
+    pub fn into_sql(self) -> SqlExpr {
+        match self {
+            MaybeLiteral::Literal(n) => SqlExpr::atom(n.to_string()),
+            MaybeLiteral::Expr(e) => e,
+        }
+    }
 }
 
 const SECONDS_PER_MINUTE: i64 = 60;
@@ -129,6 +151,12 @@ pub trait Dialect {
         format!("{}.{}", quoted_table, quoted_column)
     }
 
+    /// The inline options (e.g. `(?m)`) that, written at the start of a pattern, give the
+    /// dialect's regex engine the newline handling that `flags` ask for. Every regex function
+    /// writes them, so that the flags mean the same everywhere. (Case-sensitivity is set apart, by
+    /// each function's own means.)
+    fn regex_newline_options(&self, flags: &RegexFlags) -> &'static str;
+
     /// Render a regular expression comparison between two values
     ///
     /// * `a` - The left-hand side of the comparison
@@ -136,6 +164,59 @@ pub trait Dialect {
     /// * `flags` - Flags to control the behavior of the regular expression. Every dialect must
     ///   give them the same meaning, which follows Python's inline flags; see [`RegexFlags`].
     fn match_regex(&self, a: SqlExpr, pattern: RegexPattern, flags: &RegexFlags) -> SqlExpr;
+
+    /// Render `regex_replace`: `a` with every match of `pattern` replaced by `replacement`, in
+    /// which `\1` stands for the first capture group. `flags` mean what they do for
+    /// [`Dialect::match_regex`].
+    fn regex_replace(
+        &self,
+        a: SqlExpr,
+        pattern: RegexPattern,
+        replacement: SqlExpr,
+        flags: &RegexFlags,
+    ) -> SqlExpr;
+
+    /// Render `regex_extract`: the first match of `pattern` in `a`, or with `group`, the text of
+    /// that capture group (where 0 is the whole match). NULL when there is no match. `flags` mean
+    /// what they do for [`Dialect::match_regex`].
+    fn regex_extract(
+        &self,
+        a: SqlExpr,
+        pattern: RegexPattern,
+        group: u32,
+        flags: &RegexFlags,
+    ) -> SqlExpr;
+
+    /// Render `round`: `a` rounded to `digits` decimal places (or to an integer, without them),
+    /// with a half rounded away from zero. A negative `digits` rounds to tens, hundreds, and so on.
+    /// NaN and infinity stay as they are. `digits` is an integer, as an expression too.
+    fn round(&self, a: SqlExpr, digits: Option<MaybeLiteral<i64>>) -> SqlExpr;
+
+    /// Render `is_nan`: whether the number `a` is the floating-point value NaN.
+    fn is_nan(&self, a: SqlExpr) -> SqlExpr;
+
+    /// Render `seconds_to_duration`: a duration (an interval) of `a` seconds.
+    fn seconds_to_duration(&self, a: SqlExpr) -> SqlExpr;
+
+    /// Render an array of the given values, of which there is at least one.
+    fn array(&self, values: Vec<SqlExpr>) -> SqlExpr;
+
+    /// Render `at`: the element of the array `a` at `index`, counting from 0, or from the end when
+    /// it's negative (so -1 is the last element). NULL when there is no such element.
+    fn array_at(&self, a: SqlExpr, index: ArrayIndex) -> SqlExpr;
+
+    /// Render the number of elements of the array `a`.
+    fn array_length(&self, a: SqlExpr) -> SqlExpr;
+
+    /// Render `split`: the parts of the text `a` between occurrences of `separator`, as an array.
+    /// Empty text has no parts. An empty separator splits the text into its characters, and a
+    /// NULL one gives NULL.
+    fn split(&self, a: SqlExpr, separator: Separator) -> SqlExpr;
+
+    /// Render `join`: the elements of the array `a` that aren't NULL, as text, joined by
+    /// `separator`. An array without such elements gives the empty string, and a NULL separator
+    /// gives NULL.
+    fn join(&self, a: SqlExpr, separator: Separator) -> SqlExpr;
 
     /// Render a regex `pattern` with the inline options `prefix` (e.g. `(?m)`) written before it.
     /// A literal pattern absorbs the prefix; any other is concatenated with it at run time, which

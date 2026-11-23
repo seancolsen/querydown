@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use querydown_parser::ast::{
     AggregateSortExpr, AggregateSortKey, AnonymousFunctionCall, Assignment, Call, CallSyntax, Expr,
-    ExprKind, FunctionDef, FunctionDimension, Loc, PathPart, PathPartKind,
+    ExprKind, FunctionDef, FunctionDimension, Loc, PathPart, PathPartKind, RegexFlags,
 };
 
 use crate::{
@@ -22,8 +22,9 @@ use crate::{
     },
     errors::msg::{self, unknown_aggregate_function, unknown_scalar_function},
     schema::ValueType,
-    sql::expr::build::{self, agg::*, cond::*, date_time::*, math::*, strings::*},
+    sql::expr::build::{self, agg::*, cond::*, date_time::*, func, math::*, strings::*},
     sql::tree::{CtePurpose, SqlExpr},
+    sql::{Dialect, MaybeLiteral, Separator},
     Error,
 };
 
@@ -42,15 +43,30 @@ pub enum TypeRule {
     /// agree, otherwise [`ValueType::Unknown`]. Used by variadic type-preserving functions like
     /// `if_null` (coalesce) and `keep_above`/`keep_below` (greatest/least).
     UnifyArgs,
-    /// The function returns an array whose element type is that of the argument at this index (e.g.
-    /// the `list` aggregate).
-    ArrayOfArg(usize),
+    /// The function returns an array of the type the inner rule gives (e.g. the `list` aggregate,
+    /// an array of its argument's type, or `array`, of its arguments' common type).
+    ArrayOf(Box<TypeRule>),
+    /// The function returns an element of the array whose type the inner rule gives (e.g. `at`, an
+    /// element of its first argument), or [`ValueType::Unknown`] when that isn't an array.
+    ElementOf(Box<TypeRule>),
     /// The function adds its two arguments, so it returns what `+` does for them (see
     /// [`crate::compiler::typing::sum_type`]).
     Sum,
     /// The function subtracts its second argument from its first, so it returns what `-` does for
     /// them (see [`crate::compiler::typing::difference_type`]).
     Difference,
+}
+
+impl TypeRule {
+    /// An array of what `rule` gives. See [`TypeRule::ArrayOf`].
+    pub fn array_of(rule: TypeRule) -> TypeRule {
+        TypeRule::ArrayOf(Box::new(rule))
+    }
+
+    /// An element of the array that `rule` gives. See [`TypeRule::ElementOf`].
+    pub fn element_of(rule: TypeRule) -> TypeRule {
+        TypeRule::ElementOf(Box::new(rule))
+    }
 }
 
 pub fn convert_call(call: Call, scope: &mut Scope) -> Result<SqlExpr, Error> {
@@ -258,6 +274,206 @@ fn args_2(
     Ok(f(convert_expr(a, scope)?, convert_expr(b, scope)?))
 }
 
+/// Used for a scalar function that takes one argument, and whose SQL differs between dialects.
+fn dialect_1(
+    args: Vec<Expr>,
+    scope: &mut Scope,
+    f: fn(&dyn Dialect, SqlExpr) -> SqlExpr,
+) -> Result<SqlExpr, Error> {
+    let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
+    let a = convert_expr(arg0, scope)?;
+    Ok(f(scope.options.dialect.as_ref(), a))
+}
+
+/// Splits a call's arguments (the piped value first) into the `R` that the function requires and
+/// the `O` optional ones that may follow them, failing if there are too few or too many:
+///
+/// ```ignore
+/// let ([x, pattern], [group, flags]) = optional_args(args)?;
+/// ```
+pub(super) fn optional_args<const R: usize, const O: usize>(
+    args: Vec<Expr>,
+) -> Result<([Expr; R], [Option<Expr>; O]), Error> {
+    let count = args.len();
+    if !(R..=R + O).contains(&count) {
+        return Err(msg::expected_args_between(R, R + O, count));
+    }
+    let mut args = args.into_iter();
+    let required = std::array::from_fn(|_| args.next().expect("the arguments were counted"));
+    let optional = std::array::from_fn(|_| args.next());
+    Ok((required, optional))
+}
+
+/// The text of `arg` when it's written as a literal string, either directly or through constants
+/// or parameters bound to one.
+pub(super) fn string_literal(arg: &Expr, scope: &Scope) -> Option<String> {
+    match scope.see_through_variables(arg).kind {
+        ExprKind::String(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// The value of `arg` when it's written as a literal whole number (perhaps negative), either
+/// directly or through constants or parameters bound to one.
+pub(super) fn integer_literal(arg: &Expr, scope: &Scope) -> Option<i64> {
+    match scope.see_through_variables(arg).kind {
+        ExprKind::Number(n) => n.parse().ok(),
+        _ => None,
+    }
+}
+
+/// Compiles `arg`, unless it's a literal that `read` recognizes, which is kept apart for the
+/// dialect to write as suits it.
+pub(super) fn maybe_literal<T>(
+    arg: Expr,
+    scope: &mut Scope,
+    read: fn(&Expr, &Scope) -> Option<T>,
+) -> Result<MaybeLiteral<T>, Error> {
+    match read(&arg, scope) {
+        Some(value) => Ok(MaybeLiteral::Literal(value)),
+        None => Ok(MaybeLiteral::Expr(convert_expr(arg, scope)?)),
+    }
+}
+
+/// Reads an argument that must be written as a literal string (directly, or through constants or
+/// parameters), such as the `flags` of `regex_replace`. Otherwise, reports an error located at the
+/// argument, which names it `param` and gives `example` as a literal that would do.
+pub(super) fn literal_string_arg(
+    arg: &Expr,
+    param: &str,
+    example: &str,
+    scope: &Scope,
+) -> Result<String, Error> {
+    string_literal(arg, scope)
+        .ok_or_else(|| msg::argument_not_literal(param, "string", example).at(arg.loc))
+}
+
+/// Reads an argument that must be written as a literal whole number of 0 or more (directly, or
+/// through constants or parameters), such as the `group` of `regex_extract`. Otherwise, reports an
+/// error located at the argument, which names it `param`.
+pub(super) fn literal_count_arg(arg: &Expr, param: &str, scope: &Scope) -> Result<u32, Error> {
+    if !matches!(scope.see_through_variables(arg).kind, ExprKind::Number(_)) {
+        return Err(msg::argument_not_literal(param, "number", "1").at(arg.loc));
+    }
+    integer_literal(arg, scope)
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or_else(|| msg::argument_not_whole_number(param).at(arg.loc))
+}
+
+/// Compiles an argument that the database needs as an integer, such as the `digits` of `round`: a
+/// literal whole number is kept apart, and anything else is cast to an integer.
+fn integer_arg(arg: Expr, scope: &mut Scope) -> Result<MaybeLiteral<i64>, Error> {
+    Ok(match maybe_literal(arg, scope, integer_literal)? {
+        MaybeLiteral::Expr(e) => MaybeLiteral::Expr(func::cast(e, "INTEGER")),
+        literal => literal,
+    })
+}
+
+/// Reads the optional `flags` argument of a regex function: a literal string of the letters that
+/// a flagged `:~` takes, with the same meanings (see [`RegexFlags`]).
+fn regex_flags_arg(arg: Option<Expr>, scope: &Scope) -> Result<RegexFlags, Error> {
+    let mut flags = RegexFlags::default();
+    let Some(arg) = arg else {
+        return Ok(flags);
+    };
+    for letter in literal_string_arg(&arg, "flags", "\"cm\"", scope)?.chars() {
+        let flag = match letter {
+            'c' => &mut flags.case_sensitive,
+            'm' => &mut flags.multiline,
+            's' => &mut flags.dot_all,
+            _ => return Err(msg::unknown_regex_flag(letter).at(arg.loc)),
+        };
+        if *flag {
+            return Err(msg::repeated_regex_flag(letter).at(arg.loc));
+        }
+        *flag = true;
+    }
+    Ok(flags)
+}
+
+/// `regex_replace(x pattern replacement flags?)`: every match of `pattern` replaced.
+fn regex_replace(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let ([a, pattern, replacement], [flags]) = optional_args(args)?;
+    let flags = regex_flags_arg(flags, scope)?;
+    let a = convert_expr(a, scope)?;
+    let pattern = maybe_literal(pattern, scope, string_literal)?;
+    let replacement = convert_expr(replacement, scope)?;
+    Ok(scope
+        .options
+        .dialect
+        .regex_replace(a, pattern, replacement, &flags))
+}
+
+/// `regex_extract(x pattern group? flags?)`: the first match of `pattern`, or the text of one of
+/// its capture groups.
+fn regex_extract(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let ([a, pattern], [group, flags]) = optional_args(args)?;
+    let group = match group {
+        Some(group) => literal_count_arg(&group, "group", scope)?,
+        None => 0,
+    };
+    let flags = regex_flags_arg(flags, scope)?;
+    let a = convert_expr(a, scope)?;
+    let pattern = maybe_literal(pattern, scope, string_literal)?;
+    Ok(scope
+        .options
+        .dialect
+        .regex_extract(a, pattern, group, &flags))
+}
+
+/// `round(x digits?)`.
+fn round(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let ([a], [digits]) = optional_args(args)?;
+    let a = convert_expr(a, scope)?;
+    let digits = digits.map(|d| integer_arg(d, scope)).transpose()?;
+    Ok(scope.options.dialect.round(a, digits))
+}
+
+/// `array(value…)`: an array of at least one value.
+fn array(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    if args.is_empty() {
+        return Err(msg::expected_at_least_one_arg());
+    }
+    let values = args
+        .into_iter()
+        .map(|arg| convert_expr(arg, scope))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(scope.options.dialect.array(values))
+}
+
+/// `at(x index)`: an array's element at a position.
+fn at(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let (a, index) = iter_two(args).ok_or_else(msg::expected_two_args)?;
+    let a = convert_expr(a, scope)?;
+    let index = maybe_literal(index, scope, integer_literal)?;
+    Ok(scope.options.dialect.array_at(a, index))
+}
+
+/// `split(x separator)` and `join(x separator)`, whose SQL suits a literal separator.
+fn with_separator(
+    args: Vec<Expr>,
+    scope: &mut Scope,
+    f: fn(&dyn Dialect, SqlExpr, Separator) -> SqlExpr,
+) -> Result<SqlExpr, Error> {
+    let (a, separator) = iter_two(args).ok_or_else(msg::expected_two_args)?;
+    let a = convert_expr(a, scope)?;
+    let separator = maybe_literal(separator, scope, string_literal)?;
+    Ok(f(scope.options.dialect.as_ref(), a, separator))
+}
+
+/// `length(x)`: the number of characters of text, or of elements of an array. Which it counts is
+/// chosen by the argument's inferred type, so a value of unknown type is taken to be text.
+fn length(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    let arg = iter_one(args).ok_or_else(msg::expected_one_arg)?;
+    let is_array = matches!(infer_type(&arg, scope), ValueType::Array(_));
+    let a = convert_expr(arg, scope)?;
+    Ok(if is_array {
+        scope.options.dialect.array_length(a)
+    } else {
+        char_length(a)
+    })
+}
+
 /// The zone classification of an AST argument, for temporal reconciliation (see
 /// [`crate::compiler::temporal`]).
 fn arg_zone(arg: &Expr, scope: &mut Scope) -> TemporalZone {
@@ -309,14 +525,6 @@ fn temporal_minus(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> 
     Ok(subtract(a_sql, b_sql))
 }
 
-/// `unit_hash(x)` hashes `x` to a double uniformly distributed over `[0, 1]`. The hash function
-/// and normalization differ per dialect (see [`crate::sql::Dialect::unit_hash`]).
-fn unit_hash(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
-    let arg0 = iter_one(args).ok_or_else(msg::expected_one_arg)?;
-    let a = convert_expr(arg0, scope)?;
-    Ok(scope.options.dialect.unit_hash(a))
-}
-
 /// Converts the single date/time argument of a calendar-component function (`year`, `month`, …).
 /// On a dialect that can't operate on zoned timestamps (see
 /// [`crate::sql::Dialect::coerces_timestamptz`]), a zoned argument is first coerced to a naive
@@ -344,17 +552,25 @@ fn year_month(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
     Ok(scope.options.dialect.year_month(a))
 }
 
+/// `to_date(x)`: text as a date, or a date or timestamp's date.
+fn to_date(args: Vec<Expr>, scope: &mut Scope) -> Result<SqlExpr, Error> {
+    Ok(func::cast(temporal_arg(args, scope)?, "DATE"))
+}
+
 pub fn get_standard_scalar_functions() -> ScalarFuncMap {
     use TypeRule::*;
     use ValueType::*;
+    let (array_of, element_of) = (TypeRule::array_of, TypeRule::element_of);
     // Each row pairs a function's compiler with the rule for the type it returns. `age` and
     // `countdown` produce durations, which `days`, `hours`, and so on turn into numbers. `plus` and
     // `minus` are typed like the operators they stand for, so that `date|plus(1w)` stays a date.
     #[rustfmt::skip]
-    let templates: [(&str, ScalarFunc, TypeRule); 38] = [
+    let templates: [(&str, ScalarFunc, TypeRule); 53] = [
         ("abs",         |e, s| args_1(e, s, abs),                    SameAsArg(0)),
         ("age",         |e, s| temporal_age(e, s),                  Fixed(Duration)),
         ("and",         |e, s| args_v(e, s, build::cmp::and),        Fixed(Boolean)),
+        ("array",       |e, s| array(e, s),                          array_of(UnifyArgs)),
+        ("at",          |e, s| at(e, s),                             element_of(SameAsArg(0))),
         ("ceil",        |e, s| args_1(e, s, ceil),                   Fixed(Number)),
         ("concat",      |e, s| args_v(e, s, concat),                 Fixed(Text)),
         ("countdown",   |e, s| temporal_countdown(e, s),            Fixed(Duration)),
@@ -363,11 +579,16 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("divide",      |e, s| args_2(e, s, divide),                 Fixed(Number)),
         ("exp",         |e, s| args_1(e, s, exp),                    Fixed(Number)),
         ("floor",       |e, s| args_1(e, s, floor),                  Fixed(Number)),
+        ("gcd",         |e, s| args_2(e, s, gcd),                    Fixed(Number)),
         ("hours",       |e, s| args_1(e, s, hours),                  Fixed(Number)),
         ("if_null",     |e, s| args_v(e, s, coalesce),               UnifyArgs),
+        ("is_nan",      |e, s| dialect_1(e, s, |d, a| d.is_nan(a)),  Fixed(Boolean)),
+        ("join",        |e, s| with_separator(e, s, |d, a, b| d.join(a, b)), Fixed(Text)),
         ("keep_above",  |e, s| args_v(e, s, greatest),               UnifyArgs),
         ("keep_below",  |e, s| args_v(e, s, least),                  UnifyArgs),
-        ("length",      |e, s| args_1(e, s, char_length),            Fixed(Number)),
+        ("lcm",         |e, s| args_2(e, s, lcm),                    Fixed(Number)),
+        ("length",      |e, s| length(e, s),                         Fixed(Number)),
+        ("ln",          |e, s| args_1(e, s, ln),                     Fixed(Number)),
         ("lowercase",   |e, s| args_1(e, s, lower),                  Fixed(Text)),
         ("max",         |e, s| args_v(e, s, greatest),               UnifyArgs),
         ("md5",         |e, s| args_1(e, s, md5),                    Fixed(Text)),
@@ -380,11 +601,19 @@ pub fn get_standard_scalar_functions() -> ScalarFuncMap {
         ("or",          |e, s| args_v(e, s, build::cmp::or),         Fixed(Boolean)),
         ("plus",        |e, s| args_2(e, s, add),                    Sum),
         ("pow",         |e, s| args_2(e, s, power),                  Fixed(Number)),
+        ("regex_extract", |e, s| regex_extract(e, s),                Fixed(Text)),
+        ("regex_replace", |e, s| regex_replace(e, s),                Fixed(Text)),
+        ("round",       |e, s| round(e, s),                          Fixed(Number)),
         ("seconds",     |e, s| args_1(e, s, seconds),                Fixed(Number)),
+        ("seconds_to_duration", |e, s| dialect_1(e, s, |d, a| d.seconds_to_duration(a)), Fixed(Duration)),
+        ("split",       |e, s| with_separator(e, s, |d, a, b| d.split(a, b)), Fixed(Array(Box::new(Text)))),
         ("sqrt",        |e, s| args_1(e, s, sqrt),                   Fixed(Number)),
         ("times",       |e, s| args_2(e, s, multiply),               Fixed(Number)),
+        ("to_date",     |e, s| to_date(e, s),                        Fixed(Date)),
+        ("to_number",   |e, s| args_1(e, s, |a| func::cast(a, "DOUBLE PRECISION")), Fixed(Number)),
+        ("to_timestamp", |e, s| args_1(e, s, |a| func::cast(a, "TIMESTAMP")), Fixed(Time { has_tz: false })),
         ("trim",        |e, s| args_1(e, s, trim),                   Fixed(Text)),
-        ("unit_hash",   |e, s| unit_hash(e, s),                      Fixed(Number)),
+        ("unit_hash",   |e, s| dialect_1(e, s, |d, a| d.unit_hash(a)), Fixed(Number)),
         ("uppercase",   |e, s| args_1(e, s, upper),                  Fixed(Text)),
         ("xor",         |e, s| args_v(e, s, build::cmp::xor),        Fixed(Boolean)),
         ("year",        |e, s| calendar_field(e, s, "year"),         Fixed(Number)),
@@ -601,6 +830,7 @@ pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
     use AggregateKind::*;
     use TypeRule::*;
     use ValueType::*;
+    let array_of = TypeRule::array_of;
     // Each wrapper ignores the trailing `&dyn Dialect` argument except `product`, whose SQL differs
     // between dialects. The trailing `TypeRule` describes the type each aggregate returns: `max`/`min`
     // preserve their argument's type, `list`/`list_all`/`top` wrap it in an array, and the rest are
@@ -612,13 +842,13 @@ pub fn get_standard_aggregate_functions() -> AggregateFuncMap {
         ("avg",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| avg(a, ob)), false),              Fixed(Number)),
         ("count",    |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| count(a, ob)), true),             Fixed(Number)),
         ("distinct", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| count_distinct(a, ob)), true),    Fixed(Number)),
-        ("list",     |e, ob, s| agg_1(e, ob, s, DistinctList, false),                                ArrayOfArg(0)),
-        ("list_all", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| array_agg(a, ob)), false),        ArrayOfArg(0)),
+        ("list",     |e, ob, s| agg_1(e, ob, s, DistinctList, false),                                array_of(SameAsArg(0))),
+        ("list_all", |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| array_agg(a, ob)), false),        array_of(SameAsArg(0))),
         ("max",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| max(a, ob)), false),              SameAsArg(0)),
         ("min",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| min(a, ob)), false),              SameAsArg(0)),
         ("product",  |e, ob, s| agg_1(e, ob, s, Wrapped(|a, _ob, d| d.aggregate_product(a)), false), Fixed(Number)),
         ("sum",      |e, ob, s| agg_1(e, ob, s, Wrapped(|a, ob, _| sum(a, ob)), false),              Fixed(Number)),
-        ("top",      |e, ob, s| agg_1(e, ob, s, DistinctTop, false),                                 ArrayOfArg(0)),
+        ("top",      |e, ob, s| agg_1(e, ob, s, DistinctTop, false),                                 array_of(SameAsArg(0))),
     ];
     templates
         .into_iter()

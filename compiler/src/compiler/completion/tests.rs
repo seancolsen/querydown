@@ -525,7 +525,7 @@ fn scalar_functions_after_a_pipe() {
     assert_eq!(upper.kind, CompletionKind::Function);
     assert_eq!(upper.detail.as_deref(), Some("x|uppercase"));
     assert!(upper.info.is_some());
-    assert_eq!(labels(&completions).len(), 38);
+    assert_eq!(labels(&completions).len(), 53);
     // Also within a chain, and when followed by arguments.
     assert!(labels(&complete("#issues $due_date|age|d‸")).contains(&"days"));
     assert!(labels(&complete("#issues $title|con‸(\"x\")")).contains(&"concat"));

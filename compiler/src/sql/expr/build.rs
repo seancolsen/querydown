@@ -318,6 +318,11 @@ pub mod func {
     pub fn now() -> SqlExpr {
         SqlExpr::atom("NOW()".to_string())
     }
+
+    /// `CAST(a AS type)`, the conversion that both Postgres and DuckDB understand.
+    pub fn cast(a: SqlExpr, sql_type: &str) -> SqlExpr {
+        SqlExpr::atom(format!("CAST({} AS {})", a.content, sql_type))
+    }
 }
 
 pub mod math {
@@ -345,6 +350,18 @@ pub mod math {
 
     pub fn floor(a: SqlExpr) -> SqlExpr {
         sql_func("FLOOR", [a])
+    }
+
+    pub fn gcd(a: SqlExpr, b: SqlExpr) -> SqlExpr {
+        sql_func("gcd", [a, b])
+    }
+
+    pub fn lcm(a: SqlExpr, b: SqlExpr) -> SqlExpr {
+        sql_func("lcm", [a, b])
+    }
+
+    pub fn ln(a: SqlExpr) -> SqlExpr {
+        sql_func("LN", [a])
     }
 
     pub fn greatest(args: Vec<SqlExpr>) -> SqlExpr {
@@ -427,5 +444,9 @@ pub mod value {
 
     pub fn zero() -> SqlExpr {
         SqlExpr::atom("0".to_string())
+    }
+
+    pub fn one() -> SqlExpr {
+        SqlExpr::atom("1".to_string())
     }
 }

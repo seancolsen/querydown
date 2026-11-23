@@ -4129,6 +4129,944 @@ SELECT
 FROM "users";
 ```
 
+### Math `ln`
+
+> The natural logarithm of each issue id
+
+```qd
+#issues $id|ln
+```
+
+```sql
+SELECT
+  LN("issues"."id")
+FROM "issues";
+```
+
+### Math `gcd` and `lcm`
+
+> The greatest common divisor and least common multiple of each issue id and 12
+
+```qd
+#issues $id|gcd(12) $id|lcm(12)
+```
+
+```sql
+SELECT
+  gcd("issues"."id", 12),
+  lcm("issues"."id", 12)
+FROM "issues";
+```
+
+### Math `round`
+
+> How many days old each issue is, to one decimal place
+
+```qd
+#issues $title $created_at|age|days|round(1) -> days_old
+```
+
+```sql
+SELECT
+  "issues"."title",
+  ROUND(CAST(EXTRACT(epoch FROM NOW() - "issues"."created_at") / 86400 AS numeric), 1) AS "days_old"
+FROM "issues";
+```
+
+### Math `round` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> How many days old each issue is, to one decimal place, targeting DuckDB
+
+```qd
+#issues $title $created_at|age|days|round(1) -> days_old
+```
+
+```sql
+SELECT
+  "issues"."title",
+  round(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at") / 86400, 1) AS "days_old"
+FROM "issues";
+```
+
+### Math `round` without digits
+
+> How many whole days old each issue is, to the nearest day
+
+```qd
+#issues $title $created_at|age|days|round
+```
+
+```sql
+SELECT
+  "issues"."title",
+  ROUND(CAST(EXTRACT(epoch FROM NOW() - "issues"."created_at") / 86400 AS numeric))
+FROM "issues";
+```
+
+### Math `round` without digits (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> How many whole days old each issue is, to the nearest day, targeting DuckDB
+
+```qd
+#issues $title $created_at|age|days|round
+```
+
+```sql
+SELECT
+  "issues"."title",
+  round(EXTRACT(epoch FROM CAST(NOW() AS TIMESTAMP) - "issues"."created_at") / 86400)
+FROM "issues";
+```
+
+### Math `round` to hundreds
+
+> Each invoice's amount, to the nearest hundred
+
+```qd
+#/billing/invoices $id $amount|round(-2)
+```
+
+```sql
+SELECT
+  "invoices"."id",
+  ROUND(CAST("invoices"."amount" AS numeric), -2)
+FROM "billing"."invoices" AS "invoices";
+```
+
+### Math `round` to hundreds (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each invoice's amount, to the nearest hundred, targeting DuckDB
+
+```qd
+#/billing/invoices $id $amount|round(-2)
+```
+
+```sql
+SELECT
+  "invoices"."id",
+  CASE
+    WHEN isfinite("invoices"."amount") THEN round("invoices"."amount", -2)
+    ELSE "invoices"."amount"
+  END
+FROM "billing"."invoices" AS "invoices";
+```
+
+### Math `round` to a computed number of digits
+
+> Each invoice's amount, rounded to as many decimal places as its id
+
+```qd
+#/billing/invoices $id $amount|round(id)
+```
+
+```sql
+SELECT
+  "invoices"."id",
+  ROUND(CAST("invoices"."amount" AS numeric), CAST("invoices"."id" AS INTEGER))
+FROM "billing"."invoices" AS "invoices";
+```
+
+### Math `round` to a computed number of digits (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each invoice's amount, rounded to as many decimal places as its id, targeting DuckDB
+
+```qd
+#/billing/invoices $id $amount|round(id)
+```
+
+```sql
+SELECT
+  "invoices"."id",
+  CASE
+    WHEN isfinite("invoices"."amount") THEN round(CAST("invoices"."amount" AS DOUBLE), CAST("invoices"."id" AS INTEGER))
+    ELSE "invoices"."amount"
+  END
+FROM "billing"."invoices" AS "invoices";
+```
+
+### Math `is_nan`
+
+> Invoices whose amount is NaN
+
+```qd
+#/billing/invoices amount|is_nan $id
+```
+
+```sql
+SELECT
+  "invoices"."id"
+FROM "billing"."invoices" AS "invoices"
+WHERE
+  "invoices"."amount" = CAST('NaN' AS double precision);
+```
+
+### Math `is_nan` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Invoices whose amount is NaN, targeting DuckDB
+
+```qd
+#/billing/invoices amount|is_nan $id
+```
+
+```sql
+SELECT
+  "invoices"."id"
+FROM "billing"."invoices" AS "invoices"
+WHERE
+  isnan("invoices"."amount");
+```
+
+### Duration `seconds_to_duration`
+
+> An hour after each issue was created
+
+```qd
+#issues $created_at|plus(3600|seconds_to_duration) -> an_hour_later
+```
+
+```sql
+SELECT
+  "issues"."created_at" + make_interval(secs => 3600) AS "an_hour_later"
+FROM "issues";
+```
+
+### Duration `seconds_to_duration` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> An hour after each issue was created, targeting DuckDB
+
+```qd
+#issues $created_at|plus(3600|seconds_to_duration) -> an_hour_later
+```
+
+```sql
+SELECT
+  "issues"."created_at" + to_seconds(3600) AS "an_hour_later"
+FROM "issues";
+```
+
+### Text `split` and array `at`
+
+> The domain of each user's email address
+
+```qd
+#users $email|split("@")|at(1) -> domain
+```
+
+```sql
+SELECT
+  (string_to_array("users"."email", '@'))[2] AS "domain"
+FROM "users";
+```
+
+### Text `split` and array `at` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The domain of each user's email address, targeting DuckDB
+
+```qd
+#users $email|split("@")|at(1) -> domain
+```
+
+```sql
+SELECT
+  list_extract(CASE
+    WHEN "users"."email" = '' THEN []
+    ELSE string_split("users"."email", '@')
+  END, 2) AS "domain"
+FROM "users";
+```
+
+### Text `split` at a column's value
+
+> The parts of each user's email between occurrences of their username
+
+```qd
+#users $email|split(username)
+```
+
+```sql
+SELECT
+  CASE
+    WHEN "users"."username" IS NOT NULL THEN string_to_array("users"."email", NULLIF("users"."username", ''))
+    ELSE NULL
+  END
+FROM "users";
+```
+
+### Text `split` at a column's value (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The parts of each user's email between occurrences of their username, targeting DuckDB
+
+```qd
+#users $email|split(username)
+```
+
+```sql
+SELECT
+  CASE
+    WHEN "users"."username" IS NULL THEN NULL
+    WHEN "users"."email" = '' THEN []
+    ELSE string_split("users"."email", "users"."username")
+  END
+FROM "users";
+```
+
+### Text `split` into characters
+
+> The characters of each username
+
+```qd
+#users $username|split("")
+```
+
+```sql
+SELECT
+  string_to_array("users"."username", NULL)
+FROM "users";
+```
+
+### Text `split` into characters (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The characters of each username, targeting DuckDB
+
+```qd
+#users $username|split("")
+```
+
+```sql
+SELECT
+  CASE
+    WHEN "users"."username" = '' THEN []
+    ELSE string_split("users"."username", '')
+  END
+FROM "users";
+```
+
+### Array `at` from the end
+
+> The body of each issue's latest comment
+
+```qd
+#issues $#comments.body%list_all(\\created_at)|at(-1) -> latest_comment
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg("comments"."body" ORDER BY "comments"."created_at" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  ("cte0"."v1")[cardinality("cte0"."v1")] AS "latest_comment"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Array `at` from the end (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The body of each issue's latest comment, targeting DuckDB
+
+```qd
+#issues $#comments.body%list_all(\\created_at)|at(-1) -> latest_comment
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg("comments"."body" ORDER BY "comments"."created_at" ASC NULLS LAST) AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  list_extract("cte0"."v1", -1) AS "latest_comment"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Array `at` from the end, second to last
+
+> The second word from the end of each issue's title
+
+```qd
+#issues $title|split(" ")|at(-2)
+```
+
+```sql
+SELECT
+  (string_to_array("issues"."title", ' '))[cardinality(string_to_array("issues"."title", ' ')) - 1]
+FROM "issues";
+```
+
+### Array `at` from the end, second to last (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The second word from the end of each issue's title, targeting DuckDB
+
+```qd
+#issues $title|split(" ")|at(-2)
+```
+
+```sql
+SELECT
+  list_extract(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, -2)
+FROM "issues";
+```
+
+### Array `at` a computed position
+
+> A word of each issue's title, chosen by its id
+
+```qd
+#issues $title|split(" ")|at(id|mod(3))
+```
+
+```sql
+SELECT
+  (string_to_array("issues"."title", ' '))[CASE
+    WHEN "issues"."id" % 3 < 0 THEN cardinality(string_to_array("issues"."title", ' ')) + "issues"."id" % 3 + 1
+    ELSE "issues"."id" % 3 + 1
+  END]
+FROM "issues";
+```
+
+### Array `at` a computed position (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> A word of each issue's title, chosen by its id, targeting DuckDB
+
+```qd
+#issues $title|split(" ")|at(id|mod(3))
+```
+
+```sql
+SELECT
+  list_extract(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, CASE
+    WHEN "issues"."id" % 3 < 0 THEN "issues"."id" % 3
+    ELSE "issues"."id" % 3 + 1
+  END)
+FROM "issues";
+```
+
+### Array element compared with the match operator
+
+> Users whose email domain contains "example"
+
+```qd
+#users email|split("@")|at(1):example $id
+```
+
+```sql
+SELECT
+  "users"."id"
+FROM "users"
+WHERE
+  COALESCE(strpos(lower((string_to_array("users"."email", '@'))[2] COLLATE "C"), lower('example' COLLATE "C")) > 0, FALSE);
+```
+
+### Array `join`
+
+> The names of each issue's labels, in one string
+
+```qd
+#issues $title $#labels.name%list(\s)|join(", ") -> labels
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."title",
+  array_to_string("cte0"."v1", ', ') AS "labels"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Array `join` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The names of each issue's labels, in one string, targeting DuckDB
+
+```qd
+#issues $title $#labels.name%list(\s)|join(", ") -> labels
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "issue_labels"."issue" AS "pk",
+      array_agg(DISTINCT "labels"."name" ORDER BY "labels"."name" ASC NULLS LAST) AS "v1"
+    FROM "issue_labels"
+    JOIN "labels" ON
+      "issue_labels"."label" = "labels"."id"
+    GROUP BY "issue_labels"."issue"
+  )
+SELECT
+  "issues"."title",
+  array_to_string(list_filter("cte0"."v1", lambda e: e IS NOT NULL), ', ') AS "labels"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Array `join` with a column's value
+
+> The words of each issue's title, joined by its status
+
+```qd
+#issues $title|split(" ")|join(status)
+```
+
+```sql
+SELECT
+  array_to_string(string_to_array("issues"."title", ' '), "issues"."status")
+FROM "issues";
+```
+
+### Array `join` with a column's value (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The words of each issue's title, joined by its status, targeting DuckDB
+
+```qd
+#issues $title|split(" ")|join(status)
+```
+
+```sql
+SELECT
+  CASE
+    WHEN "issues"."status" IS NOT NULL THEN substr(list_reduce(list_transform(list_filter(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END, lambda e: e IS NOT NULL), lambda e: CAST(e AS VARCHAR)), lambda acc, e: acc || "issues"."status" || e, ''), length("issues"."status") + 1)
+    ELSE NULL
+  END
+FROM "issues";
+```
+
+### Array `array`
+
+> Each user's username and email, as an array
+
+```qd
+#users $@@array(username email) -> names
+```
+
+```sql
+SELECT
+  ARRAY["users"."username", "users"."email"] AS "names"
+FROM "users";
+```
+
+### Array `array` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each user's username and email, as an array, targeting DuckDB
+
+```qd
+#users $@@array(username email) -> names
+```
+
+```sql
+SELECT
+  ["users"."username", "users"."email"] AS "names"
+FROM "users";
+```
+
+### Array `length`
+
+> The number of users who commented on each issue
+
+```qd
+#issues $title $#comments.user%list|length -> commenters
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg(DISTINCT "comments"."user") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  cardinality("cte0"."v1") AS "commenters"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Array `length` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The number of users who commented on each issue, targeting DuckDB
+
+```qd
+#issues $title $#comments.user%list|length -> commenters
+```
+
+```sql
+WITH
+  "cte0" AS (
+    SELECT
+      "comments"."issue" AS "pk",
+      array_agg(DISTINCT "comments"."user") AS "v1"
+    FROM "comments"
+    GROUP BY "comments"."issue"
+  )
+SELECT
+  "issues"."title",
+  len("cte0"."v1") AS "commenters"
+FROM "issues"
+LEFT JOIN "cte0" ON
+  "issues"."id" = "cte0"."pk";
+```
+
+### Array `length` of an array from a function
+
+> The number of words in each issue's title
+
+```qd
+#issues $title|split(" ")|length -> words
+```
+
+```sql
+SELECT
+  cardinality(string_to_array("issues"."title", ' ')) AS "words"
+FROM "issues";
+```
+
+### Array `length` of an array from a function (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The number of words in each issue's title, targeting DuckDB
+
+```qd
+#issues $title|split(" ")|length -> words
+```
+
+```sql
+SELECT
+  len(CASE
+    WHEN "issues"."title" = '' THEN []
+    ELSE string_split("issues"."title", ' ')
+  END) AS "words"
+FROM "issues";
+```
+
+### Text `regex_replace`
+
+> Issue titles with a lowercase "fix" at the start capitalized
+
+```qd
+#issues $title|regex_replace('^fix' "Fix" "c")
+```
+
+```sql
+SELECT
+  regexp_replace("issues"."title", '(?p)^fix', 'Fix', 'g')
+FROM "issues";
+```
+
+### Text `regex_replace` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Issue titles with a lowercase "fix" at the start capitalized, targeting DuckDB
+
+```qd
+#issues $title|regex_replace('^fix' "Fix" "c")
+```
+
+```sql
+SELECT
+  regexp_replace("issues"."title", '^fix', 'Fix', 'g')
+FROM "issues";
+```
+
+### Text `regex_replace` with a group
+
+> Each user's email with its "@" spelled out
+
+```qd
+#users $email|regex_replace('^(.*)@' '\1 at ')
+```
+
+```sql
+SELECT
+  regexp_replace("users"."email", '(?p)^(.*)@', '\1 at ', 'gi')
+FROM "users";
+```
+
+### Text `regex_replace` with a group (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> Each user's email with its "@" spelled out, targeting DuckDB
+
+```qd
+#users $email|regex_replace('^(.*)@' '\1 at ')
+```
+
+```sql
+SELECT
+  regexp_replace("users"."email", '^(.*)@', '\1 at ', 'gi')
+FROM "users";
+```
+
+### Text `regex_extract`
+
+> The domain of each user's email address
+
+```qd
+#users $email|regex_extract('@(.*)$' 1) -> domain
+```
+
+```sql
+SELECT
+  (regexp_match("users"."email", '(?p)(@(.*)$)', 'i'))[2] AS "domain"
+FROM "users";
+```
+
+### Text `regex_extract` (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The domain of each user's email address, targeting DuckDB
+
+```qd
+#users $email|regex_extract('@(.*)$' 1) -> domain
+```
+
+```sql
+SELECT
+  CASE
+    WHEN regexp_matches("users"."email", '@(.*)$', 'i') THEN regexp_extract("users"."email", '@(.*)$', 1, 'i')
+    ELSE NULL
+  END AS "domain"
+FROM "users";
+```
+
+### Text `regex_extract` with flags and a pattern from a column
+
+> The first match of each issue's title within its description, across lines
+
+```qd
+#issues $description|regex_extract(title 0 "ms")
+```
+
+```sql
+SELECT
+  (regexp_match("issues"."description", ('(?w)' || ('(' || "issues"."title" || ')')), 'i'))[1]
+FROM "issues";
+```
+
+### Text `regex_extract` with flags and a pattern from a column (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The first match of each issue's title within its description, across lines, targeting DuckDB
+
+```qd
+#issues $description|regex_extract(title 0 "ms")
+```
+
+```sql
+SELECT
+  CASE
+    WHEN regexp_matches("issues"."description", ('(?ms)' || "issues"."title"), 'i') THEN regexp_extract("issues"."description", ('(?ms)' || "issues"."title"), 0, 'i')
+    ELSE NULL
+  END
+FROM "issues";
+```
+
+### Text `regex_extract` with flags from a constant
+
+> The first number in each issue's title, matched case-sensitively
+
+```qd
+@flags = "c"
+#issues $title|regex_extract('\d+' 0 @flags)
+```
+
+```sql
+SELECT
+  (regexp_match("issues"."title", '(?p)(\d+)'))[1]
+FROM "issues";
+```
+
+### Conversion `to_number`
+
+> The first number in each issue's title, as a number
+
+```qd
+#issues $title|regex_extract('\d+')|to_number
+```
+
+```sql
+SELECT
+  CAST((regexp_match("issues"."title", '(?p)(\d+)', 'i'))[1] AS DOUBLE PRECISION)
+FROM "issues";
+```
+
+### Conversion `to_date`
+
+> The number of issues created on each day
+
+```qd
+#issues $created_at|to_date \g $%count
+```
+
+```sql
+SELECT
+  CAST("issues"."created_at" AS DATE),
+  count(*)
+FROM "issues"
+GROUP BY CAST("issues"."created_at" AS DATE);
+```
+
+### Conversion `to_date` of a zoned timestamp
+
+> The day each user was last seen
+
+```qd
+#users $username $last_seen|to_date
+```
+
+```sql
+SELECT
+  "users"."username",
+  CAST("users"."last_seen" AS DATE)
+FROM "users";
+```
+
+### Conversion `to_date` of a zoned timestamp (DuckDB)
+
+```toml options
+dialect = "duckdb"
+```
+
+> The day each user was last seen, targeting DuckDB
+
+```qd
+#users $username $last_seen|to_date
+```
+
+```sql
+SELECT
+  "users"."username",
+  CAST(CAST("users"."last_seen" AS TIMESTAMP) AS DATE)
+FROM "users";
+```
+
+### Conversion `to_timestamp`
+
+> Issues created after 9 o'clock on 1 January 2024
+
+```qd
+#issues created_at:>"2024-01-01T09:00:00"|to_timestamp $id
+```
+
+```sql
+SELECT
+  "issues"."id"
+FROM "issues"
+WHERE
+  "issues"."created_at" > CAST('2024-01-01T09:00:00' AS TIMESTAMP);
+```
+
 ### Aggregate `product`
 
 > The product of the issue ids in each project

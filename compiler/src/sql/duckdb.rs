@@ -1,13 +1,34 @@
+use itertools::Itertools;
 use querydown_parser::ast::{Date, Duration, RegexFlags};
 
 use super::{
-    dialect::{duration_part, Dialect, NormalizedDuration, RegexPattern},
+    dialect::{
+        duration_part, ArrayIndex, Dialect, MaybeLiteral, NormalizedDuration, RegexPattern,
+        Separator,
+    },
     expr::{
-        build::{cmp::comparison, sql_func},
+        build::{
+            cmp::{comparison, eq, is_not_null, is_null, lt},
+            cond::case,
+            func,
+            math::add,
+            sql_func,
+            value::{null, one, zero},
+        },
         SqlExpr, SqlExprPrecedence,
     },
     Postgres,
 };
+
+/// The arguments of a DuckDB regex function that takes options last: `args`, then `'i'` to ignore
+/// case unless `flags` ask to match it.
+fn regex_args<const N: usize>(args: [SqlExpr; N], flags: &RegexFlags) -> Vec<SqlExpr> {
+    let mut args = Vec::from(args);
+    if !flags.case_sensitive {
+        args.push(SqlExpr::atom("'i'".to_string()));
+    }
+    args
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DuckDB();
@@ -70,23 +91,159 @@ impl Dialect for DuckDB {
         }
     }
 
-    fn match_regex(&self, a: SqlExpr, pattern: RegexPattern, flags: &RegexFlags) -> SqlExpr {
-        // DuckDB doesn't support Postgres's `~*` family of regex operators. Instead it provides
-        // the `regexp_matches` function, with an optional `'i'` argument for case-insensitivity.
-        // Its RE2 engine shares Python's defaults (`.` doesn't match a newline; `^` and `$` match
-        // only at the ends of the text) and its `m` and `s` inline flags, which we write into the
-        // pattern. (DuckDB's own `'m'` and `'s'` options mean something else.)
-        let prefix = match (flags.multiline, flags.dot_all) {
+    fn regex_newline_options(&self, flags: &RegexFlags) -> &'static str {
+        // DuckDB's RE2 engine shares Python's defaults (`.` doesn't match a newline; `^` and `$`
+        // match only at the ends of the text) and its `m` and `s` inline flags, which we write
+        // into the pattern. (DuckDB's own `'m'` and `'s'` options mean something else.)
+        match (flags.multiline, flags.dot_all) {
             (false, false) => "",
             (false, true) => "(?s)",
             (true, false) => "(?m)",
             (true, true) => "(?ms)",
+        }
+    }
+
+    fn match_regex(&self, a: SqlExpr, pattern: RegexPattern, flags: &RegexFlags) -> SqlExpr {
+        // DuckDB doesn't support Postgres's `~*` family of regex operators. Instead it provides
+        // the `regexp_matches` function, with an optional `'i'` argument for case-insensitivity.
+        let b = self.prefixed_regex_pattern(self.regex_newline_options(flags), pattern);
+        sql_func("regexp_matches", regex_args([a, b], flags))
+    }
+
+    fn regex_replace(
+        &self,
+        a: SqlExpr,
+        pattern: RegexPattern,
+        replacement: SqlExpr,
+        flags: &RegexFlags,
+    ) -> SqlExpr {
+        // `g` replaces every match rather than the first, and `i` ignores case.
+        let pattern = self.prefixed_regex_pattern(self.regex_newline_options(flags), pattern);
+        let options = if flags.case_sensitive { "'g'" } else { "'gi'" };
+        sql_func(
+            "regexp_replace",
+            [a, pattern, replacement, SqlExpr::atom(options.to_string())],
+        )
+    }
+
+    fn regex_extract(
+        &self,
+        a: SqlExpr,
+        pattern: RegexPattern,
+        group: u32,
+        flags: &RegexFlags,
+    ) -> SqlExpr {
+        // `regexp_extract` gives the empty string when nothing matches, so it's guarded by a
+        // match, to give NULL instead.
+        let matches = self.match_regex(a.clone(), pattern.clone(), flags);
+        let pattern = self.prefixed_regex_pattern(self.regex_newline_options(flags), pattern);
+        let group = SqlExpr::atom(group.to_string());
+        let extract = sql_func("regexp_extract", regex_args([a, pattern, group], flags));
+        case(vec![(matches, extract)], null())
+    }
+
+    fn round(&self, a: SqlExpr, digits: Option<MaybeLiteral<i64>>) -> SqlExpr {
+        // DuckDB rounds a half away from zero. But to a negative number of digits, it rounds NaN
+        // and infinity to 0, so they're kept apart unless the digits are known not to be negative.
+        // And it rounds a `DECIMAL` only to a constant number of digits, so to any other, the
+        // number is rounded as a `DOUBLE`.
+        match digits {
+            None => sql_func("round", [a]),
+            Some(MaybeLiteral::Literal(n)) if n >= 0 => {
+                sql_func("round", [a, SqlExpr::atom(n.to_string())])
+            }
+            Some(digits) => {
+                let number = match digits {
+                    MaybeLiteral::Literal(_) => a.clone(),
+                    MaybeLiteral::Expr(_) => func::cast(a.clone(), "DOUBLE"),
+                };
+                case(
+                    vec![(
+                        sql_func("isfinite", [a.clone()]),
+                        sql_func("round", [number, digits.into_sql()]),
+                    )],
+                    a,
+                )
+            }
+        }
+    }
+
+    fn is_nan(&self, a: SqlExpr) -> SqlExpr {
+        sql_func("isnan", [a])
+    }
+
+    fn seconds_to_duration(&self, a: SqlExpr) -> SqlExpr {
+        sql_func("to_seconds", [a])
+    }
+
+    fn array(&self, values: Vec<SqlExpr>) -> SqlExpr {
+        SqlExpr::atom(format!("[{}]", values.iter().join(", ")))
+    }
+
+    fn array_at(&self, a: SqlExpr, index: ArrayIndex) -> SqlExpr {
+        // DuckDB counts a list's elements from 1, and from the end with a negative index (so -1 is
+        // the last). It gives NULL for an index outside the list, as for 0.
+        let index = match index {
+            ArrayIndex::Literal(i) if i >= 0 => SqlExpr::atom(i.saturating_add(1).to_string()),
+            ArrayIndex::Literal(i) => SqlExpr::atom(i.to_string()),
+            ArrayIndex::Expr(i) => case(vec![(lt(i.clone(), zero()), i.clone())], add(i, one())),
         };
-        let b = self.prefixed_regex_pattern(prefix, pattern);
-        if flags.case_sensitive {
-            sql_func("regexp_matches", [a, b])
-        } else {
-            sql_func("regexp_matches", [a, b, SqlExpr::atom("'i'".to_string())])
+        sql_func("list_extract", [a, index])
+    }
+
+    fn array_length(&self, a: SqlExpr) -> SqlExpr {
+        sql_func("len", [a])
+    }
+
+    fn split(&self, a: SqlExpr, separator: Separator) -> SqlExpr {
+        // `string_split` gives one empty part for empty text, rather than none, and doesn't split
+        // text at a NULL separator. Both are handled apart. (At an empty separator, it splits text
+        // into its characters.)
+        let mut variants = Vec::new();
+        let separator = match separator {
+            Separator::Literal(s) => SqlExpr::atom(self.quote_string(&s)),
+            Separator::Expr(e) => {
+                variants.push((is_null(e.clone()), null()));
+                e
+            }
+        };
+        variants.push((
+            eq(a.clone(), SqlExpr::atom("''".to_string())),
+            SqlExpr::atom("[]".to_string()),
+        ));
+        case(variants, sql_func("string_split", [a, separator]))
+    }
+
+    fn join(&self, a: SqlExpr, separator: Separator) -> SqlExpr {
+        // `array_to_string` skips NULL elements, but gives NULL rather than the empty string when
+        // there are only NULLs, so they're filtered out first.
+        let elements = format!("list_filter({a}, lambda e: e IS NOT NULL)");
+        match separator {
+            Separator::Literal(s) => sql_func(
+                "array_to_string",
+                [
+                    SqlExpr::atom(elements),
+                    SqlExpr::atom(self.quote_string(&s)),
+                ],
+            ),
+            // `array_to_string` needs a constant separator, so any other is written between the
+            // elements by `list_reduce`, which starts from the empty string, and so puts the
+            // separator before the first element too, where it's cut off. (A NULL separator would
+            // make the result NULL, but `list_reduce` doesn't call the function on an empty list.)
+            Separator::Expr(e) => {
+                let e = e.for_precedence(SqlExprPrecedence::Atom);
+                let reduced = format!(
+                    "list_reduce(list_transform({elements}, lambda e: CAST(e AS VARCHAR)), \
+                     lambda acc, e: acc || {e} || e, '')"
+                );
+                case(
+                    vec![(
+                        is_not_null(e.clone()),
+                        SqlExpr::atom(format!("substr({reduced}, length({e}) + 1)")),
+                    )],
+                    null(),
+                )
+            }
         }
     }
 

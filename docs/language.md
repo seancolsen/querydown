@@ -505,6 +505,8 @@ A few behaviors differ between databases, because Querydown hands the pattern to
 - In Postgres, a negated bracket expression such as `[^a]` doesn't match a newline unless the `s` flag is given. In DuckDB (and Python) it always does.
 - Postgres lets an embedded options group like `(?x)` appear only at the very start of a pattern, but Querydown already puts its own options there. Use Querydown's flags instead.
 
+To replace what a regex matches, or to extract it, use the functions [`regex_replace`](./functions.md#regex_replace) and [`regex_extract`](./functions.md#regex_extract). They take the same flags, as a string.
+
 ### All comparison operators
 
 | Operator | Meaning |
